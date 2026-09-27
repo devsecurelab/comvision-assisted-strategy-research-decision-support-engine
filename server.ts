@@ -4,6 +4,8 @@
 // and Natural-Language Research Chat Interface.
 // STRICT NON-EXECUTION BOUNDARY: Decision-Support Only. No automated broker orders.
 
+import 'dotenv/config';
+
 import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
