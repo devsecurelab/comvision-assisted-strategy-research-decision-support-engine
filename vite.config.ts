@@ -1,4 +1,3 @@
-import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { defineConfig } from 'vite';
@@ -8,7 +7,6 @@ export default defineConfig(() => {
   return {
     plugins: [
       react(),
-      tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: ['icon.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
@@ -64,6 +62,10 @@ export default defineConfig(() => {
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
+    },
+    build: {
+      // Vite 8's default lightningcss minifier has no Android ARM binary.
+      cssMinify: 'esbuild' as const,
     },
   };
 });
