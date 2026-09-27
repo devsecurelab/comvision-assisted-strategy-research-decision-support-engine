@@ -1,0 +1,6 @@
+{
+  "name": "ComVision-Assisted Strategy Research & Decision-Support Engine",
+  "description": "Strategy v1.0 Frozen Specification ComVision-Assisted Strategy Research & Decision-Support Engine with 9-stage validation pipeline, manual alert boundary, and access-controlled telemetry.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
