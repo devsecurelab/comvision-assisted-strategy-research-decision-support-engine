@@ -234,6 +234,33 @@ export interface PressureObservation {
 
 // Single Telemetry Master Record (Section 5 & 49 Master Schema)
 export interface MasterTelemetry {
+  /** Backend-only Strategy v3.0 engine result. Existing frontend fields remain unchanged. */
+  decision_engine_v3?: {
+    version: 'RDP_STRATEGY_V3.0';
+    direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+    stages: Array<{
+      stageNumber: number;
+      name: string;
+      category: string;
+      passed: boolean;
+      score: number;
+      v2Baseline: string;
+      v3Refinement: string;
+      mathematicalFormula: string;
+      calculatedValues: Record<string, string>;
+      telemetry: string;
+    }>;
+    gates: Array<{
+      gateNumber: number;
+      name: string;
+      status: 'PASS' | 'HOLD' | 'BLOCKED';
+      reason: string;
+      metricDetails: string;
+    }>;
+    mfci: { sStructure: number; sOrderFlow: number; sLiquidity: number; sVisionAi: number; totalMfci: number; meetsThreshold: boolean };
+    systemDecision: 'PASS' | 'HOLD' | 'BLOCKED';
+    finalAction: 'MANUAL_ALERT' | 'SAFE_HOLD' | 'NO_ACTION';
+  };
   metadata: {
     project_name: string;
     strategy_version: string; // e.g. "v2.0-FROZEN"

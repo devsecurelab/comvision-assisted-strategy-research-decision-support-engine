@@ -35,6 +35,12 @@ The dashboard provides **Resolve All Pending**. The operator enters the actual n
 - The main scanner switch is authoritative. While active, the dashboard submits the selected active-pair scope for continuous analysis; while paused, the backend rejects both single and multi-market signal generation with `SCANNER_PAUSED`.
 - The separate manual multi-market scan button was removed. Scanning follows the main switch only.
 
+## Strategy v3.0 backend engine
+
+The Android RDP Strategy v3.0 decision engine is ported into `src/engine/strategyV3Engine.ts` without changing the React dashboard, Settings UI, timeframe selector, pair selector, scanner controls, Vision chart, or other visual components. `executeStrategyPipeline()` attaches the backend-only `decision_engine_v3` payload to each telemetry record. It contains all 19 stage results, all 9 gate results, exact MFCI component scores, the 0.85 threshold result, and the V3 `PASS`/`HOLD`/`BLOCKED` plus `MANUAL_ALERT`/`SAFE_HOLD`/`NO_ACTION` decision.
+
+The port preserves the existing MasterTelemetry schema and legacy v2 regression contract so existing screens and stored records remain readable. V3 parity tests verify stage numbering, gate numbering, MFCI arithmetic, offline-news blocking, and spread blocking. This is intentionally a backend data/decision upgrade; no frontend rendering code was changed.
+
 ## Termux operation
 
 After pulling the branch and installing dependencies:

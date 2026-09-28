@@ -31,6 +31,7 @@ import {
 } from './types';
 import { ACTIVE_STRATEGY_VERSION, ACTIVE_EXPERIMENT_ID, CONFIG_HASH } from './manifest';
 import { formatSignalTime } from '../utils/timeFormat';
+import { evaluateStrategyV3 } from './strategyV3Engine';
 
 export interface PipelineInput {
   candles: Candle[]; // historical candle sequence, ordered oldest to newest
@@ -1159,6 +1160,8 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
   const cvConf = typeof cvConfidence === 'number' ? cvConfidence : 0.95;
   const resolvedCvSource: CVEvidenceSource = input.cvEvidenceSource || (input.cvConfidence !== undefined ? 'SIMULATION_HARNESS' : 'SIMULATION_HARNESS');
   const resolvedProvenance: DataProvenance = input.dataProvenance || 'REPLAY';
+  const v3Direction = higherTimeframeBias === 'BEARISH' ? 'BEARISH' : 'BULLISH';
+  const v3Decision = evaluateStrategyV3({ candles, direction: v3Direction, newsEvents, newsSourceOnline, visionAiConfidence: cvConf, timestamp: c3.timestamp });
 
   const isZeroRange = Math.abs(c3.high - c3.low) <= 0.000001;
   const dataQuality: DataQuality = isZeroRange
@@ -1471,6 +1474,7 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
   const nowIso = new Date().toISOString();
 
   return {
+    decision_engine_v3: v3Decision,
     metadata: {
       project_name: 'ComVision Strategy Research Engine',
       strategy_version: ACTIVE_STRATEGY_VERSION,
