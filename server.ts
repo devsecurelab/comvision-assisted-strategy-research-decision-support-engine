@@ -17,7 +17,8 @@ import { newsGuard } from './src/engine/newsGuard';
 import { experimentTracker } from './src/engine/experimentTracker';
 import { executeStrategyPipeline } from './src/engine/pipeline';
 import { STRATEGY_MANIFEST, ACTIVE_EXPERIMENT_ID } from './src/engine/manifest';
-import { EngineSettings, Timeframe, UserAccount } from './src/engine/types';
+import { EngineSettings, MasterTelemetry, Timeframe, UserAccount } from './src/engine/types';
+import { DEFAULT_PAIR, MAJOR_PAIRS, MINOR_CROSS_PAIRS, SUPPORTED_PAIRS, normalizePair } from './src/engine/pairCatalog';
 import { durableStorage } from './src/server/storage';
 import { notificationService } from './src/server/notificationService';
 import { analyticsService } from './src/server/analyticsService';
@@ -85,6 +86,9 @@ app.use(express.json());
 const currentSettings: EngineSettings = {
   maxWickRatio: 0.50,
   fibEquilibriumLevel: 0.50,
+  selectedPair: DEFAULT_PAIR,
+  activePairs: [DEFAULT_PAIR],
+  pairSelectionSource: 'DEFAULT',
   selectedTimeframe: '5m',
   activeProvider: 'RESEARCH_STREAM_REPLAY',
   twelveDataApiKeyConfigured: !!process.env.TWELVE_DATA_API_KEY,
@@ -231,6 +235,58 @@ app.get('/api/engine/valid-setups', requireApprovedUser, (_req, res) => {
     total: validSetups.length,
     experiment_id: experimentTracker.getExperimentId(),
   });
+});
+
+// Authoritative 40-pair market scope controls. Selection never changes frozen strategy constants.
+app.get('/api/engine/pairs', requireApprovedUser, (_req, res) => {
+  res.json({
+    defaultPair: DEFAULT_PAIR,
+    majorPairs: MAJOR_PAIRS,
+    minorCrossPairs: MINOR_CROSS_PAIRS,
+    supportedPairs: SUPPORTED_PAIRS,
+    selectedPair: currentSettings.selectedPair,
+    activePairs: currentSettings.activePairs,
+  });
+});
+
+app.post('/api/engine/select-pair', requireApprovedUser, (req: AuthenticatedRequest, res) => {
+  try {
+    const pair = normalizePair(req.body?.pair);
+    const previousPair = currentSettings.selectedPair;
+    currentSettings.selectedPair = pair;
+    currentSettings.activePairs = Array.from(new Set([pair, ...currentSettings.activePairs.filter((p) => p !== previousPair)]));
+    currentSettings.pairSelectionSource = 'OPERATOR';
+    durableStorage.recordAuditEvent({
+      event_type: 'OPERATOR_PAIR_UPDATED',
+      actor_id: req.user?.id,
+      actor_email: req.user?.email,
+      details: { previousPair, selectedPair: pair, activePairs: currentSettings.activePairs },
+    });
+    res.json({ success: true, selectedPair: pair, activePairs: currentSettings.activePairs });
+  } catch (error) {
+    res.status(400).json({ error: 'INVALID_PAIR', message: error instanceof Error ? error.message : 'Unsupported canonical pair' });
+  }
+});
+
+app.post('/api/engine/active-pairs', requireApprovedUser, (req: AuthenticatedRequest, res) => {
+  try {
+    const requested: unknown[] = Array.isArray(req.body?.pairs) ? req.body.pairs : [];
+    const pairs: string[] = Array.from(new Set(requested.map((value) => normalizePair(value))));
+    if (pairs.length === 0) throw new Error('At least one active pair is required');
+    const selectedPair = pairs.includes(currentSettings.selectedPair) ? currentSettings.selectedPair : pairs[0];
+    currentSettings.activePairs = pairs;
+    currentSettings.selectedPair = selectedPair;
+    currentSettings.pairSelectionSource = pairs.length > 1 ? 'MULTI_MARKET' : 'OPERATOR';
+    durableStorage.recordAuditEvent({
+      event_type: 'MULTI_MARKET_SCOPE_UPDATED',
+      actor_id: req.user?.id,
+      actor_email: req.user?.email,
+      details: { activePairs: pairs, selectedPair },
+    });
+    res.json({ success: true, selectedPair, activePairs: pairs });
+  } catch (error) {
+    res.status(400).json({ error: 'INVALID_ACTIVE_PAIRS', message: error instanceof Error ? error.message : 'Invalid pair scope' });
+  }
 });
 
 app.get('/api/engine/candidates', requireApprovedUser, (req, res) => {
@@ -596,7 +652,7 @@ app.post('/api/chat/query', requireApprovedUser, async (req: AuthenticatedReques
 // Live Evaluation & Telemetry Dispatch (Invoked by scanner or manual trigger)
 app.post(['/api/engine/evaluate-candidate', '/api/engine/scan-candidate'], requireApprovedUser, async (req: AuthenticatedRequest, res) => {
   const { pair, candleOverride, customBias, cvConfidence, cvEvidenceSource, timeframe } = req.body;
-  const selectedPair = pair || 'EUR/USD';
+  const selectedPair = pair ? normalizePair(pair) : currentSettings.selectedPair;
   const resolvedTimeframe = ((timeframe as string) || currentSettings.selectedTimeframe) as Timeframe;
 
   const isOverride = !!candleOverride;
@@ -647,6 +703,57 @@ app.post(['/api/engine/evaluate-candidate', '/api/engine/scan-candidate'], requi
   }
 
   res.json({ telemetry: recorded, notifications: notifResult });
+});
+
+app.post('/api/engine/scan-multi', requireApprovedUser, async (req: AuthenticatedRequest, res) => {
+  const requestedPairs: unknown[] = Array.isArray(req.body?.pairs) ? req.body.pairs : currentSettings.activePairs;
+  const pairs: string[] = Array.from(new Set(requestedPairs.map((value) => normalizePair(value))));
+  if (pairs.length === 0) return res.status(400).json({ error: 'INVALID_ACTIVE_PAIRS' });
+
+  currentSettings.activePairs = pairs;
+  currentSettings.selectedPair = pairs.includes(currentSettings.selectedPair) ? currentSettings.selectedPair : pairs[0];
+  currentSettings.pairSelectionSource = pairs.length > 1 ? 'MULTI_MARKET' : 'OPERATOR';
+
+  const results: MasterTelemetry[] = [];
+  const failures: Array<{ pair: string; message: string }> = [];
+  for (const pair of pairs) {
+    try {
+      const timeframe = ((req.body?.timeframe as string) || currentSettings.selectedTimeframe) as Timeframe;
+      const candles = feedManager.generateDeterministicValidSetup(pair.startsWith('EUR') ? 1.0850 : 18500, timeframe);
+      const telemetry = executeStrategyPipeline({
+        candles,
+        currentCandleIndex: candles.length - 1,
+        selectedTimeframe: timeframe,
+        higherTimeframeBias: req.body?.customBias || 'BEARISH',
+        newsEvents: newsGuard.getEvents(),
+        newsSourceOnline: newsGuard.isSourceOnline(),
+        cvConfidence: typeof req.body?.cvConfidence === 'number' ? req.body.cvConfidence : 0.95,
+        cvEvidenceSource: req.body?.cvEvidenceSource || 'SIMULATION_HARNESS',
+        dataProvenance: 'REPLAY',
+        pair,
+        liveTickPressure: { classification: 'ALIGNED', magnitude: 'HIGH', consistency: 'HIGH', speedPxPerSec: 15.6 },
+        customSettings: { maxWickRatio: currentSettings.maxWickRatio, fibEquilibriumLevel: currentSettings.fibEquilibriumLevel },
+      });
+      telemetry.metadata.pair = pair;
+      telemetry.metadata.asset = pair;
+      telemetry.metadata.timestamp_utc = new Date().toISOString();
+      telemetry.metadata.signal_timestamp_utc = telemetry.metadata.timestamp_utc;
+      telemetry.metadata.setup_id = experimentTracker.generateNextSetupId();
+      const recorded = experimentTracker.recordCandidate(telemetry);
+      results.push(recorded);
+      if (recorded.system_execution.system_decision === 'PASS') await notificationService.dispatchSignalAlert(recorded);
+    } catch (error) {
+      failures.push({ pair, message: error instanceof Error ? error.message : 'Scan failed' });
+    }
+  }
+
+  durableStorage.recordAuditEvent({
+    event_type: 'MULTI_MARKET_SCAN_COMPLETED',
+    actor_id: req.user?.id,
+    actor_email: req.user?.email,
+    details: { requestedPairs: pairs, resultCount: results.length, failureCount: failures.length },
+  });
+  res.json({ success: failures.length === 0, selectedPair: currentSettings.selectedPair, activePairs: pairs, results, failures });
 });
 
 // --- ADMIN-ONLY ROUTES ---

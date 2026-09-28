@@ -67,6 +67,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     timestampBdt?: string;
   } | null>(null);
 
+  const [emailStatus, setEmailStatus] = useState<{ configured: boolean; recipient?: string; smtpHost?: string }>({ configured: false });
+  const [testingEmail, setTestingEmail] = useState(false);
+  const [emailFeedback, setEmailFeedback] = useState<string | null>(null);
+
   const [backendUrl, setBackendUrlState] = useState<string>(() => getApiBaseUrl());
   const [backendSavedFeedback, setBackendSavedFeedback] = useState<string | null>(null);
 
@@ -92,6 +96,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             telegramConfigured: data.telegramConfigured,
             telegramChatIdMasked: data.telegramChatIdMasked,
           }));
+          setEmailStatus({ configured: Boolean(data.emailConfigured), recipient: data.emailMaskedRecipient, smtpHost: data.smtpHost });
         }
 
         // If admin, fetch admin-specific status for exact chat ID and bot config
@@ -164,6 +169,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       });
     } finally {
       setTestingTelegram(false);
+    }
+  };
+
+  const handleTriggerEmailTest = async () => {
+    setTestingEmail(true);
+    setEmailFeedback(null);
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (authToken) headers.Authorization = `Bearer ${authToken}`;
+      const res = await apiFetch('/api/notifications/test', { method: 'POST', headers });
+      const data = await res.json();
+      const email = data?.results?.email || data?.results?.emailResult;
+      setEmailFeedback(res.ok ? (email?.message || 'Email notification test completed.') : (data?.message || 'Email test failed.'));
+    } catch (error: any) {
+      setEmailFeedback(error?.message || 'Email test request failed.');
+    } finally {
+      setTestingEmail(false);
     }
   };
 
@@ -673,6 +695,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           </div>
         )}
+      </div>
+
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4" data-testid="email-notification-card">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 className="text-sm font-bold text-white uppercase font-mono tracking-wide">Email / SMTP Notification Test</h3>
+            <p className="text-xs text-slate-400 font-mono mt-1">Verify configured SMTP routing without exposing the password.</p>
+          </div>
+          <span className={`px-2.5 py-1 rounded border text-[10px] font-mono font-bold ${emailStatus.configured ? 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10' : 'text-amber-300 border-amber-500/30 bg-amber-500/10'}`}>{emailStatus.configured ? 'CONFIGURED' : 'NOT CONFIGURED'}</span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs font-mono">
+          <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg"><div className="text-[10px] text-slate-500">SMTP HOST</div><div className="text-slate-200 mt-1">{emailStatus.smtpHost || 'Not configured'}</div></div>
+          <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg"><div className="text-[10px] text-slate-500">RECIPIENT</div><div className="text-cyan-300 mt-1">{emailStatus.recipient || 'Not configured'}</div></div>
+          <button onClick={handleTriggerEmailTest} disabled={testingEmail || !emailStatus.configured} className="p-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-600 text-white font-bold text-xs">{testingEmail ? 'Sending Email Test…' : 'Send Email Test'}</button>
+        </div>
+        {emailFeedback && <div className="text-xs font-mono text-slate-300 border-t border-slate-800 pt-3">{emailFeedback}</div>}
       </div>
 
       {/* Production Handover Package Section */}

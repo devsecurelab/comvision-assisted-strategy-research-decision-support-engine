@@ -381,6 +381,9 @@ export interface AuthSession {
 export interface EngineSettings {
   maxWickRatio: number; // default 0.50 (frozen)
   fibEquilibriumLevel: number; // default 0.50 (frozen)
+  selectedPair: string;
+  activePairs: string[];
+  pairSelectionSource?: 'DEFAULT' | 'OPERATOR' | 'MULTI_MARKET';
   selectedTimeframe: Timeframe;
   activeProvider: 'TWELVE_DATA' | 'ALPHA_VANTAGE' | 'AUTO_FALLBACK' | 'RESEARCH_STREAM_REPLAY';
   twelveDataApiKeyConfigured: boolean;

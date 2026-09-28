@@ -30,6 +30,8 @@ import { PrivacyView } from './components/docs/PrivacyView';
 import { TermsView } from './components/docs/TermsView';
 import { SecurityView } from './components/docs/SecurityView';
 import { Footer } from './components/Footer';
+import { PairMarketSelector } from './components/PairMarketSelector';
+import { TelemetryCandleCanvas } from './components/TelemetryCandleCanvas';
 import {
   MasterTelemetry,
   Timeframe,
@@ -117,6 +119,8 @@ export default function App() {
   const [selectedProvider, setSelectedProvider] = useState<
     'TWELVE_DATA' | 'ALPHA_VANTAGE' | 'REPLAY'
   >('TWELVE_DATA');
+  const [selectedPair, setSelectedPair] = useState('EUR/USD');
+  const [activePairs, setActivePairs] = useState<string[]>(['EUR/USD']);
 
   // Modals state
   const [inspectTelemetry, setInspectTelemetry] = useState<MasterTelemetry | null>(
@@ -178,6 +182,8 @@ export default function App() {
           setProviderStatus(data.providerStatus);
         }
         setScannerActive(data.settings?.scannerActive ?? true);
+        if (data.settings?.selectedPair) setSelectedPair(data.settings.selectedPair);
+        if (Array.isArray(data.settings?.activePairs)) setActivePairs(data.settings.activePairs);
         if (data.newsStatus) {
           setNewsWindowState(data.newsStatus.windowState || data.newsStatus.state);
         }
@@ -432,6 +438,12 @@ export default function App() {
     }
   };
 
+  const handlePairScopeUpdated = (state: { selectedPair: string; activePairs: string[] }) => {
+    setSelectedPair(state.selectedPair);
+    setActivePairs(state.activePairs);
+    fetchEngineData();
+  };
+
   const handleSimulateFallback = async (enable?: boolean) => {
     if (!authToken) return;
     try {
@@ -604,6 +616,15 @@ export default function App() {
         <main className="flex-1 overflow-y-auto p-6 space-y-6">
           {activeTab === 'overview' && (
             <div className="space-y-6 max-w-7xl mx-auto w-full">
+              <PairMarketSelector
+                authToken={authToken}
+                selectedPair={selectedPair}
+                activePairs={activePairs}
+                onUpdated={handlePairScopeUpdated}
+              />
+
+              <TelemetryCandleCanvas telemetry={currentAlert} />
+
               {/* Stats Overview Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
                 <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl shadow-sm">
