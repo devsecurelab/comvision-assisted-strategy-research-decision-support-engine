@@ -415,6 +415,56 @@ app.post('/api/engine/record-outcome', requireApprovedUser, async (req: Authenti
   res.json({ success: true, outcomeRecord, notifications: notifResult });
 });
 
+// Batch manual trigger: OHLC is supplied by the operator, but every result is
+// independently resolved by the same authoritative backend resolver.
+app.post('/api/engine/record-outcomes-batch', requireApprovedUser, async (req: AuthenticatedRequest, res) => {
+  const items = Array.isArray(req.body?.items) ? req.body.items : [];
+  if (items.length === 0) return res.status(400).json({ error: 'Missing batch items' });
+  if (items.length > 100) return res.status(400).json({ error: 'Batch limit is 100 signals per request' });
+
+  const results: Array<Record<string, any>> = [];
+  for (const item of items) {
+    const setupId = typeof item?.setupId === 'string' ? item.setupId : '';
+    const nextCandle = item?.nextCandle;
+    if (!setupId || !nextCandle) {
+      results.push({ setupId, success: false, error: 'Missing setupId or nextCandle data' });
+      continue;
+    }
+    const values = [nextCandle.open, nextCandle.high, nextCandle.low, nextCandle.close];
+    if (!values.every((value: unknown) => typeof value === 'number' && Number.isFinite(value)) ||
+        nextCandle.high < Math.max(nextCandle.open, nextCandle.close) ||
+        nextCandle.low > Math.min(nextCandle.open, nextCandle.close)) {
+      results.push({ setupId, success: false, error: 'Invalid nextCandle OHLC values or bounds' });
+      continue;
+    }
+
+    const existingOutcome = durableStorage.loadOutcomes().find((record) => record.setup_id === setupId);
+    if (existingOutcome) {
+      results.push({ setupId, success: true, duplicate: true, outcomeRecord: existingOutcome });
+      continue;
+    }
+
+    const outcomeRecord = experimentTracker.recordSignalOutcome(setupId, undefined, nextCandle, item.notes);
+    if (!outcomeRecord) {
+      results.push({ setupId, success: false, error: 'Candidate setup not found' });
+      continue;
+    }
+    const notifications = await notificationService.dispatchResultAlert(outcomeRecord);
+    durableStorage.recordAuditEvent({
+      event_type: 'SIGNAL_OUTCOME_BATCH_RECORDED',
+      actor_id: req.user?.id,
+      actor_email: req.user?.email,
+      details: { setup_id: setupId, authoritative_outcome: outcomeRecord.signal_outcome, resolution_rule: outcomeRecord.resolution_rule, notifications },
+    });
+    results.push({ setupId, success: true, duplicate: false, outcomeRecord, notifications });
+  }
+
+  const resolved = results.filter((result) => result.success && !result.duplicate).length;
+  const duplicates = results.filter((result) => result.duplicate).length;
+  const failed = results.length - resolved - duplicates;
+  res.json({ success: failed === 0, summary: { requested: items.length, resolved, duplicates, failed }, results });
+});
+
 app.get('/api/engine/export-telemetry', requireApprovedUser, (_req, res) => {
   const json = experimentTracker.exportTelemetryJson();
   res.setHeader('Content-Type', 'application/json');

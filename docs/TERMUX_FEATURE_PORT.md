@@ -21,6 +21,10 @@ The backend ignores any client-supplied `WIN` or `LOSS` label when resolving a r
 
 The resolved result is written into the candidate telemetry (`next_candle_observation`), durable `data/outcomes.json`, and the audit log. Telegram and Email result alerts use the same resolved record. A second submission for the same `setup_id` is idempotent and does not send duplicate notifications.
 
+## Manual batch resolution
+
+The dashboard provides **Resolve All Pending**. The operator enters the actual next-candle OHLC for every pending setup in one request. The server processes each `setup_id` independently through the authoritative resolver, persists each result, and dispatches its result notification. The batch endpoint accepts up to 100 rows, reports per-row failures, and safely identifies already-resolved rows as duplicates. It does not poll Twelve Data or Alpha Vantage, so this manual mode avoids unnecessary market-data API requests.
+
 ## Termux operation
 
 After pulling the branch and installing dependencies:
@@ -49,6 +53,7 @@ All routes require an approved bearer-token session:
 - `POST /api/engine/select-pair` with `{ "pair": "USD/JPY" }`
 - `POST /api/engine/active-pairs` with `{ "pairs": ["EUR/USD", "USD/JPY"] }`
 - `POST /api/engine/scan-multi` with `{ "pairs": ["EUR/USD", "USD/JPY"] }`
+- `POST /api/engine/record-outcomes-batch` with `{ "items": [{ "setupId": "V2-000001", "nextCandle": { "open": 1.08, "high": 1.081, "low": 1.079, "close": 1.0805 } }] }`
 - `POST /api/notifications/test`
 
 ## Truthfulness boundary

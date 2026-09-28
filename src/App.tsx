@@ -9,6 +9,7 @@ import { LiveVisionStream } from './components/LiveVisionStream';
 import { SetupLogsTable } from './components/SetupLogsTable';
 import { TelemetryModal } from './components/TelemetryModal';
 import { RecordResultModal } from './components/RecordResultModal';
+import { BatchResolveModal } from './components/BatchResolveModal';
 import { ChartModal } from './components/ChartModal';
 import { AuthModal } from './components/AuthModal';
 import { ValidSetupsModal } from './components/ValidSetupsModal';
@@ -127,6 +128,7 @@ export default function App() {
     null
   );
   const [recordingSetupId, setRecordingSetupId] = useState<string | null>(null);
+  const [isBatchResolveOpen, setIsBatchResolveOpen] = useState(false);
   const [chartModalTelemetry, setChartModalTelemetry] =
     useState<MasterTelemetry | null>(null);
   const [isValidSetupsModalOpen, setIsValidSetupsModalOpen] =
@@ -190,7 +192,7 @@ export default function App() {
       }
 
       // 2. Fetch Candidates
-      const candRes = await apiFetch('/api/engine/candidates?limit=50', {
+      const candRes = await apiFetch('/api/engine/candidates?limit=100', {
         headers: { Authorization: `Bearer ${authToken}` },
       });
       if (candRes.ok && candRes.headers.get('content-type')?.includes('application/json')) {
@@ -366,6 +368,21 @@ export default function App() {
       }
     } catch (err) {
       console.error('Failed to record action and observation:', err);
+    }
+  };
+
+  const handleBatchResolve = async (items: Array<{ setupId: string; nextCandle: { open: number; high: number; low: number; close: number }; notes?: string }>) => {
+    if (!authToken) return;
+    const response = await apiFetch('/api/engine/record-outcomes-batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ items }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || data.error || 'Batch resolve failed');
+    await fetchEngineData();
+    if (data.summary?.failed > 0) {
+      throw new Error(`${data.summary.resolved} resolved, ${data.summary.failed} failed. Check the remaining rows and try again.`);
     }
   };
 
@@ -701,6 +718,14 @@ export default function App() {
                 onOpenAllList={() => setIsValidSetupsModalOpen(true)}
               />
 
+              <div className="flex items-center justify-between bg-slate-900 border border-indigo-500/20 rounded-xl p-4">
+                <div>
+                  <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">Pending next-candle outcomes</h3>
+                  <p className="text-[11px] text-slate-500 font-mono mt-1">Manual OHLC entry only · no market API polling</p>
+                </div>
+                <button onClick={() => setIsBatchResolveOpen(true)} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-indigo-600/20">Resolve All Pending</button>
+              </div>
+
               {/* Primary Dual Column Layout */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Left 2 Cols: Decision Alert Card */}
@@ -839,6 +864,14 @@ export default function App() {
           }
           onSave={handleRecordUserAction}
           onClose={() => setRecordingSetupId(null)}
+        />
+      )}
+
+      {isBatchResolveOpen && (
+        <BatchResolveModal
+          candidates={candidateHistory}
+          onSubmit={handleBatchResolve}
+          onClose={() => setIsBatchResolveOpen(false)}
         />
       )}
 
