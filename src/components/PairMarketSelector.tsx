@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Check, Play, Search, SlidersHorizontal } from 'lucide-react';
+import { Check, Search, SlidersHorizontal } from 'lucide-react';
 import { apiFetch } from '../config/api';
 
 interface PairMarketSelectorProps {
@@ -87,15 +87,15 @@ export const PairMarketSelector: React.FC<PairMarketSelectorProps> = ({ authToke
         {displayed.map((pair) => {
           const active = activePairs.includes(pair);
           const focused = selectedPair === pair;
-          return <button key={pair} onClick={() => { void update('/api/engine/select-pair', { pair }); }} onDoubleClick={() => toggle(pair)} title="Click to focus; double-click to toggle active scope" className={`shrink-0 px-3 py-2 rounded-lg border text-[11px] font-mono font-bold flex items-center gap-1.5 ${focused ? 'border-amber-400 bg-amber-500/20 text-amber-300' : active ? 'border-cyan-500/50 bg-cyan-500/10 text-cyan-300' : 'border-slate-700 bg-slate-950 text-slate-500'}`}>
+          return <button key={pair} onClick={() => toggle(pair)} title={active ? 'Click again to remove this pair' : 'Click to add this pair'} className={`shrink-0 px-3 py-2 rounded-lg border text-[11px] font-mono font-bold flex items-center gap-1.5 ${focused ? 'border-amber-400 bg-amber-500/20 text-amber-300' : active ? 'border-cyan-500/50 bg-cyan-500/10 text-cyan-300' : 'border-slate-700 bg-slate-950 text-slate-500'}`}>
             {active && <Check className="w-3 h-3" />}{pair}
           </button>;
         })}
       </div>
 
       <div className="flex items-center justify-between gap-3 text-[10px] font-mono text-slate-500">
-        <span>Click = focus • Double-click = active market toggle</span>
-        <button onClick={() => void update('/api/engine/scan-multi', { pairs: activePairs })} disabled={busy || activePairs.length === 0} className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white font-bold flex items-center gap-1.5"><Play className="w-3 h-3" />Scan {activePairs.length} Market{activePairs.length === 1 ? '' : 's'}</button>
+        <span>Click = add pair • Click again = remove pair</span>
+        <span className="text-cyan-300">Scanner runs while the main switch is active</span>
       </div>
     </section>
   );

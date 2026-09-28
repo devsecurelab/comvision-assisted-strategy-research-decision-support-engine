@@ -6,7 +6,6 @@ import {
   Play,
   Square,
   Database,
-  RefreshCw,
   PanelLeft,
   PanelLeftClose,
   Download,
@@ -20,7 +19,6 @@ interface HeaderProps {
   scannerActive: boolean;
   onToggleScanner: () => void;
   onStopScanning: () => void;
-  onManualScan: () => void;
   newsWindowState: 'CLEAR' | 'ACTIVE' | 'NEWS_DATA_UNAVAILABLE';
   providerStatus?: ProviderStatus;
   onDownloadHandover?: () => void;
@@ -32,7 +30,6 @@ export const Header: React.FC<HeaderProps> = ({
   scannerActive,
   onToggleScanner,
   onStopScanning,
-  onManualScan,
   newsWindowState,
   providerStatus,
   onDownloadHandover,
@@ -140,16 +137,6 @@ export const Header: React.FC<HeaderProps> = ({
             <span>Download Handover ZIP</span>
           </button>
         )}
-
-        <button
-          id="btn-evaluate-next-candidate"
-          onClick={onManualScan}
-          title="Trigger immediate sequential 9-stage evaluation on latest market frame"
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 text-xs font-semibold rounded-lg border border-indigo-500/30 transition shadow-sm"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Evaluate Frame</span>
-        </button>
 
         <button
           id="btn-toggle-scanner"

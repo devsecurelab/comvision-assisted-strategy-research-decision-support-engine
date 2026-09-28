@@ -14,6 +14,9 @@ The Termux/web version now includes the feature contract ported from the verifie
 - Email/SMTP notification status and test UI
 - Deterministic pair-catalog fixtures
 - Authoritative next-candle outcome resolver
+- Persistent timeframe and pair scope settings
+- Additive single-click pair selection with second-click removal
+- Main scanner switch as the backend signal-generation gate
 
 ## Outcome resolver
 
@@ -24,6 +27,13 @@ The resolved result is written into the candidate telemetry (`next_candle_observ
 ## Manual batch resolution
 
 The dashboard provides **Resolve All Pending**. The operator enters the actual next-candle OHLC for every pending setup in one request. The server processes each `setup_id` independently through the authoritative resolver, persists each result, and dispatches its result notification. The batch endpoint accepts up to 100 rows, reports per-row failures, and safely identifies already-resolved rows as duplicates. It does not poll Twelve Data or Alpha Vantage, so this manual mode avoids unnecessary market-data API requests.
+
+## Runtime controls
+
+- Timeframe selection is stored in `data/app_settings.json` and restored after a server restart or page refresh.
+- Pair scope is additive: click an inactive pair to add it; click an active pair again to remove it. At least one pair must remain active.
+- The main scanner switch is authoritative. While active, the dashboard submits the selected active-pair scope for continuous analysis; while paused, the backend rejects both single and multi-market signal generation with `SCANNER_PAUSED`.
+- The separate manual multi-market scan button was removed. Scanning follows the main switch only.
 
 ## Termux operation
 

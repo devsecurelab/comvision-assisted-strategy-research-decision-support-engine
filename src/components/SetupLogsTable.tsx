@@ -134,9 +134,9 @@ export const SetupLogsTable: React.FC<SetupLogsTableProps> = ({
                           }`}
                         >
                           {c.next_candle_observation.status === 'NEXT_CANDLE_FAVORABLE'
-                            ? 'FAVORABLE'
+                            ? 'WIN / FAVORABLE'
                             : c.next_candle_observation.status === 'NEXT_CANDLE_UNFAVORABLE'
-                            ? 'UNFAVORABLE'
+                            ? 'LOSS / UNFAVORABLE'
                             : c.next_candle_observation.status === 'NEXT_CANDLE_NEUTRAL'
                             ? 'NEUTRAL'
                             : 'INCONCLUSIVE'}

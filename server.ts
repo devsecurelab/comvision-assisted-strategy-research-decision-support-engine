@@ -52,6 +52,8 @@ function resolvePort(): number {
 }
 const PORT = resolvePort();
 
+const persistedEngineSettings = durableStorage.loadAppSettings();
+
 // CORS support with explicit trusted-origin checking (no credential wildcard)
 const allowedOrigins = [
   process.env.APP_URL,
@@ -86,17 +88,29 @@ app.use(express.json());
 const currentSettings: EngineSettings = {
   maxWickRatio: 0.50,
   fibEquilibriumLevel: 0.50,
-  selectedPair: DEFAULT_PAIR,
-  activePairs: [DEFAULT_PAIR],
-  pairSelectionSource: 'DEFAULT',
-  selectedTimeframe: '5m',
+  selectedPair: typeof persistedEngineSettings.selectedPair === 'string' ? persistedEngineSettings.selectedPair : DEFAULT_PAIR,
+  activePairs: Array.isArray(persistedEngineSettings.activePairs) && persistedEngineSettings.activePairs.length > 0 ? persistedEngineSettings.activePairs : [DEFAULT_PAIR],
+  pairSelectionSource: persistedEngineSettings.pairSelectionSource || 'DEFAULT',
+  selectedTimeframe: (persistedEngineSettings.selectedTimeframe || '5m') as Timeframe,
   activeProvider: 'RESEARCH_STREAM_REPLAY',
   twelveDataApiKeyConfigured: !!process.env.TWELVE_DATA_API_KEY,
   alphaVantageApiKeyConfigured: !!process.env.ALPHA_VANTAGE_API_KEY,
   experimentLocked: experimentTracker.isExperimentLocked(),
-  scannerActive: experimentTracker.isScannerActive(),
+  scannerActive: typeof persistedEngineSettings.scannerActive === 'boolean' ? persistedEngineSettings.scannerActive : experimentTracker.isScannerActive(),
   alertsMuted: experimentTracker.isAlertsMuted(),
 };
+
+experimentTracker.setScannerActive(currentSettings.scannerActive);
+
+function persistEngineSettings() {
+  durableStorage.saveAppSettings({
+    selectedPair: currentSettings.selectedPair,
+    activePairs: currentSettings.activePairs,
+    pairSelectionSource: currentSettings.pairSelectionSource,
+    selectedTimeframe: currentSettings.selectedTimeframe,
+    scannerActive: currentSettings.scannerActive,
+  });
+}
 
 // Seed initial history of candidates into durable storage if clean environment
 function seedInitialCandidatesIfEmpty() {
@@ -256,6 +270,7 @@ app.post('/api/engine/select-pair', requireApprovedUser, (req: AuthenticatedRequ
     currentSettings.selectedPair = pair;
     currentSettings.activePairs = Array.from(new Set([pair, ...currentSettings.activePairs.filter((p) => p !== previousPair)]));
     currentSettings.pairSelectionSource = 'OPERATOR';
+    persistEngineSettings();
     durableStorage.recordAuditEvent({
       event_type: 'OPERATOR_PAIR_UPDATED',
       actor_id: req.user?.id,
@@ -277,6 +292,7 @@ app.post('/api/engine/active-pairs', requireApprovedUser, (req: AuthenticatedReq
     currentSettings.activePairs = pairs;
     currentSettings.selectedPair = selectedPair;
     currentSettings.pairSelectionSource = pairs.length > 1 ? 'MULTI_MARKET' : 'OPERATOR';
+    persistEngineSettings();
     durableStorage.recordAuditEvent({
       event_type: 'MULTI_MARKET_SCOPE_UPDATED',
       actor_id: req.user?.id,
@@ -305,6 +321,7 @@ app.post('/api/engine/toggle-scanner', requireApprovedUser, (req, res) => {
     currentSettings.scannerActive = !currentSettings.scannerActive;
     experimentTracker.setScannerActive(currentSettings.scannerActive);
   }
+  persistEngineSettings();
   res.json({ scannerActive: currentSettings.scannerActive });
 });
 
@@ -342,6 +359,7 @@ app.post('/api/engine/select-timeframe', requireApprovedUser, (req: Authenticate
   const validTimeframes: Timeframe[] = ['1m', '5m', '15m', '30m', '1h'];
   if (validTimeframes.includes(timeframe)) {
     currentSettings.selectedTimeframe = timeframe;
+    persistEngineSettings();
     durableStorage.recordAuditEvent({
       event_type: 'OPERATOR_TIMEFRAME_UPDATED',
       actor_id: req.user?.id,
@@ -714,6 +732,9 @@ app.post('/api/chat/query', requireApprovedUser, async (req: AuthenticatedReques
 
 // Live Evaluation & Telemetry Dispatch (Invoked by scanner or manual trigger)
 app.post(['/api/engine/evaluate-candidate', '/api/engine/scan-candidate'], requireApprovedUser, async (req: AuthenticatedRequest, res) => {
+  if (!currentSettings.scannerActive) {
+    return res.status(409).json({ error: 'SCANNER_PAUSED', message: 'Scanner is paused; no new signal was generated.' });
+  }
   const { pair, candleOverride, customBias, cvConfidence, cvEvidenceSource, timeframe } = req.body;
   const selectedPair = pair ? normalizePair(pair) : currentSettings.selectedPair;
   const resolvedTimeframe = ((timeframe as string) || currentSettings.selectedTimeframe) as Timeframe;
@@ -769,6 +790,9 @@ app.post(['/api/engine/evaluate-candidate', '/api/engine/scan-candidate'], requi
 });
 
 app.post('/api/engine/scan-multi', requireApprovedUser, async (req: AuthenticatedRequest, res) => {
+  if (!currentSettings.scannerActive) {
+    return res.status(409).json({ error: 'SCANNER_PAUSED', message: 'Scanner is paused; no new signals were generated.' });
+  }
   const requestedPairs: unknown[] = Array.isArray(req.body?.pairs) ? req.body.pairs : currentSettings.activePairs;
   const pairs: string[] = Array.from(new Set(requestedPairs.map((value) => normalizePair(value))));
   if (pairs.length === 0) return res.status(400).json({ error: 'INVALID_ACTIVE_PAIRS' });
@@ -776,6 +800,7 @@ app.post('/api/engine/scan-multi', requireApprovedUser, async (req: Authenticate
   currentSettings.activePairs = pairs;
   currentSettings.selectedPair = pairs.includes(currentSettings.selectedPair) ? currentSettings.selectedPair : pairs[0];
   currentSettings.pairSelectionSource = pairs.length > 1 ? 'MULTI_MARKET' : 'OPERATOR';
+  persistEngineSettings();
 
   const results: MasterTelemetry[] = [];
   const failures: Array<{ pair: string; message: string }> = [];

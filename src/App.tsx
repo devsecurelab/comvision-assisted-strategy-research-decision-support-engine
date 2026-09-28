@@ -184,6 +184,7 @@ export default function App() {
           setProviderStatus(data.providerStatus);
         }
         setScannerActive(data.settings?.scannerActive ?? true);
+        if (data.settings?.selectedTimeframe) setSelectedTimeframe(data.settings.selectedTimeframe);
         if (data.settings?.selectedPair) setSelectedPair(data.settings.selectedPair);
         if (Array.isArray(data.settings?.activePairs)) setActivePairs(data.settings.activePairs);
         if (data.newsStatus) {
@@ -236,16 +237,27 @@ export default function App() {
     }
   }, [authToken]);
 
-  // Periodic polling when scanner is active
+  // Continuous market analysis while the authoritative scanner switch is active.
   useEffect(() => {
     if (!authToken || !scannerActive) return;
 
-    const interval = setInterval(() => {
-      fetchEngineData();
-    }, 10000);
+    const scanActiveMarkets = async () => {
+      try {
+        await apiFetch('/api/engine/scan-multi', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+          body: JSON.stringify({ pairs: activePairs, timeframe: selectedTimeframe }),
+        });
+        await fetchEngineData();
+      } catch (error) {
+        console.error('Continuous market scan failed:', error);
+      }
+    };
+
+    const interval = setInterval(scanActiveMarkets, 30000);
 
     return () => clearInterval(interval);
-  }, [authToken, scannerActive]);
+  }, [authToken, scannerActive, activePairs.join(','), selectedTimeframe]);
 
   // Actions
   const handleToggleScanner = async () => {
@@ -623,7 +635,6 @@ export default function App() {
           scannerActive={scannerActive}
           onToggleScanner={handleToggleScanner}
           onStopScanning={handleStopScanning}
-          onManualScan={handleManualScan}
           newsWindowState={newsWindowState}
           providerStatus={providerStatus}
           onDownloadHandover={handleDownloadHandover}

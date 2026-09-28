@@ -46,7 +46,11 @@ export const BatchResolveModal: React.FC<BatchResolveModalProps> = ({ candidates
       notes: row.notes || undefined,
     }));
     if (items.some((item) => Object.values(item.nextCandle).some((value) => !Number.isFinite(value)))) {
-      setError('প্রতিটি pending signal-এর Open, High, Low, Close পূরণ করুন।');
+      setError('প্রতিটি pending signal-এর চারটি OHLC ঘর পূরণ করুন, তারপর Resolve চাপুন।');
+      return;
+    }
+    if (items.some((item) => item.nextCandle.high < Math.max(item.nextCandle.open, item.nextCandle.close) || item.nextCandle.low > Math.min(item.nextCandle.open, item.nextCandle.close))) {
+      setError('প্রতিটি row-তে High অবশ্যই Open/Close-এর বড় বা সমান এবং Low ছোট বা সমান হতে হবে।');
       return;
     }
     setSubmitting(true);
@@ -89,7 +93,7 @@ export const BatchResolveModal: React.FC<BatchResolveModalProps> = ({ candidates
                       <td className="p-2 text-indigo-300 font-bold whitespace-nowrap">{candidate.metadata.setup_id}</td>
                       <td className="p-2 text-slate-300">{candidate.market_context.local_bias}</td>
                       {(['open', 'high', 'low', 'close'] as const).map((field) => (
-                        <td className="p-2" key={field}><input required inputMode="decimal" type="number" step="any" value={rows[index]?.[field] || ''} onChange={(e) => update(index, field, e.target.value)} className="w-24 rounded-lg bg-slate-950 border border-slate-700 px-2 py-1.5 text-slate-100 outline-none focus:border-indigo-500" aria-label={`${candidate.metadata.setup_id} ${field}`} /></td>
+                        <td className="p-2" key={field}><input inputMode="decimal" type="number" step="any" value={rows[index]?.[field] || ''} onChange={(e) => update(index, field, e.target.value)} className="w-24 rounded-lg bg-slate-950 border border-slate-700 px-2 py-1.5 text-slate-100 outline-none focus:border-indigo-500" aria-label={`${candidate.metadata.setup_id} ${field}`} /></td>
                       ))}
                       <td className="p-2"><input value={rows[index]?.notes || ''} onChange={(e) => update(index, 'notes', e.target.value)} className="w-40 rounded-lg bg-slate-950 border border-slate-700 px-2 py-1.5 text-slate-100 outline-none focus:border-indigo-500" placeholder="optional" /></td>
                     </tr>
