@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { evaluateStrategyV3 } from '../src/engine/strategyV3Engine';
+import { executeStrategyPipeline } from '../src/engine/pipeline';
 import type { Candle } from '../src/engine/types';
 
 const candles: Candle[] = Array.from({ length: 30 }, (_, i) => ({
@@ -54,5 +55,20 @@ const spreadBlocked = evaluateStrategyV3({
 });
 assert.equal(spreadBlocked.stages[17].calculatedValues.Spread_Spike_Flag, 'true');
 assert.equal(spreadBlocked.gates[8].status, 'BLOCKED');
+
+const visibleTelemetry = executeStrategyPipeline({
+  decisionEngineVersion: 'V3',
+  candles,
+  currentCandleIndex: candles.length - 1,
+  selectedTimeframe: '5m',
+  higherTimeframeBias: 'BULLISH',
+  newsEvents: [],
+  newsSourceOnline: false,
+  cvConfidence: 0.92,
+});
+assert.equal(visibleTelemetry.decision_engine_v3?.version, 'RDP_STRATEGY_V3.0');
+assert.equal(visibleTelemetry.system_execution.system_decision, 'REJECT');
+assert.equal(visibleTelemetry.system_execution.final_action, 'NO_ALERT');
+assert.match(visibleTelemetry.system_execution.halted_at_stage ?? '', /^V3 Gate /);
 
 console.log('=== V3 ENGINE TESTS: 8 assertions passed ===');

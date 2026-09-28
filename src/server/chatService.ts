@@ -278,6 +278,7 @@ export class ChatService {
 
       // Execute deterministic 9-stage pipeline
       const telemetry = executeStrategyPipeline({
+        decisionEngineVersion: 'V3',
         candles: currentCandles,
         currentCandleIndex: 24,
         selectedTimeframe: '5m',

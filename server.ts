@@ -749,6 +749,7 @@ app.post(['/api/engine/evaluate-candidate', '/api/engine/scan-candidate'], requi
   const resolvedCvConfidence = typeof cvConfidence === 'number' ? cvConfidence : 0.95;
 
   const telemetry = executeStrategyPipeline({
+    decisionEngineVersion: 'V3',
     candles: baseCandles,
     currentCandleIndex: baseCandles.length - 1,
     selectedTimeframe: resolvedTimeframe,
@@ -809,6 +810,7 @@ app.post('/api/engine/scan-multi', requireApprovedUser, async (req: Authenticate
       const timeframe = ((req.body?.timeframe as string) || currentSettings.selectedTimeframe) as Timeframe;
       const candles = feedManager.generateDeterministicValidSetup(pair.startsWith('EUR') ? 1.0850 : 18500, timeframe);
       const telemetry = executeStrategyPipeline({
+        decisionEngineVersion: 'V3',
         candles,
         currentCandleIndex: candles.length - 1,
         selectedTimeframe: timeframe,

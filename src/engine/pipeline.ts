@@ -34,6 +34,8 @@ import { formatSignalTime } from '../utils/timeFormat';
 import { evaluateStrategyV3 } from './strategyV3Engine';
 
 export interface PipelineInput {
+  /** Production server uses V3; omitted direct calls retain the frozen v2 test contract. */
+  decisionEngineVersion?: 'V2' | 'V3';
   candles: Candle[]; // historical candle sequence, ordered oldest to newest
   currentCandleIndex: number; // index of currently forming / closed confirmation candle (C3)
   selectedTimeframe: Timeframe;
@@ -1125,6 +1127,7 @@ export function evaluateTickProxy(
  */
 export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
   const {
+    decisionEngineVersion = 'V2',
     candles,
     currentCandleIndex,
     selectedTimeframe,
@@ -1469,6 +1472,20 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
     final_action = 'NO_ALERT';
     halted_at_stage = 'Data Quality / Vision Verification';
     rejection_reason = visionEvidence;
+  }
+
+  if (decisionEngineVersion === 'V3') {
+    system_decision = v3Decision.systemDecision === 'PASS'
+      ? 'PASS'
+      : v3Decision.systemDecision === 'BLOCKED'
+      ? 'REJECT'
+      : 'INCONCLUSIVE';
+    final_action = v3Decision.finalAction === 'MANUAL_ALERT' ? 'MANUAL_ALERT' : 'NO_ALERT';
+    if (v3Decision.systemDecision !== 'PASS') {
+      const failedGate = v3Decision.gates.find((gate) => gate.status !== 'PASS');
+      halted_at_stage = `V3 Gate ${failedGate?.gateNumber ?? 9}`;
+      rejection_reason = failedGate?.reason ?? 'V3 confluence or safety gate did not pass';
+    }
   }
 
   const nowIso = new Date().toISOString();
