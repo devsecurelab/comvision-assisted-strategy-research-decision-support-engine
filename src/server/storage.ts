@@ -41,6 +41,10 @@ export interface SignalOutcomeRecord {
     low: number;
     close: number;
   };
+  requested_outcome?: SignalOutcome;
+  resolution_rule?: string;
+  resolution_direction?: 'UP' | 'DOWN' | 'FLAT';
+  duplicate_submission?: boolean;
   notes?: string;
 }
 

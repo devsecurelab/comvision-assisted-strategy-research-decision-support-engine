@@ -5,6 +5,7 @@
 import { MasterTelemetry, UserRecordedAction, NextCandleObservation } from './types';
 import { ACTIVE_STRATEGY_VERSION, ACTIVE_EXPERIMENT_ID, CONFIG_HASH, STRATEGY_MANIFEST } from './manifest';
 import { durableStorage, SignalOutcome, SignalOutcomeRecord } from '../server/storage';
+import { resolveNextCandleOutcome } from './outcomeResolver';
 
 export interface ExperimentStats {
   experimentId: string;
@@ -411,47 +412,28 @@ export class ExperimentManager {
 
   public recordSignalOutcome(
     setupId: string,
-    outcome: SignalOutcome,
+    requestedOutcome: SignalOutcome | undefined,
     nextCandle: { open: number; high: number; low: number; close: number },
     notes?: string
   ): SignalOutcomeRecord | null {
     const candidate = this.candidatesHistory.find((c) => c.metadata.setup_id === setupId);
     if (!candidate) return null;
 
-    // Map outcome to research-honest observation
-    let researchObservation: NextCandleObservation = 'NEXT_CANDLE_NEUTRAL';
-    if (outcome === 'NEXT_CANDLE_FAVORABLE' || outcome === 'WIN') {
-      researchObservation = 'NEXT_CANDLE_FAVORABLE';
-    } else if (outcome === 'NEXT_CANDLE_UNFAVORABLE' || outcome === 'LOSS') {
-      researchObservation = 'NEXT_CANDLE_UNFAVORABLE';
-    } else if (outcome === 'NEXT_CANDLE_INCONCLUSIVE' || outcome === 'INVALIDATED' || outcome === 'UNRESOLVED') {
-      researchObservation = 'NEXT_CANDLE_INCONCLUSIVE';
-    } else {
-      researchObservation = 'NEXT_CANDLE_NEUTRAL';
-    }
-
-    // Standardize v2.0 stored outcome format
-    const standardizedOutcome: SignalOutcome =
-      outcome === 'WIN'
-        ? 'NEXT_CANDLE_FAVORABLE'
-        : outcome === 'LOSS'
-        ? 'NEXT_CANDLE_UNFAVORABLE'
-        : outcome === 'UNRESOLVED'
-        ? 'NEXT_CANDLE_INCONCLUSIVE'
-        : outcome;
+    // Authoritative resolution: bias + next candle OHLC decide the outcome.
+    // Any client-provided WIN/LOSS label is retained only for audit and never trusted.
+    const resolved = resolveNextCandleOutcome(candidate.market_context.local_bias, nextCandle);
+    const researchObservation: NextCandleObservation = resolved.outcome;
+    const standardizedOutcome: SignalOutcome = resolved.outcome;
+    const resultTimestamp = new Date().toISOString();
+    const labelMismatch = requestedOutcome && requestedOutcome !== standardizedOutcome;
 
     // Update telemetry record in-place
-    if (!candidate.next_candle_observation) {
-      candidate.next_candle_observation = { status: researchObservation };
-    } else {
-      candidate.next_candle_observation.status = researchObservation;
-      candidate.next_candle_observation.observation_timestamp = new Date().toISOString();
-      candidate.next_candle_observation.observed_candle = {
-        timestamp: new Date().toISOString(),
-        ...nextCandle,
-        volume: 0,
-      };
-    }
+    candidate.next_candle_observation = {
+      status: researchObservation,
+      observation_timestamp: resultTimestamp,
+      observed_candle: { timestamp: resultTimestamp, ...nextCandle, volume: 0 },
+      details: `AUTHORITATIVE_RESOLUTION: ${resolved.rule}`,
+    };
 
     const record: SignalOutcomeRecord = {
       setup_id: setupId,
@@ -459,7 +441,7 @@ export class ExperimentManager {
       bias: candidate.market_context.local_bias,
       timeframe: candidate.market_context.selected_timeframe,
       signal_timestamp_utc: candidate.metadata.signal_timestamp_utc || candidate.metadata.timestamp_utc,
-      result_timestamp_utc: new Date().toISOString(),
+      result_timestamp_utc: resultTimestamp,
       signal_outcome: standardizedOutcome,
       outcome: standardizedOutcome,
       user_recorded_action: candidate.system_execution.user_recorded_action || 'NOT_RECORDED',
@@ -467,7 +449,10 @@ export class ExperimentManager {
       next_candle: nextCandle,
       nextCandleOpen: nextCandle.open,
       nextCandleClose: nextCandle.close,
-      notes,
+      requested_outcome: requestedOutcome,
+      resolution_rule: resolved.rule,
+      resolution_direction: resolved.direction,
+      notes: [notes, labelMismatch ? `Client outcome '${requestedOutcome}' ignored; authoritative result is '${standardizedOutcome}'.` : 'Outcome resolved by backend from signal bias and next-candle OHLC.'].filter(Boolean).join(' '),
     };
 
     durableStorage.recordOutcome(record);

@@ -13,6 +13,13 @@ The Termux/web version now includes the feature contract ported from the verifie
 - Vision capture state control (`START CAPTURE` / `STOP CAPTURE`)
 - Email/SMTP notification status and test UI
 - Deterministic pair-catalog fixtures
+- Authoritative next-candle outcome resolver
+
+## Outcome resolver
+
+The backend ignores any client-supplied `WIN` or `LOSS` label when resolving a result. It uses the stored signal bias and submitted next-candle OHLC. A bullish signal is favorable when `close > open`; a bearish signal is favorable when `close < open`. The opposite direction is unfavorable. `close === open` is explicitly neutral, while invalid OHLC or unclear bias is inconclusive.
+
+The resolved result is written into the candidate telemetry (`next_candle_observation`), durable `data/outcomes.json`, and the audit log. Telegram and Email result alerts use the same resolved record. A second submission for the same `setup_id` is idempotent and does not send duplicate notifications.
 
 ## Termux operation
 

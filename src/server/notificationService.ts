@@ -498,6 +498,8 @@ export class NotificationService {
       `Next-Candle Result:`,
       `Outcome: ${outcome.signal_outcome || outcome.outcome || 'UNRESOLVED'}`,
       `Next Candle Close: ${outcome.next_candle?.close ?? outcome.nextCandleClose ?? 'N/A'} (Open: ${outcome.next_candle?.open ?? outcome.nextCandleOpen ?? 'N/A'})`,
+      `Direction: ${outcome.resolution_direction || 'N/A'}`,
+      `Authoritative Rule: ${outcome.resolution_rule || 'Backend OHLC resolver'}`,
       ``,
       `Operator Action:`,
       `User Action: ${outcome.user_recorded_action}`,

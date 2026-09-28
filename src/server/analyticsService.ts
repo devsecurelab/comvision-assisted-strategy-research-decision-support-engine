@@ -4,6 +4,7 @@
 
 import { durableStorage, SignalOutcomeRecord, SignalOutcome } from './storage';
 import { MasterTelemetry } from '../engine/types';
+import { resolveNextCandleOutcome } from '../engine/outcomeResolver';
 
 export interface AnalyticsFilter {
   days?: number;
@@ -117,15 +118,13 @@ export class AnalyticsService {
     bias: 'BULLISH' | 'BEARISH' | 'UNCLEAR',
     open: number,
     close: number
-  ): 'NEXT_CANDLE_FAVORABLE' | 'NEXT_CANDLE_UNFAVORABLE' | 'NEXT_CANDLE_NEUTRAL' {
-    if (close === open) return 'NEXT_CANDLE_NEUTRAL';
-    if (bias === 'BULLISH') {
-      return close > open ? 'NEXT_CANDLE_FAVORABLE' : 'NEXT_CANDLE_UNFAVORABLE';
-    } else if (bias === 'BEARISH') {
-      return close < open ? 'NEXT_CANDLE_FAVORABLE' : 'NEXT_CANDLE_UNFAVORABLE';
-    } else {
-      return 'NEXT_CANDLE_NEUTRAL';
-    }
+  ): 'NEXT_CANDLE_FAVORABLE' | 'NEXT_CANDLE_UNFAVORABLE' | 'NEXT_CANDLE_NEUTRAL' | 'NEXT_CANDLE_INCONCLUSIVE' {
+    return resolveNextCandleOutcome(bias, {
+      open,
+      close,
+      high: Math.max(open, close),
+      low: Math.min(open, close),
+    }).outcome;
   }
 
   public recordOutcome(record: {
@@ -144,19 +143,25 @@ export class AnalyticsService {
     timestamp?: string;
   }) {
     const existing = durableStorage.loadOutcomes();
-    // Normalize outcome to v2.0 research semantics
-    let standardized: SignalOutcome = record.outcome as SignalOutcome;
-    if (record.outcome === 'WIN') standardized = 'NEXT_CANDLE_FAVORABLE';
-    else if (record.outcome === 'LOSS') standardized = 'NEXT_CANDLE_UNFAVORABLE';
-    else if (record.outcome === 'UNRESOLVED') standardized = 'NEXT_CANDLE_INCONCLUSIVE';
+    const candidate = durableStorage.loadCandidates().find((item) => item.metadata.setup_id === record.setup_id);
+    // Legacy analytics callers may not provide a candidate record; preserve their historical bullish default.
+    // The authenticated engine route always resolves against the candidate's actual bias.
+    const bias = candidate?.market_context.local_bias || 'BULLISH';
+    const resolved = resolveNextCandleOutcome(bias, {
+      open: record.nextCandleOpen,
+      close: record.nextCandleClose,
+      high: Math.max(record.nextCandleOpen, record.nextCandleClose),
+      low: Math.min(record.nextCandleOpen, record.nextCandleClose),
+    });
+    const standardized: SignalOutcome = resolved.outcome;
 
     const formatted: SignalOutcomeRecord = {
       setup_id: record.setup_id,
-      pair: 'EUR/USD',
-      timeframe: '5m',
-      bias: 'BULLISH',
-      signal_timestamp_utc: new Date().toISOString(),
-      signal_timestamp_bdt: new Date().toISOString(),
+      pair: candidate?.metadata.pair || candidate?.metadata.asset || 'EUR/USD',
+      timeframe: candidate?.market_context.selected_timeframe || '5m',
+      bias,
+      signal_timestamp_utc: candidate?.metadata.signal_timestamp_utc || candidate?.metadata.timestamp_utc || new Date().toISOString(),
+      signal_timestamp_bdt: candidate?.metadata.signal_timestamp_utc || candidate?.metadata.timestamp_utc || new Date().toISOString(),
       signal_outcome: standardized,
       outcome: standardized,
       next_candle: {
@@ -171,7 +176,10 @@ export class AnalyticsService {
       userAction: record.userAction,
       result_timestamp_utc: record.timestamp || new Date().toISOString(),
       result_timestamp_bdt: record.timestamp || new Date().toISOString(),
-      notes: 'Recorded via analyticsService',
+      requested_outcome: record.outcome,
+      resolution_rule: resolved.rule,
+      resolution_direction: resolved.direction,
+      notes: 'Recorded via analyticsService authoritative OHLC resolver',
     };
     durableStorage.saveOutcomes([...existing.filter((o) => o.setup_id !== record.setup_id), formatted]);
   }

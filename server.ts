@@ -380,8 +380,21 @@ app.post('/api/engine/record-action', requireApprovedUser, (req: AuthenticatedRe
 
 app.post('/api/engine/record-outcome', requireApprovedUser, async (req: AuthenticatedRequest, res) => {
   const { setupId, outcome, nextCandle, notes } = req.body;
-  if (!setupId || !outcome || !nextCandle) {
-    return res.status(400).json({ error: 'Missing setupId, outcome, or nextCandle data' });
+  if (!setupId || !nextCandle) {
+    return res.status(400).json({ error: 'Missing setupId or nextCandle data' });
+  }
+  const candleValues = [nextCandle.open, nextCandle.high, nextCandle.low, nextCandle.close];
+  if (!candleValues.every((value: unknown) => typeof value === 'number' && Number.isFinite(value))) {
+    return res.status(400).json({ error: 'Invalid nextCandle OHLC values' });
+  }
+  if (nextCandle.high < Math.max(nextCandle.open, nextCandle.close) || nextCandle.low > Math.min(nextCandle.open, nextCandle.close)) {
+    return res.status(400).json({ error: 'Invalid nextCandle high/low bounds' });
+  }
+
+  // Idempotency: one authoritative result per setup. Never send duplicate alerts.
+  const existingOutcome = durableStorage.loadOutcomes().find((record) => record.setup_id === setupId);
+  if (existingOutcome) {
+    return res.json({ success: true, duplicate: true, outcomeRecord: existingOutcome, notifications: { telegram: 'DISABLED', email: 'DISABLED' } });
   }
 
   const outcomeRecord = experimentTracker.recordSignalOutcome(setupId, outcome, nextCandle, notes);
@@ -396,7 +409,7 @@ app.post('/api/engine/record-outcome', requireApprovedUser, async (req: Authenti
     event_type: 'SIGNAL_OUTCOME_RECORDED',
     actor_id: req.user?.id,
     actor_email: req.user?.email,
-    details: { setup_id: setupId, outcome, notifResult },
+    details: { setup_id: setupId, requested_outcome: outcome, authoritative_outcome: outcomeRecord.signal_outcome, resolution_rule: outcomeRecord.resolution_rule, notifResult },
   });
 
   res.json({ success: true, outcomeRecord, notifications: notifResult });
