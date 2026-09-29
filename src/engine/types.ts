@@ -13,6 +13,10 @@ export interface Candle {
   low: number;
   close: number;
   volume: number; // Represents tick count in CFD/FX feeds
+  volumeDelta?: number;
+  cvd?: number;
+  pocPrice?: number;
+  spread?: number;
 }
 
 export type StructuralState = 'BULLISH' | 'BEARISH' | 'UNCLEAR';
@@ -205,7 +209,7 @@ export type TickBaseline = 'ABOVE_AVERAGE' | 'BELOW_AVERAGE';
 // Data Quality & Execution Decisions
 export type DataQuality = 'COMPLETE' | 'DEGRADED' | 'INVALID';
 export type SystemDecision = 'PASS' | 'REJECT' | 'INCONCLUSIVE';
-export type FinalAction = 'MANUAL_ALERT' | 'NO_ALERT' | 'NONE';
+export type FinalAction = 'MANUAL_ALERT' | 'SAFE_HOLD' | 'NO_ACTION';
 
 // Stage 20: Next-Candle Research Observation (Strictly Research-Honest Semantics)
 export type NextCandleObservation =
@@ -260,6 +264,11 @@ export interface MasterTelemetry {
     mfci: { sStructure: number; sOrderFlow: number; sLiquidity: number; sVisionAi: number; totalMfci: number; meetsThreshold: boolean };
     systemDecision: 'PASS' | 'HOLD' | 'BLOCKED';
     finalAction: 'MANUAL_ALERT' | 'SAFE_HOLD' | 'NO_ACTION';
+    entryPrice: number;
+    stopLoss: number;
+    takeProfit1: number;
+    takeProfit2: number;
+    riskRewardRatio: number;
   };
   metadata: {
     project_name: string;

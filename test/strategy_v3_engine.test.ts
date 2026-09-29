@@ -68,7 +68,7 @@ const visibleTelemetry = executeStrategyPipeline({
 });
 assert.equal(visibleTelemetry.decision_engine_v3?.version, 'RDP_STRATEGY_V3.0');
 assert.equal(visibleTelemetry.system_execution.system_decision, 'REJECT');
-assert.equal(visibleTelemetry.system_execution.final_action, 'NO_ALERT');
+assert.equal(visibleTelemetry.system_execution.final_action, 'NO_ACTION');
 assert.match(visibleTelemetry.system_execution.halted_at_stage ?? '', /^V3 Gate /);
 
-console.log('=== V3 ENGINE TESTS: 8 assertions passed ===');
+console.log('=== V3 ENGINE TESTS: 11 assertions passed ===');

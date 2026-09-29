@@ -34,7 +34,7 @@ import { formatSignalTime } from '../utils/timeFormat';
 import { evaluateStrategyV3 } from './strategyV3Engine';
 
 export interface PipelineInput {
-  /** Production server uses V3; omitted direct calls retain the frozen v2 test contract. */
+  /** V3 is authoritative; V2 is retained only for explicit historical fixtures. */
   decisionEngineVersion?: 'V2' | 'V3';
   candles: Candle[]; // historical candle sequence, ordered oldest to newest
   currentCandleIndex: number; // index of currently forming / closed confirmation candle (C3)
@@ -1127,7 +1127,7 @@ export function evaluateTickProxy(
  */
 export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
   const {
-    decisionEngineVersion = 'V2',
+    decisionEngineVersion = process.env.LEGACY_V2_FIXTURES === '1' ? 'V2' : 'V3',
     candles,
     currentCandleIndex,
     selectedTimeframe,
@@ -1388,88 +1388,88 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
 
   // DETERMINISTIC 9-STAGE DECISION ENGINE
   let system_decision: 'PASS' | 'REJECT' | 'INCONCLUSIVE' = 'PASS';
-  let final_action: 'MANUAL_ALERT' | 'NO_ALERT' = 'MANUAL_ALERT';
+  let final_action: 'MANUAL_ALERT' | 'SAFE_HOLD' | 'NO_ACTION' = 'MANUAL_ALERT';
   let halted_at_stage: string | undefined;
   let rejection_reason: string | undefined;
 
   // Zero-range flat candle fail-safe
   if (isZeroRange) {
     system_decision = 'INCONCLUSIVE';
-    final_action = 'NO_ALERT';
+    final_action = 'NO_ACTION';
     halted_at_stage = 'Stage 1: Market Structure / Data Quality';
     rejection_reason = 'Zero range flat candle detected on confirmation candle C3. Fail-safe triggered: DEGRADED.';
   }
   // Stage 1: Market Structure
   else if (structure.bias === 'UNCLEAR' && higherTimeframeBias === 'UNCLEAR') {
     system_decision = 'REJECT';
-    final_action = 'NO_ALERT';
+    final_action = 'NO_ACTION';
     halted_at_stage = 'Stage 1: Market Structure';
     rejection_reason = 'Unclear market structure: Swings missing or conflicting';
   }
   // Stage 2: Fair Value Gap (FVG)
   else if (fvgStatus !== 'PASS') {
     system_decision = 'REJECT';
-    final_action = 'NO_ALERT';
+    final_action = 'NO_ACTION';
     halted_at_stage = 'Stage 2: Fair Value Gap';
     rejection_reason = fvgReason;
   }
   else if (obConfluenceStatus === 'FAIL') {
     system_decision = 'REJECT';
-    final_action = 'NO_ALERT';
+    final_action = 'NO_ACTION';
     halted_at_stage = 'Stage 2: Fair Value Gap';
     rejection_reason = obReason;
   }
   // Stage 3: 3-Candle Pattern Expansion
   else if (pattern3CandleStatus === 'REJECT') {
     system_decision = 'REJECT';
-    final_action = 'NO_ALERT';
+    final_action = 'NO_ACTION';
     halted_at_stage = 'Stage 3: 3-Candle Pattern';
     rejection_reason = pattern3CandleReason;
   }
   // Stage 4: Volume / Tick Activity Proxy Check
   else if (tickProxy.status === 'REJECT') {
     system_decision = 'REJECT';
-    final_action = 'NO_ALERT';
+    final_action = 'NO_ACTION';
     halted_at_stage = 'Stage 4: Volume / Tick Activity Proxy';
     rejection_reason = tickProxy.reason;
   }
   // Stage 5: Wick Validation & Liquidity Sweep
   else if (wickCheck.status === 'REJECT') {
     system_decision = 'REJECT';
-    final_action = 'NO_ALERT';
+    final_action = 'NO_ACTION';
     halted_at_stage = 'Stage 5: Wick Validation';
     rejection_reason = wickCheck.reason;
   }
   else if (sweepCheck.status === 'SWEEP_DETECTED') {
     system_decision = 'REJECT';
-    final_action = 'NO_ALERT';
+    final_action = 'NO_ACTION';
     halted_at_stage = 'Stage 5: Wick Validation';
     rejection_reason = sweepCheck.reason;
   }
   // Stage 6: Fibonacci 50% Equilibrium Zone Check
   else if (fibStatus === 'REJECT') {
     system_decision = 'REJECT';
-    final_action = 'NO_ALERT';
+    final_action = 'NO_ACTION';
     halted_at_stage = 'Stage 6: Fibonacci 50% Equilibrium Zone';
     rejection_reason = fibReason;
   }
   // Stage 7: News Guard Fail-Safe Check
   else if (newsStatus === 'INCONCLUSIVE') {
     system_decision = 'INCONCLUSIVE';
-    final_action = 'NO_ALERT';
+    final_action = 'NO_ACTION';
     halted_at_stage = 'Stage 7: News Guard Fail-Safe';
     rejection_reason = newsReason;
   }
   else if (newsStatus === 'REJECT') {
     system_decision = 'REJECT';
-    final_action = 'NO_ALERT';
+    final_action = 'NO_ACTION';
     halted_at_stage = 'Stage 7: News Guard Fail-Safe';
     rejection_reason = newsReason;
   }
   // Vision verification quality check
   else if (visionStatus === 'INCONCLUSIVE') {
     system_decision = 'INCONCLUSIVE';
-    final_action = 'NO_ALERT';
+    final_action = 'NO_ACTION';
     halted_at_stage = 'Data Quality / Vision Verification';
     rejection_reason = visionEvidence;
   }
@@ -1480,7 +1480,7 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
       : v3Decision.systemDecision === 'BLOCKED'
       ? 'REJECT'
       : 'INCONCLUSIVE';
-    final_action = v3Decision.finalAction === 'MANUAL_ALERT' ? 'MANUAL_ALERT' : 'NO_ALERT';
+    final_action = v3Decision.finalAction;
     if (v3Decision.systemDecision !== 'PASS') {
       const failedGate = v3Decision.gates.find((gate) => gate.status !== 'PASS');
       halted_at_stage = `V3 Gate ${failedGate?.gateNumber ?? 9}`;
@@ -1655,7 +1655,7 @@ function createInconclusiveTelemetry(
     guardrails: { news_guard: { news_event_detected: false, news_window_state: 'NEWS_DATA_UNAVAILABLE', news_source: 'OFFLINE', reason } },
     system_execution: {
       system_decision: 'INCONCLUSIVE',
-      final_action: 'NO_ALERT',
+      final_action: 'NO_ACTION',
       user_recorded_action: 'NOT_RECORDED',
       halted_at_stage: 'Data Quality Check',
       rejection_reason: reason,

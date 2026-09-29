@@ -297,7 +297,7 @@ runTest('Test 16: Stage 8 - News source offline triggers INCONCLUSIVE ("Never as
   });
   assert.strictEqual(telemetry.guardrails.news_guard.news_window_state, 'NEWS_DATA_UNAVAILABLE');
   assert.strictEqual(telemetry.system_execution.system_decision, 'INCONCLUSIVE');
-  assert.strictEqual(telemetry.system_execution.final_action, 'NO_ALERT');
+  assert.strictEqual(telemetry.system_execution.final_action, 'NO_ACTION');
 });
 
 // 17. Stage 9: T-10s Pressure Observation Non-Filtering Categorical
@@ -421,7 +421,7 @@ runTest('Test 21: Stage 3 Negative Boundary - Close(C3) exactly equal to High(C1
 runTest('Test 22: OCR/CV Quality Metric - <85% INVALID (INCONCLUSIVE), 85-95% DEGRADED, >95% COMPLETE', () => {
   const candles = feedManager.generateDeterministicValidSetup(1.0845);
 
-  // 1. Below 85% -> INVALID -> INCONCLUSIVE, NO_ALERT
+  // 1. Below 85% -> INVALID -> INCONCLUSIVE, NO_ACTION
   const telInvalid = executeStrategyPipeline({
     candles,
     currentCandleIndex: 24,
@@ -432,7 +432,7 @@ runTest('Test 22: OCR/CV Quality Metric - <85% INVALID (INCONCLUSIVE), 85-95% DE
   });
   assert.strictEqual(telInvalid.metadata.data_quality, 'INVALID');
   assert.strictEqual(telInvalid.system_execution.system_decision, 'INCONCLUSIVE');
-  assert.strictEqual(telInvalid.system_execution.final_action, 'NO_ALERT');
+  assert.strictEqual(telInvalid.system_execution.final_action, 'NO_ACTION');
 
   // 2. 85% to 95% -> DEGRADED -> evaluated with DEGRADED tag
   const telDegraded = executeStrategyPipeline({
@@ -474,7 +474,7 @@ runTest('Test 23: Data Quality Fail-Safe - Zero range flat candle triggers DEGRA
   });
   assert.strictEqual(tel.metadata.data_quality, 'DEGRADED');
   assert.strictEqual(tel.system_execution.system_decision, 'INCONCLUSIVE');
-  assert.strictEqual(tel.system_execution.final_action, 'NO_ALERT');
+  assert.strictEqual(tel.system_execution.final_action, 'NO_ACTION');
 });
 
 // 24. Master Telemetry Completeness Check (Section 6 Schema Verification)
@@ -958,7 +958,7 @@ runTest('Test 36: Stage 5 - Bearish prior-swing-low liquidity sweep: Low(C3) < S
 
   assert.strictEqual(tel.validation_metrics.liquidity_sweep.status, 'SWEEP_DETECTED');
   assert.strictEqual(tel.system_execution.system_decision, 'REJECT');
-  assert.strictEqual(tel.system_execution.final_action, 'NO_ALERT');
+  assert.strictEqual(tel.system_execution.final_action, 'NO_ACTION');
 });
 
 // 37. Stage 7: Bearish Fibonacci 50% Premium Rule
