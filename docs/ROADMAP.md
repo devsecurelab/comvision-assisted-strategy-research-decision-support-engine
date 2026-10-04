@@ -3,7 +3,7 @@
 
 ### Phase 1: Architectural Foundation & Boundaries (Complete)
 - [x] Non-execution boundary enforced: No broker API, no credentials, no automated order placement.
-- [x] Terminal state strictly limited to `MANUAL_ALERT`.
+- [x] Only affirmative signal action is `MANUAL_ALERT`; fail-safe paths may return `NO_ALERT` and never place orders.
 - [x] Strategy v1.0 Frozen Specification established (`EXP-2026-001`).
 
 ### Phase 2: 9-Stage Deterministic Validation Pipeline (Complete)
@@ -17,10 +17,13 @@
 - [x] Stage 8: News Guard Fail-Safe ([-30m, +30m] window; offline = INCONCLUSIVE).
 - [x] Stage 9: T-10s Pressure Observation (Non-filtering, categorical observations only).
 
-### Phase 3: Data Feeds & Provider Provenance (Complete)
-- [x] Twelve Data 5-minute market feed integration with rate-limit warnings.
-- [x] Alpha Vantage fallback adapter with transparent provider tagging.
-- [x] Synthetic & deterministic replay market stream generator.
+### Phase 3: Data Feeds & Provider Provenance (Core REST ingestion implemented; operations work pending)
+- [x] Twelve Data `time_series` REST ingestion with OHLC validation, per-pair/timeframe minute cache, and stale-data rejection.
+- [x] Alpha Vantage `FX_INTRADAY` REST adapter with transparent provider tagging (provider plan access may be restricted).
+- [x] Central circuit breaker: only verified `LIVE_INGESTED` candles may reach signal decisions; replay/demo/override/test inputs are `INCONCLUSIVE` with `NO_ALERT`.
+- [x] Synthetic & deterministic replay remains explicitly demo-only.
+- [ ] Rate-limit-aware queue/throttling and multi-pair scan scheduling.
+- [ ] Automatic provider failover and live latency/quota dashboard (current provider selection is manual; local request counts are not provider quota reports).
 
 ### Phase 4: Access Control & Server-Side Security (Complete)
 - [x] Public informational portal & methodology guide.

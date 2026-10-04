@@ -12,12 +12,12 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import { authService } from './src/server/auth';
-import { feedManager } from './src/engine/dataProviders';
+import { feedManager, MarketDataError, MarketDataProvider } from './src/engine/dataProviders';
 import { newsGuard } from './src/engine/newsGuard';
 import { experimentTracker } from './src/engine/experimentTracker';
 import { executeStrategyPipeline } from './src/engine/pipeline';
 import { STRATEGY_MANIFEST, ACTIVE_EXPERIMENT_ID } from './src/engine/manifest';
-import { EngineSettings, Timeframe, UserAccount } from './src/engine/types';
+import { Candle, DataProvenance, EngineSettings, Timeframe, UserAccount } from './src/engine/types';
 import { durableStorage } from './src/server/storage';
 import { notificationService } from './src/server/notificationService';
 import { analyticsService } from './src/server/analyticsService';
@@ -50,6 +50,7 @@ function resolvePort(): number {
   return 3000;
 }
 const PORT = resolvePort();
+const HOST = process.env.HOST?.trim() || '0.0.0.0';
 
 // CORS support with explicit trusted-origin checking (no credential wildcard)
 const allowedOrigins = [
@@ -86,7 +87,11 @@ const currentSettings: EngineSettings = {
   maxWickRatio: 0.50,
   fibEquilibriumLevel: 0.50,
   selectedTimeframe: '5m',
-  activeProvider: 'RESEARCH_STREAM_REPLAY',
+  activeProvider: process.env.TWELVE_DATA_API_KEY
+    ? 'TWELVE_DATA'
+    : process.env.ALPHA_VANTAGE_API_KEY
+      ? 'ALPHA_VANTAGE'
+      : 'RESEARCH_STREAM_REPLAY',
   twelveDataApiKeyConfigured: !!process.env.TWELVE_DATA_API_KEY,
   alphaVantageApiKeyConfigured: !!process.env.ALPHA_VANTAGE_API_KEY,
   experimentLocked: experimentTracker.isExperimentLocked(),
@@ -271,10 +276,15 @@ app.post('/api/engine/simulate-fallback', requireApprovedUser, (req: Authenticat
 app.post('/api/engine/select-provider', requireApprovedUser, (req: AuthenticatedRequest, res) => {
   const { provider } = req.body;
   if (provider === 'TWELVE_DATA' || provider === 'ALPHA_VANTAGE' || provider === 'REPLAY' || provider === 'RESEARCH_STREAM_REPLAY') {
-    if (provider === 'REPLAY' || provider === 'RESEARCH_STREAM_REPLAY') {
-      feedManager.setKeys('', '');
-    }
-    const status = feedManager.getStatus();
+    const resolvedProvider: MarketDataProvider = provider === 'REPLAY' ? 'RESEARCH_STREAM_REPLAY' : provider;
+    currentSettings.activeProvider = resolvedProvider;
+    const status = feedManager.selectProvider(resolvedProvider);
+    durableStorage.recordAuditEvent({
+      event_type: 'MARKET_DATA_PROVIDER_SELECTED',
+      actor_id: req.user?.id,
+      actor_email: req.user?.email,
+      details: { provider: resolvedProvider, status: status.status },
+    });
     return res.json({ success: true, providerStatus: status });
   }
   res.status(400).json({ error: 'INVALID_PROVIDER', message: 'Valid providers are TWELVE_DATA, ALPHA_VANTAGE, REPLAY' });
@@ -452,14 +462,24 @@ app.get(['/comvision-engine-v2.0-package.zip', '/download/comvision-engine-v2.0-
   res.status(404).json({ error: 'Package file not found' });
 });
 
-app.get('/api/market/feed', requireApprovedUser, (req, res) => {
+app.get('/api/market/feed', requireApprovedUser, async (req, res) => {
+  const pair = (req.query.pair as string) || 'EUR/USD';
   const tf = ((req.query.timeframe as string) || currentSettings.selectedTimeframe) as Timeframe;
-  const candles = feedManager.generateDeterministicValidSetup(1.0845, tf);
-  res.json({
-    timeframe: tf,
-    candles,
-    provider: feedManager.getStatus(),
-  });
+  if (!['1m', '5m', '15m', '30m', '1h'].includes(tf)) {
+    return res.status(400).json({ error: 'INVALID_TIMEFRAME', message: 'Valid timeframes are 1m, 5m, 15m, 30m, 1h.' });
+  }
+  try {
+    const result = await feedManager.fetchCandles(pair, tf, currentSettings.activeProvider as MarketDataProvider);
+    return res.json({ timeframe: tf, pair, ...result, providerStatus: feedManager.getStatus() });
+  } catch (error: any) {
+    const providerError = error instanceof MarketDataError ? error : null;
+    return res.status(503).json({
+      error: providerError?.code || 'MARKET_DATA_UNAVAILABLE',
+      message: providerError?.message || 'Market data is unavailable. No signal was generated.',
+      dataProvenance: 'REPLAY',
+      providerStatus: feedManager.getStatus(),
+    });
+  }
 });
 
 app.get('/api/news/status', requireApprovedUser, (_req, res) => {
@@ -598,13 +618,30 @@ app.post(['/api/engine/evaluate-candidate', '/api/engine/scan-candidate'], requi
   const { pair, candleOverride, customBias, cvConfidence, cvEvidenceSource, timeframe } = req.body;
   const selectedPair = pair || 'EUR/USD';
   const resolvedTimeframe = ((timeframe as string) || currentSettings.selectedTimeframe) as Timeframe;
+  const selectedProvider = currentSettings.activeProvider as MarketDataProvider;
+  let baseCandles: Candle[];
+  let dataProvenance: DataProvenance = 'REPLAY';
+  let dataProvider: MarketDataProvider = selectedProvider;
+  let marketDataError: { code: string; message: string } | undefined;
 
-  const isOverride = !!candleOverride;
-  const baseCandles = candleOverride || feedManager.generateDeterministicValidSetup(
-    selectedPair.startsWith('EUR') ? 1.0850 : 18500,
-    resolvedTimeframe
-  );
-  const dataProvenance = isOverride ? 'SYNTHETIC_OVERRIDE' : 'REPLAY';
+  if (Array.isArray(candleOverride) && candleOverride.length > 0) {
+    baseCandles = candleOverride;
+    dataProvenance = 'SYNTHETIC_OVERRIDE';
+  } else {
+    try {
+      const marketData = await feedManager.fetchCandles(selectedPair, resolvedTimeframe, selectedProvider);
+      baseCandles = marketData.candles;
+      dataProvenance = marketData.dataProvenance;
+      dataProvider = marketData.provider;
+    } catch (error: any) {
+      baseCandles = [];
+      dataProvenance = 'REPLAY';
+      marketDataError = {
+        code: error instanceof MarketDataError ? error.code : 'MARKET_DATA_UNAVAILABLE',
+        message: error instanceof MarketDataError ? error.message : 'Market data is unavailable. No signal was generated.',
+      };
+    }
+  }
   const resolvedCvSource = cvEvidenceSource || 'SIMULATION_HARNESS';
   const resolvedCvConfidence = typeof cvConfidence === 'number' ? cvConfidence : 0.95;
 
@@ -618,6 +655,7 @@ app.post(['/api/engine/evaluate-candidate', '/api/engine/scan-candidate'], requi
     cvConfidence: resolvedCvConfidence,
     cvEvidenceSource: resolvedCvSource,
     dataProvenance,
+    provider: dataProvider,
     pair: selectedPair,
     liveTickPressure: {
       classification: 'ALIGNED',
@@ -637,6 +675,7 @@ app.post(['/api/engine/evaluate-candidate', '/api/engine/scan-candidate'], requi
   telemetry.metadata.timestamp_utc = nowIso;
   telemetry.metadata.signal_timestamp_utc = nowIso;
   telemetry.metadata.setup_id = experimentTracker.generateNextSetupId();
+  if (marketDataError) telemetry.system_execution.rejection_reason = `${marketDataError.code}: ${marketDataError.message}`;
 
   const recorded = experimentTracker.recordCandidate(telemetry);
 
@@ -646,7 +685,7 @@ app.post(['/api/engine/evaluate-candidate', '/api/engine/scan-candidate'], requi
     notifResult = await notificationService.dispatchSignalAlert(recorded);
   }
 
-  res.json({ telemetry: recorded, notifications: notifResult });
+  res.json({ telemetry: recorded, notifications: notifResult, marketDataError, providerStatus: feedManager.getStatus() });
 });
 
 // --- ADMIN-ONLY ROUTES ---
@@ -746,7 +785,10 @@ app.post('/api/admin/settings', requireAdmin, (req: AuthenticatedRequest, res) =
   }
 
   if (activeProvider) {
-    currentSettings.activeProvider = activeProvider;
+    if (activeProvider === 'TWELVE_DATA' || activeProvider === 'ALPHA_VANTAGE' || activeProvider === 'RESEARCH_STREAM_REPLAY') {
+      currentSettings.activeProvider = activeProvider;
+      feedManager.selectProvider(activeProvider);
+    }
   }
 
   if (twelveDataKey !== undefined || alphaVantageKey !== undefined) {
@@ -859,8 +901,8 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[ComVision Engine] Server running on http://0.0.0.0:${PORT}`);
+  app.listen(PORT, HOST, () => {
+    console.log(`[ComVision Engine] Server running on http://${HOST}:${PORT}`);
     console.log(`[ComVision Engine] Architecture: Strictly Non-Execution Manual Alert Engine`);
     console.log(`[ComVision Engine] Experiment Freeze: ${ACTIVE_EXPERIMENT_ID} Scope Immutable`);
     console.log(`[ComVision Engine] Durable Persistence: Active (data/)`);

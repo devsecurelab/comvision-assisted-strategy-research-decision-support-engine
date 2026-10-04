@@ -76,18 +76,20 @@ git --version
 git clone <YOUR_GITHUB_REPOSITORY_URL> comvision-engine
 cd comvision-engine
 
-# Step 5: Install dependencies
-npm install
+# Step 5: Install the exact locked dependencies
+npm ci
 
-# Step 6: Configure environment variables locally
+# Step 6: Configure environment variables locally (the .env file is Git-ignored)
 cp .env.example .env
 nano .env
-# (Fill in your optional TELEGRAM_BOT_TOKEN, ADMIN_BOOTSTRAP_KEY, etc. Press Ctrl+O then Enter to save, Ctrl+X to exit)
+# Add your TWELVE_DATA_API_KEY and/or ALPHA_VANTAGE_API_KEY here; never commit or share these secrets.
+# Alpha Vantage FX_INTRADAY access may require an entitled plan. Select the provider manually in the dashboard.
+# Save with Ctrl+O, Enter, then Ctrl+X. Keep HOST=127.0.0.1 for this-phone-only access.
 
 # Step 7: Build the production bundle (builds client assets and standalone server.cjs)
 npm run build
 
-# Step 8: Run the automated verification test suite (71 tests)
+# Step 8: Run the automated verification test suite (75 tests)
 npm test
 ```
 
@@ -96,10 +98,12 @@ npm test
 #### Method A: Foreground Execution (for testing & interactive logs)
 ```bash
 # Start standalone production server:
-npm run start
+npm start
 
 # To stop: press Ctrl + C
 ```
+
+Open **http://127.0.0.1:3000** in the browser on the Android device. With `HOST=127.0.0.1`, the server is reachable only from that device; set `HOST=0.0.0.0` only if you intentionally want other devices on your network to connect. Without a configured, selected provider and a valid fresh response, scans remain `INCONCLUSIVE` and produce no alert; replay is for demo/testing only.
 
 #### Method B: Persistent Background Execution with PM2 (Recommended)
 ```bash

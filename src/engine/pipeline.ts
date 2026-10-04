@@ -42,6 +42,7 @@ export interface PipelineInput {
   cvConfidence?: number; // 0.0 to 1.0
   cvEvidenceSource?: CVEvidenceSource;
   dataProvenance?: DataProvenance;
+  provider?: 'TWELVE_DATA' | 'ALPHA_VANTAGE' | 'RESEARCH_STREAM_REPLAY';
   pair?: string;
   asset?: string;
   liveTickPressure?: {
@@ -1131,6 +1132,8 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
     newsEvents,
     newsSourceOnline,
     cvConfidence,
+    dataProvenance = 'REPLAY',
+    provider = 'RESEARCH_STREAM_REPLAY',
     pair = 'EUR/USD',
     asset = 'EUR/USD',
     customSettings,
@@ -1148,8 +1151,28 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
       selectedTimeframe,
       'INVALID',
       'Insufficient candle history for 5-candle symmetric fractal and 3-candle expansion analysis',
-      nowIso
+      nowIso,
+      dataProvenance,
+      provider
     );
+  }
+
+  // Production circuit breaker: only successfully fetched provider candles may reach a signal decision.
+  // This guard lives in the shared pipeline so alternate callers cannot bypass the scan-route checks.
+  if (dataProvenance !== 'LIVE_INGESTED') {
+    const nowIso = new Date().toISOString();
+    const blocked = createInconclusiveTelemetry(
+      pair,
+      asset,
+      selectedTimeframe,
+      'DEGRADED',
+      `Market data circuit breaker: ${dataProvenance} is not verified live provider data. No alert can be generated.`,
+      nowIso,
+      dataProvenance,
+      provider
+    );
+    blocked.system_execution.halted_at_stage = 'Market Data Circuit Breaker';
+    return blocked;
   }
 
   const c3 = candles[currentCandleIndex];
@@ -1158,7 +1181,7 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
 
   const cvConf = typeof cvConfidence === 'number' ? cvConfidence : 0.95;
   const resolvedCvSource: CVEvidenceSource = input.cvEvidenceSource || (input.cvConfidence !== undefined ? 'SIMULATION_HARNESS' : 'SIMULATION_HARNESS');
-  const resolvedProvenance: DataProvenance = input.dataProvenance || 'REPLAY';
+  const resolvedProvenance: DataProvenance = dataProvenance;
 
   const isZeroRange = Math.abs(c3.high - c3.low) <= 0.000001;
   const dataQuality: DataQuality = isZeroRange
@@ -1581,7 +1604,7 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
       status: 'PENDING',
     },
     provider_provenance: {
-      provider: 'RESEARCH_STREAM_REPLAY',
+      provider,
       provider_state: resolvedProvenance,
       data_provenance: resolvedProvenance,
       timestamp_ingested: nowIso,
@@ -1595,7 +1618,9 @@ function createInconclusiveTelemetry(
   timeframe: Timeframe,
   dataQuality: DataQuality,
   reason: string,
-  nowIso: string
+  nowIso: string,
+  dataProvenance: DataProvenance = 'REPLAY',
+  provider: 'TWELVE_DATA' | 'ALPHA_VANTAGE' | 'RESEARCH_STREAM_REPLAY' = 'RESEARCH_STREAM_REPLAY'
 ): MasterTelemetry {
   return {
     metadata: {
@@ -1609,6 +1634,7 @@ function createInconclusiveTelemetry(
       asset,
       data_quality: dataQuality,
       cv_confidence: 0,
+      data_provenance: dataProvenance,
     },
     market_context: {
       selected_timeframe: timeframe,
@@ -1638,6 +1664,12 @@ function createInconclusiveTelemetry(
       user_recorded_action: 'NOT_RECORDED',
       halted_at_stage: 'Data Quality Check',
       rejection_reason: reason,
+    },
+    provider_provenance: {
+      provider,
+      provider_state: dataProvenance === 'LIVE_INGESTED' ? 'LIVE' : 'BLOCKED_NON_LIVE',
+      data_provenance: dataProvenance,
+      timestamp_ingested: nowIso,
     },
     next_candle_observation: {
       status: 'NEXT_CANDLE_INCONCLUSIVE',

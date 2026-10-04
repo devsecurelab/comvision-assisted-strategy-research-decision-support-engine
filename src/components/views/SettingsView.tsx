@@ -219,8 +219,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </h3>
           </div>
           <p className="text-xs text-slate-400 leading-relaxed">
-            Select market data source. Real-time REST/WebSocket or deterministic
-            Research Replay.
+            Select a REST market-data source. Provider choice is manual; automatic failover and multi-pair rate-limit scheduling are not implemented. Replay data is demo-only and cannot generate alerts.
           </p>
 
           <div className="space-y-2 pt-2">
@@ -233,13 +232,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               }`}
             >
               <div>
-                <div className="font-bold">Twelve Data (Primary REST/WS)</div>
+                <div className="font-bold">Twelve Data (time_series REST)</div>
                 <div className="text-[10px] text-slate-500">
-                  Direct Forex/CFD Ingestion Feed
+                  Requires a configured API key and a valid provider response
                 </div>
               </div>
               <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800">
-                ACTIVE
+                MANUAL
               </span>
             </button>
 
@@ -252,13 +251,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               }`}
             >
               <div>
-                <div className="font-bold">Alpha Vantage (Automated Fallback)</div>
+                <div className="font-bold">Alpha Vantage FX_INTRADAY (REST)</div>
                 <div className="text-[10px] text-slate-500">
-                  Secondary Resilient FX Quote Mirror
+                  Manual provider choice; endpoint access may require a paid plan
                 </div>
               </div>
               <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800">
-                STANDBY
+                MANUAL
               </span>
             </button>
 
@@ -294,7 +293,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 Provider Health &amp; Daily API Quota Monitoring
               </h3>
               <p className="text-xs text-slate-400 font-mono">
-                Automated Ingestion Failover, Rate-Limit Defense &amp; Quota Tracking
+                Provider Responses, Request Counts &amp; Explicit Simulation State
               </p>
             </div>
           </div>
@@ -302,22 +301,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <div className="flex items-center gap-2 font-mono text-xs">
             <span
               className={`px-2.5 py-1 rounded-full border text-[11px] font-bold flex items-center gap-1.5 ${
-                providerStatus?.isFallbackLive || providerStatus?.status === 'FALLBACK_LIVE'
+                providerStatus?.isFallbackLive
                   ? 'bg-amber-950/70 border-amber-500/60 text-amber-300 animate-pulse'
-                  : 'bg-emerald-950/70 border-emerald-500/60 text-emerald-300'
+                  : providerStatus?.status === 'ONLINE'
+                    ? 'bg-emerald-950/70 border-emerald-500/60 text-emerald-300'
+                    : 'bg-rose-950/70 border-rose-500/60 text-rose-300'
               }`}
             >
               <span
                 className={`w-2 h-2 rounded-full ${
-                  providerStatus?.isFallbackLive || providerStatus?.status === 'FALLBACK_LIVE'
+                  providerStatus?.isFallbackLive
                     ? 'bg-amber-400'
-                    : 'bg-emerald-400'
+                    : providerStatus?.status === 'ONLINE' ? 'bg-emerald-400' : 'bg-rose-400'
                 }`}
               />
               <span>
-                {providerStatus?.isFallbackLive || providerStatus?.status === 'FALLBACK_LIVE'
-                  ? 'STATE: FALLBACK_LIVE ACTIVE'
-                  : 'STATE: PRIMARY LIVE ONLINE'}
+                {providerStatus?.isFallbackLive
+                  ? 'STATE: FAILOVER SIMULATION ONLY'
+                  : providerStatus?.status === 'ONLINE'
+                    ? 'STATE: LIVE RESPONSE VERIFIED'
+                    : 'STATE: OFFLINE / NOT VERIFIED'}
               </span>
             </span>
           </div>
@@ -343,7 +346,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   ? 'bg-amber-950/40 text-amber-400 border-amber-500/30'
                   : 'bg-emerald-950/40 text-emerald-400 border-emerald-500/30'
               }`}>
-                {providerStatus?.isFallbackLive ? 'RATE-LIMITED (SIMULATED)' : 'ACTIVE PRIMARY'}
+                {providerStatus?.isFallbackLive ? 'SIMULATION ONLY' : selectedProvider === 'TWELVE_DATA' ? (providerStatus?.status === 'ONLINE' ? 'LIVE RESPONSE VERIFIED' : 'SELECTED — NOT VERIFIED') : providerStatus?.quota?.twelveData?.configured ? 'CONFIGURED — NOT SELECTED' : 'NO API KEY'}
               </span>
             </div>
 
@@ -351,7 +354,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <div className="flex justify-between items-baseline text-xs font-mono">
                 <span className="text-slate-400">Daily Quota Usage:</span>
                 <span className="text-slate-200 font-bold">
-                  {providerStatus?.quota?.twelveData?.used ?? 14} / {providerStatus?.quota?.twelveData?.limit ?? 800} req
+                  {providerStatus?.quota?.twelveData?.used ?? 0} / {providerStatus?.quota?.twelveData?.limit ? `${providerStatus.quota.twelveData.limit} req` : 'provider limit not reported'}
                 </span>
               </div>
               {/* Progress bar */}
@@ -362,8 +365,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     width: `${Math.min(
                       100,
                       Math.round(
-                        ((providerStatus?.quota?.twelveData?.used ?? 14) /
-                          (providerStatus?.quota?.twelveData?.limit ?? 800)) *
+                        ((providerStatus?.quota?.twelveData?.used ?? 0) /
+                          (providerStatus?.quota?.twelveData?.limit || 1)) *
                           100
                       )
                     )}%`,
@@ -371,7 +374,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 />
               </div>
               <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                <span>Remaining: {(providerStatus?.quota?.twelveData?.limit ?? 800) - (providerStatus?.quota?.twelveData?.used ?? 14)} requests</span>
+                <span>{providerStatus?.quota?.twelveData?.limit ? `Remaining: ${Math.max(0, providerStatus.quota.twelveData.limit - (providerStatus.quota.twelveData.used ?? 0))} requests` : 'Provider quota limit not reported'}</span>
                 <span>Config: TWELVE_DATA_API_KEY</span>
               </div>
             </div>
@@ -395,7 +398,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   ? 'bg-amber-500/20 text-amber-300 border-amber-400/50 font-bold'
                   : 'bg-slate-800 text-slate-400 border-slate-700'
               }`}>
-                {providerStatus?.isFallbackLive ? 'FALLBACK_LIVE (INGESTING)' : 'STANDBY MIRROR'}
+                {providerStatus?.isFallbackLive ? 'SIMULATION ONLY' : selectedProvider === 'ALPHA_VANTAGE' ? (providerStatus?.status === 'ONLINE' ? 'LIVE RESPONSE VERIFIED' : 'SELECTED — NOT VERIFIED') : providerStatus?.quota?.alphaVantage?.configured ? 'CONFIGURED — NOT SELECTED' : 'NO API KEY'}
               </span>
             </div>
 
@@ -403,7 +406,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <div className="flex justify-between items-baseline text-xs font-mono">
                 <span className="text-slate-400">Daily Quota Usage:</span>
                 <span className="text-slate-200 font-bold">
-                  {providerStatus?.quota?.alphaVantage?.used ?? 3} / {providerStatus?.quota?.alphaVantage?.limit ?? 500} req
+                  {providerStatus?.quota?.alphaVantage?.used ?? 0} / {providerStatus?.quota?.alphaVantage?.limit ? `${providerStatus.quota.alphaVantage.limit} req` : 'provider limit not reported'}
                 </span>
               </div>
               {/* Progress bar */}
@@ -414,8 +417,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     width: `${Math.min(
                       100,
                       Math.round(
-                        ((providerStatus?.quota?.alphaVantage?.used ?? 3) /
-                          (providerStatus?.quota?.alphaVantage?.limit ?? 500)) *
+                        ((providerStatus?.quota?.alphaVantage?.used ?? 0) /
+                          (providerStatus?.quota?.alphaVantage?.limit || 1)) *
                           100
                       )
                     )}%`,
@@ -423,7 +426,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 />
               </div>
               <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                <span>Remaining: {(providerStatus?.quota?.alphaVantage?.limit ?? 500) - (providerStatus?.quota?.alphaVantage?.used ?? 3)} requests</span>
+                <span>{providerStatus?.quota?.alphaVantage?.limit ? `Remaining: ${Math.max(0, providerStatus.quota.alphaVantage.limit - (providerStatus.quota.alphaVantage.used ?? 0))} requests` : 'Provider quota limit not reported'}</span>
                 <span>Config: ALPHA_VANTAGE_API_KEY</span>
               </div>
             </div>
@@ -436,7 +439,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div className="flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
               <span>
-                <strong>FAILOVER TRIGGERED:</strong> System is operating under <strong>FALLBACK_LIVE</strong> mode. Twelve Data feed was redirected to Alpha Vantage FX Intraday mirror with zero interruption to the 19-stage pipeline.
+                <strong>FAILOVER SIMULATION ONLY:</strong> This control does not request or ingest market data. A scan remains blocked unless a real provider response is verified.
               </span>
             </div>
           </div>
@@ -446,7 +449,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         {onSimulateFallback && (
           <div className="pt-2 flex items-center justify-between flex-wrap gap-3 border-t border-slate-800">
             <div className="text-xs font-mono text-slate-400">
-              <span>Test Failover Simulation: Verify automated fallback to Alpha Vantage on primary rate-limit.</span>
+              <span>Failover UI simulation only — it does not test a provider request or automatic rate-limit handling.</span>
             </div>
             <button
               id="btn-simulate-fallback-toggle"
@@ -460,8 +463,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <RefreshCw className="w-3.5 h-3.5" />
               <span>
                 {providerStatus?.isFallbackLive
-                  ? 'Restore Primary (Exit FALLBACK_LIVE)'
-                  : 'Simulate Rate-Limit & Trigger FALLBACK_LIVE'}
+                  ? 'Exit Simulation'
+                  : 'Simulate Failover (No Data Fetch)'}
               </span>
             </button>
           </div>

@@ -4,8 +4,8 @@
 
 import assert from 'node:assert';
 import path from 'node:path';
-import { feedManager } from '../src/engine/dataProviders';
-import { executeStrategyPipeline, detectFractalSwings, evaluateMarketStructure, isInsideCandle, detectLiquidityPools, evaluateMomentum } from '../src/engine/pipeline';
+import { feedManager, MarketFeedManager } from '../src/engine/dataProviders';
+import { executeStrategyPipeline as executePipeline, detectFractalSwings, evaluateMarketStructure, isInsideCandle, detectLiquidityPools, evaluateMomentum } from '../src/engine/pipeline';
 import { newsGuard } from '../src/engine/newsGuard';
 import { experimentTracker } from '../src/engine/experimentTracker';
 import { authService } from '../src/server/auth';
@@ -35,14 +35,20 @@ function runTest(name: string, fn: () => void | Promise<void>) {
   testQueue.push({ name, fn });
 }
 
-// 1. Non-Execution Architectural Boundary Verification
-runTest('Test 1: Non-execution boundary ensures final_action is MANUAL_ALERT and never an automated broker execution command', () => {
+// These fixtures exercise strategy calculations; provenance safety is tested separately below.
+const executeStrategyPipeline: typeof executePipeline = (input) => executePipeline({
+  ...input,
+  dataProvenance: input.dataProvenance ?? 'LIVE_INGESTED',
+});
+
+// 1. Non-live provenance circuit breaker
+runTest('Test 1: REPLAY provenance is INCONCLUSIVE and cannot emit an alert', () => {
   assert.strictEqual(STRATEGY_MANIFEST.architectural_boundary.is_automated_execution_bot, false);
   assert.strictEqual(STRATEGY_MANIFEST.architectural_boundary.terminal_state, 'MANUAL_ALERT');
   assert.strictEqual(STRATEGY_MANIFEST.architectural_boundary.direct_broker_connection_allowed, false);
 
   const candles = feedManager.generateDeterministicValidSetup(1.0845);
-  const telemetry = executeStrategyPipeline({
+  const telemetry = executePipeline({
     candles,
     currentCandleIndex: 24,
     selectedTimeframe: '5m',
@@ -50,9 +56,13 @@ runTest('Test 1: Non-execution boundary ensures final_action is MANUAL_ALERT and
     newsEvents: newsGuard.getEvents(),
     newsSourceOnline: true,
     cvConfidence: 0.98,
+    dataProvenance: 'REPLAY',
   });
 
-  assert.strictEqual(telemetry.system_execution.final_action, 'MANUAL_ALERT');
+  assert.strictEqual(telemetry.system_execution.system_decision, 'INCONCLUSIVE');
+  assert.strictEqual(telemetry.system_execution.final_action, 'NO_ALERT');
+  assert.strictEqual(telemetry.metadata.data_provenance, 'REPLAY');
+  assert.strictEqual(telemetry.system_execution.halted_at_stage, 'Market Data Circuit Breaker');
   assert.notStrictEqual(telemetry.system_execution.final_action, 'EXECUTE_ORDER');
   assert.notStrictEqual(telemetry.system_execution.final_action, 'AUTO_BUY');
 });
@@ -1783,6 +1793,95 @@ runTest('Test 71: Strategy v2.0 - Momentum numerical formulas, baseline calculat
   assert.strictEqual(momZero.momentum_state, 'WEAK_MOMENTUM');
 });
 
+
+runTest('Circuit breaker blocks synthetic overrides and test fixtures', () => {
+  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  for (const dataProvenance of ['SYNTHETIC_OVERRIDE', 'TEST'] as const) {
+    const telemetry = executePipeline({
+      candles,
+      currentCandleIndex: candles.length - 1,
+      selectedTimeframe: '5m',
+      newsEvents: [],
+      newsSourceOnline: true,
+      dataProvenance,
+    });
+    assert.strictEqual(telemetry.system_execution.system_decision, 'INCONCLUSIVE');
+    assert.strictEqual(telemetry.system_execution.final_action, 'NO_ALERT');
+  }
+});
+
+runTest('Twelve Data adapter fetches actual time_series OHLC and reuses same-minute cache', async () => {
+  const newest = Date.now() - 30_000;
+  const values = Array.from({ length: 25 }, (_, index) => ({
+    datetime: new Date(newest - index * 5 * 60_000).toISOString(),
+    open: '1.1000', high: '1.1010', low: '1.0990', close: '1.1005', volume: '100',
+  }));
+  let requestCount = 0;
+  let requestedUrl: URL | undefined;
+  const request = (async (input: RequestInfo | URL) => {
+    requestCount++;
+    requestedUrl = new URL(String(input));
+    return new Response(JSON.stringify({ status: 'ok', values }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }) as typeof fetch;
+  const manager = new MarketFeedManager('test-key', '', request);
+  const first = await manager.fetchCandles('EUR/USD', '5m', 'TWELVE_DATA');
+  const second = await manager.fetchCandles('EUR/USD', '5m', 'TWELVE_DATA');
+  assert.strictEqual(requestedUrl?.hostname, 'api.twelvedata.com');
+  assert.strictEqual(requestedUrl?.pathname, '/time_series');
+  assert.strictEqual(requestedUrl?.searchParams.get('interval'), '5min');
+  assert.strictEqual(first.dataProvenance, 'LIVE_INGESTED');
+  assert.strictEqual(first.candles.length, 25);
+  assert.strictEqual(second.cacheHit, true);
+  assert.strictEqual(requestCount, 1);
+});
+
+runTest('Alpha Vantage adapter fetches real FX_INTRADAY OHLC and reports live provenance', async () => {
+  const newest = Date.now() - 30_000;
+  const series: Record<string, unknown> = {};
+  for (let index = 0; index < 25; index++) {
+    const timestamp = new Date(newest - index * 5 * 60_000).toISOString().replace('T', ' ').slice(0, 19);
+    series[timestamp] = { '1. open': '1.1000', '2. high': '1.1010', '3. low': '1.0990', '4. close': '1.1005' };
+  }
+  let requestedUrl: URL | undefined;
+  const request = (async (input: RequestInfo | URL) => {
+    requestedUrl = new URL(String(input));
+    return new Response(JSON.stringify({ 'Meta Data': { '6. Time Zone': 'UTC' }, 'Time Series FX (5min)': series }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }) as typeof fetch;
+  const manager = new MarketFeedManager('', 'test-key', request);
+  const result = await manager.fetchCandles('EUR/USD', '5m', 'ALPHA_VANTAGE');
+  assert.strictEqual(requestedUrl?.hostname, 'www.alphavantage.co');
+  assert.strictEqual(requestedUrl?.searchParams.get('function'), 'FX_INTRADAY');
+  assert.strictEqual(requestedUrl?.searchParams.get('from_symbol'), 'EUR');
+  assert.strictEqual(requestedUrl?.searchParams.get('to_symbol'), 'USD');
+  assert.strictEqual(requestedUrl?.searchParams.get('interval'), '5min');
+  assert.strictEqual(result.dataProvenance, 'LIVE_INGESTED');
+  assert.strictEqual(result.candles.length, 25);
+});
+
+
+runTest('Stale provider candles and missing live credentials fail closed without replay fallback', async () => {
+  const managerWithoutKey = new MarketFeedManager('', '', (async () => {
+    throw new Error('must not call fetch');
+  }) as typeof fetch);
+  await assert.rejects(
+    managerWithoutKey.fetchCandles('EUR/USD', '5m', 'TWELVE_DATA'),
+    (error: any) => error?.code === 'PROVIDER_NOT_CONFIGURED'
+  );
+
+  const staleNewest = Date.now() - 30 * 60_000;
+  const values = Array.from({ length: 25 }, (_, index) => ({
+    datetime: new Date(staleNewest - index * 5 * 60_000).toISOString(),
+    open: '1.1000', high: '1.1010', low: '1.0990', close: '1.1005', volume: '100',
+  }));
+  const staleManager = new MarketFeedManager('test-key', '', (async () =>
+    new Response(JSON.stringify({ status: 'ok', values }), { status: 200 })
+  ) as typeof fetch);
+  await assert.rejects(
+    staleManager.fetchCandles('EUR/USD', '5m', 'TWELVE_DATA'),
+    (error: any) => error?.code === 'STALE_MARKET_DATA'
+  );
+});
+
 // Run all tests sequentially
 (async () => {
   for (const t of testQueue) {
@@ -1801,4 +1900,3 @@ runTest('Test 71: Strategy v2.0 - Momentum numerical formulas, baseline calculat
     process.exit(1);
   }
 })();
-

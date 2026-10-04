@@ -884,9 +884,9 @@ export const DocsView: React.FC = () => {
             {[
               {
                 title: '1. Live Vision Stream',
-                whatItDoes: 'Displays normalized live chart stream canvas, price trajectory, and real-time bounding box recognition overlay.',
+                whatItDoes: 'Displays the dashboard chart canvas and its current price trajectory; this view is not a connected screen-capture/CV pipeline.',
                 whatUserSees: 'Live animated candle canvas with FVG highlight zones, swing high/low badges, and current bar timer.',
-                whatDataItUses: 'Real-time candle feeds (Twelve Data, Alpha Vantage, or Replay engine) + OCR confidence metrics.',
+                whatDataItUses: 'The selected candle source (Twelve Data REST, Alpha Vantage FX_INTRADAY, or explicitly labelled Replay) plus the current simulation/CV evidence metadata.',
                 whatResultMeans: 'Provides visual confirmation of chart geometry currently being evaluated by the sequential pipeline.',
                 whatItDoesNotDo: 'Does NOT interact with the user\'s desktop, execute broker charting scripts, or capture external application windows.',
               },
