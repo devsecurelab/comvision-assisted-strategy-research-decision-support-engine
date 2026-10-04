@@ -176,6 +176,7 @@ export default function App() {
         }
         if (data.providerStatus) {
           setProviderStatus(data.providerStatus);
+          setSelectedProvider(data.providerStatus.provider === 'RESEARCH_STREAM_REPLAY' ? 'REPLAY' : data.providerStatus.provider);
         }
         setScannerActive(data.settings?.scannerActive ?? true);
         if (data.newsStatus) {
@@ -288,11 +289,12 @@ export default function App() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${authToken}`,
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ timeframe: selectedTimeframe }),
       });
       if (res.ok) {
         const data = await res.json();
         setCurrentAlert(data.telemetry);
+        if (data.providerStatus) setProviderStatus(data.providerStatus);
         fetchEngineData();
       }
     } catch (err) {
@@ -429,6 +431,27 @@ export default function App() {
       }
     } catch (err) {
       console.error('Failed to sync timeframe selection to server:', err);
+    }
+  };
+
+  const handleSelectProvider = async (provider: 'TWELVE_DATA' | 'ALPHA_VANTAGE' | 'REPLAY') => {
+    setSelectedProvider(provider);
+    if (!authToken) return;
+    try {
+      const res = await apiFetch('/api/engine/select-provider', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ provider }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProviderStatus(data.providerStatus);
+      }
+    } catch (err) {
+      console.error('Failed to select market data provider:', err);
     }
   };
 
@@ -602,6 +625,12 @@ export default function App() {
 
         {/* Dynamic View Body */}
         <main className="flex-1 overflow-y-auto p-6 space-y-6">
+          {(!currentAlert || currentAlert.metadata.data_provenance !== 'LIVE_INGESTED' || providerStatus?.provider === 'RESEARCH_STREAM_REPLAY' || providerStatus?.status === 'OFFLINE') && (
+            <div role="alert" className="max-w-7xl mx-auto w-full rounded-xl border-2 border-rose-500 bg-rose-950/90 px-5 py-4 text-rose-50 shadow-lg shadow-rose-950/40">
+              <div className="text-base sm:text-lg font-black tracking-wide">⚠️ REPLAY/DEMO DATA — NOT LIVE</div>
+              <p className="mt-1 text-sm text-rose-100">No verified live market data is available for the current setup. The circuit breaker blocks alerts unless candles come from a live provider. Do not use this output for trading decisions.</p>
+            </div>
+          )}
           {activeTab === 'overview' && (
             <div className="space-y-6 max-w-7xl mx-auto w-full">
               {/* Stats Overview Cards */}
@@ -768,7 +797,7 @@ export default function App() {
               selectedTimeframe={selectedTimeframe}
               onSelectTimeframe={handleSelectTimeframe}
               selectedProvider={selectedProvider}
-              onSelectProvider={(p) => setSelectedProvider(p)}
+              onSelectProvider={handleSelectProvider}
               providerStatus={providerStatus}
               onSimulateFallback={handleSimulateFallback}
               onDownloadHandover={handleDownloadHandover}

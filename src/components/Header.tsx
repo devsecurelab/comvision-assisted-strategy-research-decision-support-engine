@@ -97,28 +97,30 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Provider Provenance Badge */}
         <div className={`hidden lg:flex items-center gap-2 px-3 py-1 rounded-full border text-xs ${
-          providerStatus?.isFallbackLive || providerStatus?.status === 'FALLBACK_LIVE'
+          providerStatus?.isFallbackLive
             ? 'bg-amber-950/60 border-amber-500/60 text-amber-200'
-            : 'bg-slate-800/80 border-slate-700 text-slate-300'
+            : providerStatus?.status === 'ONLINE'
+              ? 'bg-emerald-950/60 border-emerald-500/60 text-emerald-200'
+              : 'bg-rose-950/60 border-rose-500/60 text-rose-200'
         }`}>
           <Database className={`w-3.5 h-3.5 ${
-            providerStatus?.isFallbackLive || providerStatus?.status === 'FALLBACK_LIVE'
+            providerStatus?.isFallbackLive
               ? 'text-amber-400 animate-pulse'
-              : 'text-cyan-400'
+              : providerStatus?.status === 'ONLINE' ? 'text-emerald-400' : 'text-rose-400'
           }`} />
           <span className="text-[11px] font-mono">
             Provider:{' '}
             <strong className={
-              providerStatus?.isFallbackLive || providerStatus?.status === 'FALLBACK_LIVE'
+              providerStatus?.isFallbackLive
                 ? 'text-amber-300'
-                : 'text-cyan-300'
+                : providerStatus?.status === 'ONLINE' ? 'text-emerald-300' : 'text-rose-300'
             }>
-              {providerStatus?.isFallbackLive || providerStatus?.status === 'FALLBACK_LIVE'
-                ? 'FALLBACK LIVE (Alpha Vantage)'
+              {providerStatus?.isFallbackLive
+                ? 'FAILOVER SIMULATION (NO DATA)'
                 : providerStatus?.provider === 'TWELVE_DATA'
-                ? 'Twelve Data 5m'
+                ? `Twelve Data${providerStatus?.status === 'ONLINE' ? ' • VERIFIED' : ' • NOT VERIFIED'}`
                 : providerStatus?.provider === 'ALPHA_VANTAGE'
-                ? 'Alpha Vantage'
+                ? `Alpha Vantage${providerStatus?.status === 'ONLINE' ? ' • VERIFIED' : ' • NOT VERIFIED'}`
                 : 'Research Replay'}
             </strong>
           </span>
