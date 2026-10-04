@@ -106,7 +106,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   ComVision Engine
                 </h1>
                 <p className="text-[10px] text-indigo-400 font-mono tracking-wider">
-                  v2.0-FROZEN MANUAL-ALERT
+                  RDP v3.0 MANUAL-ALERT
                 </p>
               </div>
             </div>

@@ -162,10 +162,11 @@ export class NotificationService {
 
     try {
       // Query Telegram getUpdates
-      const url = `https://api.telegram.org/bot${botToken}/getUpdates?limit=25&allowed_updates=["message"]`;
+      const url = `https://api.telegram.org/bot${botToken}/getUpdates?limit=25&allowed_updates=${encodeURIComponent('["message"]')}`;
       const res = await fetch(url, {
         method: 'GET',
         headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(8_000),
       });
 
       if (!res.ok) {
@@ -270,7 +271,9 @@ export class NotificationService {
       return {
         success: false,
         configured: true,
-        error: sanitize(err?.message || 'Failed to connect to Telegram API.'),
+        error: err?.name === 'TimeoutError'
+          ? 'Telegram update request timed out after 8 seconds. Check Termux internet connectivity and try again.'
+          : sanitize(err?.message || 'Failed to connect to Telegram API.'),
       };
     }
   }
@@ -312,7 +315,7 @@ export class NotificationService {
     return [
       `🟢 COMVISION RESEARCH ALERT — VALID SIGNAL DETECTED`,
       ``,
-      `Strategy: v2.0-FROZEN (EXP-2026-V2-001)`,
+      `Strategy: RDP v3.0 (EXP-2026-V2-001)`,
       `Asset: ${asset}`,
       `Timeframe: ${tf}`,
       `Bias: ${bias}`,
@@ -369,7 +372,7 @@ export class NotificationService {
       `🔎 COMVISION NEXT-CANDLE RESULT ALERT`,
       ``,
       `Setup: ${outcome?.setup_id || telemetry.metadata?.setup_id}`,
-      `Strategy: v2.0-FROZEN (EXP-2026-V2-001)`,
+      `Strategy: RDP v3.0 (EXP-2026-V2-001)`,
       ``,
       `Next Candle Observation:`,
       `${obsOutcome} (${rawOutcome})`,

@@ -1580,7 +1580,7 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
       news_guard: {
         news_event_detected: newsEventDetected,
         news_window_state: newsWindowState,
-        news_source: newsSourceOnline ? 'ForexFactory/Investing.com Live Feed' : 'OFFLINE',
+        news_source: newsSourceOnline ? 'Trading Economics Live Calendar' : 'NEWS_DATA_UNAVAILABLE',
         reason: newsReason,
       },
     },

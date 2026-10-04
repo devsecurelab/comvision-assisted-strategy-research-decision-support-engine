@@ -1,21 +1,19 @@
 // News Guard View Component
 // Implements Fail-Safe Verification and Economic Calendar Tracking
 import React from 'react';
-import { Globe, AlertTriangle, ShieldCheck, Power, Plus } from 'lucide-react';
+import { Globe, ShieldCheck, RefreshCw } from 'lucide-react';
 import { NewsEvent } from '../../engine/types';
 
 interface NewsGuardViewProps {
   newsEvents: NewsEvent[];
   newsSourceOnline: boolean;
-  onToggleNewsSource: () => void;
-  onSimulateRedFolder: () => void;
+  onRefreshNews: () => void;
 }
 
 export const NewsGuardView: React.FC<NewsGuardViewProps> = ({
   newsEvents,
   newsSourceOnline,
-  onToggleNewsSource,
-  onSimulateRedFolder,
+  onRefreshNews,
 }) => {
   return (
     <div className="space-y-6 max-w-7xl mx-auto w-full">
@@ -26,32 +24,22 @@ export const NewsGuardView: React.FC<NewsGuardViewProps> = ({
             Stage 8: News Guard Fail-Safe Architecture
           </h2>
           <p className="text-xs text-slate-400 font-mono">
-            High-Impact Red-Folder Economic Calendar &amp; Strict Fail-Safe Sentinel
+            Live Economic Calendar &amp; Strict Fail-Safe Sentinel
           </p>
         </div>
 
         <div className="flex items-center gap-2.5">
           <button
-            onClick={onSimulateRedFolder}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 font-semibold text-xs rounded-lg border border-rose-500/30 transition"
+            onClick={onRefreshNews}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 font-semibold text-xs rounded-lg border border-sky-500/30 transition"
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Simulate Active Red-Folder</span>
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Refresh Live Calendar</span>
           </button>
 
-          <button
-            onClick={onToggleNewsSource}
-            className={`flex items-center gap-1.5 px-3 py-1.5 font-semibold text-xs rounded-lg border transition ${
-              newsSourceOnline
-                ? 'bg-emerald-600/20 border-emerald-500/30 text-emerald-300'
-                : 'bg-amber-600/20 border-amber-500/30 text-amber-300'
-            }`}
-          >
-            <Power className="w-3.5 h-3.5" />
-            <span>
-              News Feed: {newsSourceOnline ? 'ONLINE' : 'OFFLINE (TEST FAIL-SAFE)'}
-            </span>
-          </button>
+          <span className={`px-3 py-1.5 font-semibold text-xs rounded-lg border ${newsSourceOnline ? 'bg-emerald-600/20 border-emerald-500/30 text-emerald-300' : 'bg-amber-600/20 border-amber-500/30 text-amber-300'}`}>
+            Live provider: {newsSourceOnline ? 'ONLINE' : 'UNAVAILABLE'}
+          </span>
         </div>
       </div>
 
@@ -62,11 +50,11 @@ export const NewsGuardView: React.FC<NewsGuardViewProps> = ({
           Strict Fail-Safe Axiom: "Never Assume No News = Clear"
         </h3>
         <p className="text-xs text-slate-400 leading-relaxed">
-          If the macroeconomic news scraper is unreachable, unauthenticated, or
+          If the live economic-calendar provider is unreachable, unauthenticated, or
           offline, the engine <strong className="text-rose-400">must never</strong>{' '}
           assume the market is clear. Under Section 4.2 of Strategy v1.0, any news
           source failure automatically transitions the system into an{' '}
-          <strong className="text-amber-400 font-mono">INCONCLUSIVE (NO_ALERT)</strong>{' '}
+          <strong className="text-amber-400 font-mono">INCONCLUSIVE (NO_ACTION)</strong>{' '}
           state to prevent entering during unverified high-volatility news spikes.
         </p>
       </div>
@@ -74,7 +62,7 @@ export const NewsGuardView: React.FC<NewsGuardViewProps> = ({
       {/* Economic Calendar Event List */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
         <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider font-mono">
-          Tracked High-Impact Economic Events (ForexFactory Mirror)
+          Tracked High-Impact Economic Events (Live Provider)
         </h3>
 
         <div className="overflow-x-auto">

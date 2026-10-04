@@ -51,7 +51,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ candidates }) => {
             </span>
           </div>
           <p className="text-[11px] text-slate-500">
-            Satisfied all 19 sequential strategy pipeline stages (Strategy v2.0-FROZEN)
+            Satisfied all 19 sequential RDP Strategy v3.0 engine stages
           </p>
         </div>
 

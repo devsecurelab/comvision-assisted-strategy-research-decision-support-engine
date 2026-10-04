@@ -226,7 +226,7 @@ app.get(['/api/engine/dashboard-state', '/api/engine/status'], requireApprovedUs
   const activeAlert = experimentTracker.getActiveAlert();
   const providerStatus = feedManager.getStatus();
   const newsStatus = newsGuard.checkNewsWindow();
-  const validSetups = experimentTracker.getCandidates('PASS', 100);
+  const validSetups = experimentTracker.getCandidates('PASS', 1000);
 
   res.json({
     stats,
@@ -243,7 +243,7 @@ app.get(['/api/engine/dashboard-state', '/api/engine/status'], requireApprovedUs
 });
 
 app.get('/api/engine/valid-setups', requireApprovedUser, (_req, res) => {
-  const validSetups = experimentTracker.getCandidates('PASS', 100);
+  const validSetups = experimentTracker.getCandidates('PASS', 1000);
   res.json({
     validSetups,
     total: validSetups.length,
@@ -307,7 +307,8 @@ app.post('/api/engine/active-pairs', requireApprovedUser, (req: AuthenticatedReq
 
 app.get('/api/engine/candidates', requireApprovedUser, (req, res) => {
   const filter = (req.query.filter as any) || 'ALL';
-  const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
+  const requestedLimit = req.query.limit ? parseInt(req.query.limit as string) : 1000;
+  const limit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? Math.min(requestedLimit, 10000) : 1000;
   const candidates = experimentTracker.getCandidates(filter, limit);
   res.json({ candidates });
 });
@@ -604,6 +605,7 @@ app.get('/api/news/status', requireApprovedUser, (_req, res) => {
   const windowCheck = newsGuard.checkNewsWindow();
   res.json({
     events,
+    provider: newsGuard.getStatus(),
     windowStatus: windowCheck,
     windowCheck: {
       ...windowCheck,
@@ -614,34 +616,17 @@ app.get('/api/news/status', requireApprovedUser, (_req, res) => {
   });
 });
 
-app.post('/api/news/toggle-source', requireApprovedUser, (_req, res) => {
-  const current = newsGuard.isSourceOnline();
-  newsGuard.setSourceStatus(!current);
+app.post('/api/news/refresh', requireApprovedUser, async (_req, res) => {
+  const refresh = await newsGuard.refreshFromProvider();
   const windowCheck = newsGuard.checkNewsWindow();
-  res.json({
-    success: true,
-    newsSourceOnline: newsGuard.isSourceOnline(),
-    isOnline: newsGuard.isOnline(),
-    windowCheck: {
-      ...windowCheck,
-      windowState: windowCheck.state,
-    },
+  res.status(refresh.success ? 200 : 503).json({
+    ...refresh,
+    provider: newsGuard.getStatus(),
+    events: newsGuard.getEvents(),
+    windowCheck: { ...windowCheck, windowState: windowCheck.state },
   });
 });
 
-app.post('/api/news/trigger-simulated', requireApprovedUser, (req, res) => {
-  const { minutes = 10, title = 'Simulated High-Impact Macro Shock' } = req.body || {};
-  newsGuard.triggerSimulatedRedFolderEvent(minutes, title);
-  const windowCheck = newsGuard.checkNewsWindow();
-  res.json({
-    success: true,
-    events: newsGuard.getEvents(),
-    windowCheck: {
-      ...windowCheck,
-      windowState: windowCheck.state,
-    },
-  });
-});
 
 app.get('/api/audit/verify-chain', requireApprovedUser, (_req, res) => {
   const verification = experimentTracker.verifyHashChain();
@@ -1061,6 +1046,10 @@ async function startServer() {
     console.log(`[ComVision Engine] Architecture: Strictly Non-Execution Manual Alert Engine`);
     console.log(`[ComVision Engine] Experiment Freeze: ${ACTIVE_EXPERIMENT_ID} Scope Immutable`);
     console.log(`[ComVision Engine] Durable Persistence: Active (data/)`);
+    void newsGuard.refreshFromProvider().then((result) => {
+      console.log(`[ComVision Engine] Live economic calendar: ${result.success ? `loaded ${result.eventCount} events` : `unavailable (${result.error})`}`);
+    });
+    setInterval(() => { void newsGuard.refreshFromProvider(); }, 15 * 60 * 1000).unref();
   });
 }
 

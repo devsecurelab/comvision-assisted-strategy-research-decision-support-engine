@@ -48,7 +48,7 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
               ComVision-Assisted Strategy Engine
             </h1>
             <p className="text-[10px] text-indigo-400 font-mono">
-              Strategy v1.0 Frozen Specification
+              RDP Strategy v3.0 Engine
             </p>
           </div>
         </div>
@@ -123,7 +123,7 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
 
           <p className="text-sm sm:text-base text-slate-400 leading-relaxed">
             A strictly non-execution quantitative research platform implementing
-            a frozen 9-stage market microstructure validation pipeline, computer
+            a 19-stage RDP market microstructure decision engine, computer
             vision screen stream recognition, and empirical telemetry logging.
           </p>
 
@@ -196,9 +196,9 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
                 FINAL SYSTEM EXECUTION STATE
               </h4>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                The functional lifecycle terminates strictly at:{' '}
+              The functional lifecycle terminates strictly at:{' '}
                 <strong className="text-slate-200 block mt-1">
-                  Data Ingestion ⟶ Validation Pipeline ⟶ Telemetry Logging ⟶ MANUAL_ALERT
+                  Data Ingestion ⟶ RDP v3.0 Decision Engine ⟶ Telemetry Logging ⟶ MANUAL_ALERT
                 </strong>
                 Trade entry, parameters, position sizing, and placement remain
                 exclusively the manual responsibility of the human operator.
@@ -211,11 +211,11 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
         <section className="space-y-6">
           <div className="text-center space-y-2">
             <h3 className="text-xl font-bold text-white tracking-wide">
-              The 9-Stage Strategy v1.0 Sequential Pipeline
+              The 19-Stage RDP Strategy v3.0 Decision Pipeline
             </h3>
             <p className="text-xs text-slate-400 max-w-xl mx-auto">
               Every candidate setup must pass through each stage in exact sequence.
-              Any failure immediately halts execution with NO_ALERT.
+              Any failure immediately halts alert generation with NO_ACTION.
             </p>
           </div>
 

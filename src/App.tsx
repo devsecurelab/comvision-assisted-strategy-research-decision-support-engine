@@ -110,12 +110,18 @@ export default function App() {
   const [scannerActive, setScannerActive] = useState<boolean>(true);
   const [currentAlert, setCurrentAlert] = useState<MasterTelemetry | null>(null);
   const [candidateHistory, setCandidateHistory] = useState<MasterTelemetry[]>([]);
+  const [engineStats, setEngineStats] = useState({
+    totalCandidateFramesEvaluated: 0,
+    validSetupsCount: 0,
+    rejectedSetupsCount: 0,
+    inconclusiveCount: 0,
+  });
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | undefined>();
   const [newsEvents, setNewsEvents] = useState<NewsEvent[]>([]);
-  const [newsOnline, setNewsOnline] = useState<boolean>(true);
+  const [newsOnline, setNewsOnline] = useState<boolean>(false);
   const [newsWindowState, setNewsWindowState] = useState<
     'CLEAR' | 'ACTIVE' | 'NEWS_DATA_UNAVAILABLE'
-  >('CLEAR');
+  >('NEWS_DATA_UNAVAILABLE');
   const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('5m');
   const [selectedProvider, setSelectedProvider] = useState<
     'TWELVE_DATA' | 'ALPHA_VANTAGE' | 'REPLAY'
@@ -180,6 +186,9 @@ export default function App() {
         if (data.activeAlert) {
           setCurrentAlert(data.activeAlert);
         }
+        if (data.stats) {
+          setEngineStats((previous) => ({ ...previous, ...data.stats }));
+        }
         if (data.providerStatus) {
           setProviderStatus(data.providerStatus);
         }
@@ -189,11 +198,12 @@ export default function App() {
         if (Array.isArray(data.settings?.activePairs)) setActivePairs(data.settings.activePairs);
         if (data.newsStatus) {
           setNewsWindowState(data.newsStatus.windowState || data.newsStatus.state);
+          setNewsOnline(Boolean(data.newsStatus.provider?.live));
         }
       }
 
       // 2. Fetch Candidates
-      const candRes = await apiFetch('/api/engine/candidates?limit=100', {
+      const candRes = await apiFetch('/api/engine/candidates?limit=1000', {
         headers: { Authorization: `Bearer ${authToken}` },
       });
       if (candRes.ok && candRes.headers.get('content-type')?.includes('application/json')) {
@@ -222,6 +232,7 @@ export default function App() {
       if (newsRes.ok && newsRes.headers.get('content-type')?.includes('application/json')) {
         const data = await newsRes.json();
         setNewsEvents(data.events || []);
+        setNewsOnline(Boolean(data.provider?.live));
         if (data.windowCheck) {
           setNewsWindowState(data.windowCheck.windowState || data.windowCheck.state);
         }
@@ -398,52 +409,21 @@ export default function App() {
     }
   };
 
-  const handleToggleNewsSource = async () => {
+  const handleRefreshNews = async () => {
     if (!authToken) return;
     try {
-      const res = await apiFetch('/api/news/toggle-source', {
+      const res = await apiFetch('/api/news/refresh', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({}),
+        headers: { Authorization: `Bearer ${authToken}` },
       });
-      if (res.ok) {
-        const data = await res.json();
-        setNewsOnline(data.newsSourceOnline);
-        if (data.windowCheck) {
-          setNewsWindowState(data.windowCheck.windowState);
-        }
-      }
+      const data = await res.json();
+      setNewsOnline(Boolean(data.provider?.live));
+      setNewsEvents(data.events || []);
+      setNewsWindowState(data.windowCheck?.windowState || data.windowCheck?.state || 'NEWS_DATA_UNAVAILABLE');
     } catch (err) {
-      console.error('Failed to toggle news source:', err);
-    }
-  };
-
-  const handleSimulateRedFolder = async () => {
-    if (!authToken) return;
-    try {
-      const res = await apiFetch('/api/news/trigger-simulated', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({
-          minutes: 10,
-          title: 'Simulated High-Impact Macro Shock',
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.windowCheck) {
-          setNewsWindowState(data.windowCheck.windowState);
-        }
-        fetchEngineData();
-      }
-    } catch (err) {
-      console.error('Failed to simulate red folder:', err);
+      console.error('Failed to refresh live economic calendar:', err);
+      setNewsOnline(false);
+      setNewsWindowState('NEWS_DATA_UNAVAILABLE');
     }
   };
 
@@ -591,14 +571,12 @@ export default function App() {
   }
 
   // Calculate Overview Stats Cards
-  const totalEvaluated = candidateHistory.length;
+  const totalEvaluated = engineStats.totalCandidateFramesEvaluated;
   const validSetups = candidateHistory.filter(
     (c) => c.system_execution.system_decision === 'PASS'
   );
-  const validSetupsCount = validSetups.length;
-  const rejectedCount = candidateHistory.filter(
-    (c) => c.system_execution.system_decision === 'REJECT'
-  ).length;
+  const validSetupsCount = engineStats.validSetupsCount;
+  const rejectedCount = engineStats.rejectedSetupsCount;
   const winCount = candidateHistory.filter(
     (c) => c.system_execution.user_recorded_action === 'WIN'
   ).length;
@@ -813,8 +791,7 @@ export default function App() {
             <NewsGuardView
               newsEvents={newsEvents}
               newsSourceOnline={newsOnline}
-              onToggleNewsSource={handleToggleNewsSource}
-              onSimulateRedFolder={handleSimulateRedFolder}
+              onRefreshNews={handleRefreshNews}
             />
           )}
 
