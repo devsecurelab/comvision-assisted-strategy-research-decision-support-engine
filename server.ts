@@ -50,6 +50,7 @@ function resolvePort(): number {
   return 3000;
 }
 const PORT = resolvePort();
+const HOST = process.env.HOST?.trim() || '0.0.0.0';
 
 // CORS support with explicit trusted-origin checking (no credential wildcard)
 const allowedOrigins = [
@@ -900,8 +901,8 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[ComVision Engine] Server running on http://0.0.0.0:${PORT}`);
+  app.listen(PORT, HOST, () => {
+    console.log(`[ComVision Engine] Server running on http://${HOST}:${PORT}`);
     console.log(`[ComVision Engine] Architecture: Strictly Non-Execution Manual Alert Engine`);
     console.log(`[ComVision Engine] Experiment Freeze: ${ACTIVE_EXPERIMENT_ID} Scope Immutable`);
     console.log(`[ComVision Engine] Durable Persistence: Active (data/)`);
