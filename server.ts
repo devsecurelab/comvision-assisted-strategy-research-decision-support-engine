@@ -12,7 +12,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import { authService } from './src/server/auth';
-import { feedManager, MarketDataError, MarketDataProvider } from './src/engine/dataProviders';
+import { feedManager, MarketDataError, MarketDataProvider, timeframeToMinutes } from './src/engine/dataProviders';
 import { newsGuard } from './src/engine/newsGuard';
 import { experimentTracker } from './src/engine/experimentTracker';
 import { executeStrategyPipeline } from './src/engine/pipeline';
@@ -479,6 +479,70 @@ app.get('/api/market/feed', requireApprovedUser, async (req, res) => {
       dataProvenance: 'REPLAY',
       providerStatus: feedManager.getStatus(),
     });
+  }
+});
+
+// Step 0 diagnostic: admin-only so repeated probes cannot be used to burn provider credits.
+// Never returns request URLs, API keys, raw provider error text, or authentication tokens.
+app.get('/api/engine/provider-health', requireAdmin, async (req, res) => {
+  const providerInput = typeof req.query.provider === 'string' ? req.query.provider : '';
+  const provider = providerInput === 'TWELVE_DATA' || providerInput === 'ALPHA_VANTAGE' ? providerInput : null;
+  const symbol = typeof req.query.symbol === 'string' ? req.query.symbol.trim().toUpperCase() : '';
+  const timeframeInput = typeof req.query.timeframe === 'string' ? req.query.timeframe : '';
+  const timeframe = timeframeInput === '15m' || timeframeInput === '1h' ? timeframeInput : null;
+  const allowedSymbols = new Set(['EUR/USD', 'GBP/USD', 'USD/JPY']);
+
+  if (!provider || !allowedSymbols.has(symbol) || !timeframe) {
+    return res.status(400).json({
+      error: 'INVALID_PROBE_PARAMETERS',
+      required: { provider: ['TWELVE_DATA', 'ALPHA_VANTAGE'], symbol: [...allowedSymbols], timeframe: ['15m', '1h'] },
+    });
+  }
+
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const result = await feedManager.probeProvider(symbol, timeframe, provider);
+    const intervalMs = timeframeToMinutes(timeframe) * 60_000;
+    const nowMs = Date.now();
+    const expectedLastClosedMs = Math.floor(nowMs / intervalMs) * intervalMs - intervalMs;
+    const expectedLastClosedTsUtc = new Date(expectedLastClosedMs).toISOString();
+    let lastClosed = undefined as typeof result.candles[number] | undefined;
+    for (const candle of result.candles) {
+      if (Date.parse(candle.timestamp) + intervalMs <= nowMs) lastClosed = candle;
+    }
+    const isExpectedClosedCandlePresent = lastClosed?.timestamp === expectedLastClosedTsUtc;
+    const latest = result.candles[result.candles.length - 1];
+    const symbolMapping = provider === 'TWELVE_DATA'
+      ? { symbol }
+      : { from_symbol: symbol.split('/')[0], to_symbol: symbol.split('/')[1] };
+
+    return res.json({
+      provider,
+      symbol,
+      symbolMapping,
+      timeframe,
+      status: isExpectedClosedCandlePresent ? 'LIVE_CLOSED_CANDLE_VERIFIED' : 'LIVE_RESPONSE_EXPECTED_CANDLE_MISSING',
+      fetched_at_utc: result.fetchedAt,
+      latency_ms: result.latencyMs,
+      credits_used: result.creditsUsed ?? null,
+      credits_left: result.creditsLeft ?? null,
+      volume_present: result.volumeAvailable ?? false,
+      latest_candle_ts_utc: latest?.timestamp ?? null,
+      latest_candle_is_still_forming: latest ? Date.parse(latest.timestamp) + intervalMs > nowMs : null,
+      expected_last_closed_candle_ts_utc: expectedLastClosedTsUtc,
+      last_closed_candle_ts_utc: lastClosed?.timestamp ?? null,
+      is_expected_closed_candle_present: isExpectedClosedCandlePresent,
+      last_closed_candle: lastClosed ? {
+        open: lastClosed.open,
+        high: lastClosed.high,
+        low: lastClosed.low,
+        close: lastClosed.close,
+        volume: result.volumeAvailable ? lastClosed.volume : null,
+      } : null,
+    });
+  } catch (error: any) {
+    const safeErrorCode = error instanceof MarketDataError ? error.code : 'PROVIDER_PROBE_FAILED';
+    return res.status(503).json({ provider, symbol, timeframe, status: 'FAILED', error: safeErrorCode });
   }
 });
 

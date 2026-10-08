@@ -1856,6 +1856,7 @@ runTest('Alpha Vantage adapter fetches real FX_INTRADAY OHLC and reports live pr
   assert.strictEqual(requestedUrl?.searchParams.get('interval'), '5min');
   assert.strictEqual(result.dataProvenance, 'LIVE_INGESTED');
   assert.strictEqual(result.candles.length, 25);
+  assert.strictEqual(result.volumeAvailable, false, 'Forex API response without volume must be reported as unavailable');
 });
 
 
@@ -1865,6 +1866,10 @@ runTest('Stale provider candles and missing live credentials fail closed without
   }) as typeof fetch);
   await assert.rejects(
     managerWithoutKey.fetchCandles('EUR/USD', '5m', 'TWELVE_DATA'),
+    (error: any) => error?.code === 'PROVIDER_NOT_CONFIGURED'
+  );
+  await assert.rejects(
+    managerWithoutKey.probeProvider('EUR/USD', '15m', 'TWELVE_DATA'),
     (error: any) => error?.code === 'PROVIDER_NOT_CONFIGURED'
   );
 
@@ -1880,6 +1885,31 @@ runTest('Stale provider candles and missing live credentials fail closed without
     staleManager.fetchCandles('EUR/USD', '5m', 'TWELVE_DATA'),
     (error: any) => error?.code === 'STALE_MARKET_DATA'
   );
+});
+
+runTest('Step 0 provider probe bypasses cache and reports closed-candle data and credit headers', async () => {
+  const intervalMs = 15 * 60_000;
+  const expectedLastClosedMs = Math.floor(Date.now() / intervalMs) * intervalMs - intervalMs;
+  const values = Array.from({ length: 25 }, (_, index) => ({
+    datetime: new Date(expectedLastClosedMs - index * intervalMs).toISOString(),
+    open: '1.1000', high: '1.1010', low: '1.0990', close: '1.1005', volume: '100',
+  }));
+  let requestCount = 0;
+  const request = (async () => {
+    requestCount++;
+    return new Response(JSON.stringify({ status: 'ok', values }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json', 'api-credits-used': '1', 'api-credits-left': '799' },
+    });
+  }) as typeof fetch;
+  const manager = new MarketFeedManager('test-key', '', request);
+  await manager.fetchCandles('EUR/USD', '15m', 'TWELVE_DATA');
+  const probe = await manager.probeProvider('EUR/USD', '15m', 'TWELVE_DATA');
+  assert.strictEqual(requestCount, 2, 'Diagnostic probe must make a fresh call even when the normal fetch is cached');
+  assert.strictEqual(probe.creditsUsed, 1);
+  assert.strictEqual(probe.creditsLeft, 799);
+  assert.strictEqual(probe.volumeAvailable, true);
+  assert.strictEqual(probe.lastTickAt, new Date(expectedLastClosedMs).toISOString());
 });
 
 // Run all tests sequentially
