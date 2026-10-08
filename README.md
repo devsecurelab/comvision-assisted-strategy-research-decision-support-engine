@@ -229,7 +229,31 @@ The client is configured as an installable Progressive Web Application using `vi
 3. Tap the **three dots menu (⋮)** in the top right corner of Chrome.
 4. Tap **Add to Home screen** (or **Install App**).
 5. Confirm name "ComVision".
-6. The app installs to your Android launcher as a standalone fullscreen application that operates identically to a native app while communicating with your local Termux Node.js backend.
+6. The app installs to your Android launcher as a standalone fullscreen application that operates identically to a native app while communicating with your local Termux backend.
+
+### Step 0: Verify live provider data from Termux
+
+After the Step 0 update has reached `main`, update and build the local copy:
+
+```bash
+cd ~/comvision-assisted-strategy-research-decision-support-engine
+git pull --ff-only origin main
+npm run build
+npm run start
+```
+
+In a second Termux session, run:
+
+```bash
+pkg install python
+python3 scripts/termux_step0_probe.py
+```
+
+If Python is already installed, the `pkg install` line can be skipped.
+
+The helper prompts for the ComVision administrator email and password (password input is hidden), keeps the temporary session token in memory, and revokes that session after the probe. Market-data API keys remain only in the server-side `.env`; the helper never reads or prints them. By default it checks the three pilot pairs at 15m and 1h on Twelve Data, then tries Alpha Vantage; if Alpha Vantage reports a premium entitlement denial or another failure, it records that state and stops further Alpha Vantage calls. Successful Alpha Vantage checks are paced to limit requests. The JSON output contains provider health and candle data, but no passwords, tokens, or API keys.
+
+If the server is not at `http://127.0.0.1:3000`, set `COMVISION_BASE_URL` before running the helper. Save the JSON results with their timestamps for the Step 0 review; this probe does not generate a trading signal.
 
 ---
 
@@ -265,12 +289,12 @@ The client is configured as an installable Progressive Web Application using `vi
   ```
 - **EXP-2026-V2-001 Candidate/Outcome Status:** Clean state. Zero premature candidate or outcome records in production storage.
 
-### 7.2 71-Point Deterministic Test Suite
+### 7.2 Deterministic Test Suite
 Run the test suite at any time to verify cryptographic integrity:
 ```bash
 npm test
 ```
-All 71 verification tests test the 19-stage pipeline, boundary edge cases, session revocation, token sanitation, momentum baseline formulas, and SHA-256 telemetry chaining.
+The current verification suite covers the 19-stage pipeline, boundary edge cases, session revocation, token sanitation, momentum baseline formulas, SHA-256 telemetry chaining, and live-provider adapter diagnostics.
 
 ---
 
@@ -281,6 +305,6 @@ All 71 verification tests test the 19-stage pipeline, boundary edge cases, sessi
 | `npm run dev` | `tsx server.ts` | Starts full-stack dev server with live Vite middleware |
 | `npm run build` | `vite build && esbuild server.ts ...` | Compiles frontend to `dist/` and backend to `dist/server.cjs` |
 | `npm run start` | `node dist/server.cjs` | Launches standalone compiled production server |
-| `npm test` | `tsx test/strategy_pipeline.test.ts` | Runs the 71-point automated verification suite |
+| `npm test` | `tsx test/strategy_pipeline.test.ts` | Runs the automated strategy, safety, and provider verification suite |
 | `npm run lint` | `tsc --noEmit` | Validates TypeScript types across whole codebase |
 | `npm run clean` | `rm -rf dist server.js` | Cleans production build output directory |

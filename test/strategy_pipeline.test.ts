@@ -1912,6 +1912,17 @@ runTest('Step 0 provider probe bypasses cache and reports closed-candle data and
   assert.strictEqual(probe.lastTickAt, new Date(expectedLastClosedMs).toISOString());
 });
 
+runTest('Alpha Vantage premium endpoint denial reports UNSUPPORTED_ON_FREE_KEY without raw provider text', async () => {
+  const providerMessage = 'This is a premium endpoint. Please subscribe to a premium membership plan.';
+  const manager = new MarketFeedManager('', 'test-key', (async () =>
+    new Response(JSON.stringify({ Information: providerMessage }), { status: 200 })
+  ) as typeof fetch);
+  await assert.rejects(
+    manager.probeProvider('EUR/USD', '15m', 'ALPHA_VANTAGE'),
+    (error: any) => error?.code === 'UNSUPPORTED_ON_FREE_KEY' && !error.message.includes(providerMessage)
+  );
+});
+
 // Run all tests sequentially
 (async () => {
   for (const t of testQueue) {

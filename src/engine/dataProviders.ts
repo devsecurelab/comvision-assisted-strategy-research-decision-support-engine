@@ -303,7 +303,13 @@ export class MarketFeedManager {
         throw new MarketDataError('PROVIDER_API_ERROR', String(payload.message || 'Twelve Data returned an API error.'), provider);
       }
       if (provider === 'ALPHA_VANTAGE' && (payload?.['Error Message'] || payload?.Note || payload?.Information)) {
-        throw new MarketDataError('PROVIDER_API_ERROR', String(payload['Error Message'] || payload.Note || payload.Information), provider);
+        const alphaMessage = String(payload['Error Message'] || payload.Note || payload.Information);
+        const entitlementRequired = /premium endpoint|premium membership|premium plan|subscribe to premium/i.test(alphaMessage);
+        throw new MarketDataError(
+          entitlementRequired ? 'UNSUPPORTED_ON_FREE_KEY' : 'PROVIDER_API_ERROR',
+          entitlementRequired ? 'Alpha Vantage indicates FX_INTRADAY requires a premium entitlement.' : 'Alpha Vantage rejected the request.',
+          provider,
+        );
       }
       const alphaSeries = provider === 'ALPHA_VANTAGE'
         ? payload?.['Time Series FX (1min)'] || payload?.['Time Series FX (5min)'] || payload?.['Time Series FX (15min)'] || payload?.['Time Series FX (30min)'] || payload?.['Time Series FX (60min)']

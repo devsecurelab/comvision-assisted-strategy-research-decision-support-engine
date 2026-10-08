@@ -542,7 +542,8 @@ app.get('/api/engine/provider-health', requireAdmin, async (req, res) => {
     });
   } catch (error: any) {
     const safeErrorCode = error instanceof MarketDataError ? error.code : 'PROVIDER_PROBE_FAILED';
-    return res.status(503).json({ provider, symbol, timeframe, status: 'FAILED', error: safeErrorCode });
+    const status = safeErrorCode === 'UNSUPPORTED_ON_FREE_KEY' ? 'UNSUPPORTED_ON_FREE_KEY' : 'FAILED';
+    return res.status(503).json({ provider, symbol, timeframe, status, provider_state: status, error: safeErrorCode });
   }
 });
 
