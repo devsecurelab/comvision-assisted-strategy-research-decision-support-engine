@@ -34,6 +34,9 @@ export interface MarketDataResult {
   lastTickAt: string;
   latencyMs: number;
   cacheHit: boolean;
+  volumeAvailable?: boolean;
+  creditsUsed?: number;
+  creditsLeft?: number;
 }
 
 export class MarketDataError extends Error {
@@ -270,6 +273,14 @@ export class MarketFeedManager {
     return { ...result, candles: cloneCandles(result.candles), cacheHit: false };
   }
 
+  /** Forces one real-provider request for the protected Step 0 health probe; never uses replay or cache. */
+  public async probeProvider(pair: string, timeframe: Timeframe, provider: 'TWELVE_DATA' | 'ALPHA_VANTAGE'): Promise<MarketDataResult> {
+    if (!this.isConfigured(provider)) {
+      throw new MarketDataError('PROVIDER_NOT_CONFIGURED', `${provider} API key is not configured.`, provider);
+    }
+    return this.fetchProviderCandles(normalizePair(pair), timeframe, provider);
+  }
+
   private async fetchProviderCandles(pair: string, timeframe: Timeframe, provider: 'TWELVE_DATA' | 'ALPHA_VANTAGE'): Promise<MarketDataResult> {
     const startedAt = Date.now();
     const controller = new AbortController();
@@ -280,6 +291,10 @@ export class MarketFeedManager {
         : this.buildAlphaVantageUrl(pair, timeframe);
       this.incrementRequests(provider);
       const response = await this.request(url, { signal: controller.signal, headers: { Accept: 'application/json' } });
+      const creditsUsedHeader = response.headers.get('api-credits-used');
+      const creditsLeftHeader = response.headers.get('api-credits-left');
+      const creditsUsed = creditsUsedHeader && /^\d+$/.test(creditsUsedHeader) ? Number(creditsUsedHeader) : undefined;
+      const creditsLeft = creditsLeftHeader && /^\d+$/.test(creditsLeftHeader) ? Number(creditsLeftHeader) : undefined;
       const payload: any = await response.json().catch(() => null);
       if (!response.ok) {
         throw new MarketDataError('PROVIDER_HTTP_ERROR', `${provider} returned HTTP ${response.status}.`, provider);
@@ -288,7 +303,13 @@ export class MarketFeedManager {
         throw new MarketDataError('PROVIDER_API_ERROR', String(payload.message || 'Twelve Data returned an API error.'), provider);
       }
       if (provider === 'ALPHA_VANTAGE' && (payload?.['Error Message'] || payload?.Note || payload?.Information)) {
-        throw new MarketDataError('PROVIDER_API_ERROR', String(payload['Error Message'] || payload.Note || payload.Information), provider);
+        const alphaMessage = String(payload['Error Message'] || payload.Note || payload.Information);
+        const entitlementRequired = /premium endpoint|premium membership|premium plan|subscribe to premium/i.test(alphaMessage);
+        throw new MarketDataError(
+          entitlementRequired ? 'UNSUPPORTED_ON_FREE_KEY' : 'PROVIDER_API_ERROR',
+          entitlementRequired ? 'Alpha Vantage indicates FX_INTRADAY requires a premium entitlement.' : 'Alpha Vantage rejected the request.',
+          provider,
+        );
       }
       const alphaSeries = provider === 'ALPHA_VANTAGE'
         ? payload?.['Time Series FX (1min)'] || payload?.['Time Series FX (5min)'] || payload?.['Time Series FX (15min)'] || payload?.['Time Series FX (30min)'] || payload?.['Time Series FX (60min)']
@@ -298,6 +319,10 @@ export class MarketFeedManager {
         : alphaSeries && typeof alphaSeries === 'object'
           ? Object.entries(alphaSeries).map(([datetime, fields]) => ({ datetime, ...(fields as object) }))
           : undefined;
+      const volumeAvailable = Array.isArray(rows) && rows.some((row: any) => {
+        const value = row?.volume ?? row?.['5. volume'];
+        return value !== undefined && value !== null && value !== '' && Number.isFinite(Number(value));
+      });
       const sourceTimezone = provider === 'ALPHA_VANTAGE'
         ? payload?.['Meta Data']?.['6. Time Zone'] || 'US/Eastern'
         : 'UTC';
@@ -319,6 +344,9 @@ export class MarketFeedManager {
         lastTickAt: latest.timestamp,
         latencyMs: Date.now() - startedAt,
         cacheHit: false,
+        volumeAvailable,
+        creditsUsed,
+        creditsLeft,
       };
     } catch (error: any) {
       this.lastFailedProvider = provider;
