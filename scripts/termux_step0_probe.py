@@ -64,6 +64,14 @@ def main() -> int:
         "/api/auth/login", method="POST", body={"email": email, "password": password}
     )
     password = ""  # Drop the local reference immediately after login.
+    if status == 0:
+        emit({
+            "status": "SERVER_UNREACHABLE",
+            "http_status": 0,
+            "base_url": BASE_URL,
+            "reason": "No HTTP response. Start the backend in the first Termux session or set COMVISION_BASE_URL to its actual local port.",
+        })
+        return 1
     token = login.get("token")
     if status != 200 or login.get("success") is not True or not isinstance(token, str):
         emit({"status": "LOGIN_FAILED", "http_status": status,
