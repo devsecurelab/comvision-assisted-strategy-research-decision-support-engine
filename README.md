@@ -64,32 +64,36 @@ Open Termux and run the following commands in order:
 # Step 1: Update package lists and base utilities
 pkg update && pkg upgrade -y
 
-# Step 2: Install Git and Node.js LTS
-pkg install git nodejs-lts -y
+# Step 2: Install Git, GitHub CLI, Node.js LTS, and Python (for the Step 0 probe)
+pkg install git gh nodejs-lts python -y
 
 # Step 3: Verify versions (Node >= 20.x required, Node 22.x LTS recommended)
 node -v
 npm -v
 git --version
 
-# Step 4: Clone the GitHub repository
-git clone <YOUR_GITHUB_REPOSITORY_URL> comvision-engine
+# Step 4: Authenticate to GitHub (the repository is private)
+gh auth login --hostname github.com --git-protocol https --web
+gh auth status
+
+# Step 5: Clone the private repository into the documented local folder
+gh repo clone devsecurelab/comvision-assisted-strategy-research-decision-support-engine comvision-engine
 cd comvision-engine
 
-# Step 5: Install the exact locked dependencies
+# Step 6: Install the exact locked dependencies
 npm ci
 
-# Step 6: Configure environment variables locally (the .env file is Git-ignored)
-cp .env.example .env
+# Step 7: Configure environment variables locally (the .env file is Git-ignored)
+test -f .env || cp .env.example .env
 nano .env
 # Add your TWELVE_DATA_API_KEY and/or ALPHA_VANTAGE_API_KEY here; never commit or share these secrets.
 # Alpha Vantage FX_INTRADAY access may require an entitled plan. Select the provider manually in the dashboard.
 # Save with Ctrl+O, Enter, then Ctrl+X. Keep HOST=127.0.0.1 for this-phone-only access.
 
-# Step 7: Build the production bundle (builds client assets and standalone server.cjs)
+# Step 8: Build the production bundle (builds client assets and standalone server.cjs)
 npm run build
 
-# Step 8: Run the automated verification test suite (75 tests)
+# Step 9: Run the automated verification test suite
 npm test
 ```
 
@@ -148,10 +152,10 @@ pkill -f "node dist/server.cjs"
 When new commits are pushed to your GitHub repository, pull and rebuild safely on Termux without touching your local `.env` or persistent runtime data in `data/`:
 
 ```bash
-cd comvision-engine
+cd ~/comvision-engine
 
 # 1. Pull latest verified changes from GitHub
-git pull origin main
+git pull --ff-only origin main
 
 # 2. Update dependencies if package.json changed
 npm install
@@ -236,7 +240,7 @@ The client is configured as an installable Progressive Web Application using `vi
 After the Step 0 update has reached `main`, update and build the local copy:
 
 ```bash
-cd ~/comvision-assisted-strategy-research-decision-support-engine
+cd ~/comvision-engine
 git pull --ff-only origin main
 npm run build
 npm run start
