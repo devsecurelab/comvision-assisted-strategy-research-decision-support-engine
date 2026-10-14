@@ -12,7 +12,6 @@ import {
   Timeframe,
   DataQuality,
   DataProvenance,
-  CVEvidenceSource,
   OrderBlock,
   FVGZone,
   BosState,
@@ -42,8 +41,6 @@ export interface PipelineInput {
   higherTimeframeBias?: 'BULLISH' | 'BEARISH' | 'UNCLEAR';
   newsEvents: NewsEvent[];
   newsSourceOnline: boolean;
-  cvConfidence?: number; // 0.0 to 1.0
-  cvEvidenceSource?: CVEvidenceSource;
   dataProvenance?: DataProvenance;
   provider?: 'TWELVE_DATA' | 'ALPHA_VANTAGE';
   pair?: string;
@@ -1134,7 +1131,6 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
     higherTimeframeBias = 'UNCLEAR',
     newsEvents,
     newsSourceOnline,
-    cvConfidence,
     pair = 'EUR/USD',
     asset = 'EUR/USD',
     customSettings,
@@ -1167,20 +1163,12 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
   const c2 = candles[currentCandleIndex - 1];
   const c1 = candles[currentCandleIndex - 2];
 
-  const cvConf = decisionEngineVersion === 'V3' ? 0 : 0.95;
-  const resolvedCvSource: CVEvidenceSource = 'UNAVAILABLE';
   const resolvedProvenance: DataProvenance = input.dataProvenance || 'REPLAY';
   const v3Direction = higherTimeframeBias === 'BEARISH' ? 'BEARISH' : 'BULLISH';
-  const v3Decision = evaluateStrategyV3({ candles, direction: v3Direction, newsEvents, newsSourceOnline, visionAiConfidence: undefined, timestamp: c3.timestamp });
+  const v3Decision = evaluateStrategyV3({ candles, direction: v3Direction, newsEvents, newsSourceOnline, timestamp: c3.timestamp });
 
   const isZeroRange = Math.abs(c3.high - c3.low) <= 0.000001;
-  const dataQuality: DataQuality = isZeroRange
-    ? 'DEGRADED'
-    : cvConf >= 0.95
-    ? 'COMPLETE'
-    : cvConf >= 0.85
-    ? 'DEGRADED'
-    : 'INVALID';
+  const dataQuality: DataQuality = isZeroRange ? 'DEGRADED' : 'COMPLETE';
 
   // Stage 16 & 17: Session & Kill Zone Context
   const sessionInfo = classifySessionAndKillZone(c3.timestamp);
@@ -1383,8 +1371,6 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
     }
   }
 
-  const visionStatus: 'PASS' = 'PASS';
-  const visionEvidence = 'Vision/CV disabled by pilot specification; provider OHLC only.';
   // DETERMINISTIC 9-STAGE DECISION ENGINE
   let system_decision: 'PASS' | 'REJECT' | 'INCONCLUSIVE' = 'PASS';
   let final_action: 'MANUAL_ALERT' | 'SAFE_HOLD' | 'NO_ACTION' = 'MANUAL_ALERT';
@@ -1494,7 +1480,6 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
       pair,
       asset,
       data_quality: dataQuality,
-      cv_confidence: cvConf,
       data_provenance: resolvedProvenance,
     },
     market_context: {
@@ -1575,13 +1560,6 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
         reason: newsReason,
       },
     },
-    vision_verification: {
-      verification_status: visionStatus,
-      cv_confidence: cvConf,
-      cv_evidence_source: resolvedCvSource,
-      evidence_state: visionEvidence,
-      chart_timestamp: c3.timestamp,
-    },
     system_execution: {
       system_decision,
       final_action,
@@ -1619,7 +1597,6 @@ function createInconclusiveTelemetry(
       pair,
       asset,
       data_quality: dataQuality,
-      cv_confidence: 0,
       data_provenance: 'REPLAY',
     },
     market_context: {

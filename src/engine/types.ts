@@ -2,7 +2,6 @@
 // Strategy v2.0-FROZEN Master Specification
 
 export type DataProvenance = 'LIVE_INGESTED' | 'REPLAY' | 'TEST' | 'SYNTHETIC_OVERRIDE';
-export type CVEvidenceSource = 'ACTUAL_CV_EXTRACTED' | 'SIMULATION_HARNESS' | 'UNAVAILABLE';
 
 export type Timeframe = '1m' | '5m' | '15m' | '30m' | '1h';
 
@@ -243,7 +242,7 @@ export interface V3DecisionTelemetry {
   gates: any[];
   engineMode?: 'FULL' | 'PRICE_ONLY';
   excludedStages?: Array<{ stage: number; name: string; reason: string }>;
-  mfci: { sStructure: number; sOrderFlow: number | null; sLiquidity: number; sVisionAi: number | null; totalMfci: number; meetsThreshold: boolean };
+  mfci: { sStructure: number; sOrderFlow: number | null; sLiquidity: number; totalMfci: number; meetsThreshold: boolean };
   systemDecision: 'PASS' | 'HOLD' | 'BLOCKED';
   finalAction: 'MANUAL_ALERT' | 'SAFE_HOLD' | 'NO_ACTION';
   entryPrice: number; stopLoss?: number; takeProfit1?: number; takeProfit2?: number; riskRewardRatio?: number;
@@ -262,7 +261,6 @@ export interface MasterTelemetry {
     pair?: string;
     asset?: string;
     data_quality: DataQuality;
-    cv_confidence?: number;
     data_provenance?: DataProvenance;
     sha256_hash?: string;
     prev_hash?: string;
@@ -344,13 +342,6 @@ export interface MasterTelemetry {
       news_source: string;
       reason?: string;
     };
-  };
-  vision_verification?: {
-    verification_status: 'PASS' | 'FAIL' | 'INCONCLUSIVE';
-    cv_confidence: number;
-    cv_evidence_source?: CVEvidenceSource;
-    evidence_state: string;
-    chart_timestamp?: string;
   };
   system_execution: {
     system_decision: SystemDecision;

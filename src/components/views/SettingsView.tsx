@@ -217,7 +217,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </h3>
           </div>
           <p className="text-xs text-slate-400 leading-relaxed">
-            Select a REST market-data source. Provider choice is manual; automatic failover and multi-pair rate-limit scheduling are not implemented. Replay data is demo-only and cannot generate alerts.
+            Select a REST market-data source. Provider choice is manual; automatic failover and multi-pair rate-limit scheduling are not implemented. Only verified live-provider data can generate alerts.
           </p>
 
           <div className="space-y-2 pt-2">

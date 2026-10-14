@@ -291,7 +291,7 @@ export class ChatService {
         return { message: responseText, queryType: 'MARKET_CONDITION' };
       }
 
-      // Execute only on verified live provider candles; vision is permanently disabled.
+      // Execute only on verified live provider candles.
       const telemetry = executeStrategyPipeline({
         decisionEngineVersion: 'V3',
         candles: currentCandles,
@@ -300,8 +300,7 @@ export class ChatService {
         higherTimeframeBias,
         newsEvents: newsGuard.getEvents(),
         newsSourceOnline: newsGuard.isOnline(),
-        cvEvidenceSource: 'UNAVAILABLE',
-        dataProvenance: 'LIVE_INGESTED',
+            dataProvenance: 'LIVE_INGESTED',
         provider: status.provider,
         pair,
         asset: pair,
@@ -327,7 +326,7 @@ export class ChatService {
         `**SYSTEM DECISION:** **${telemetry.system_execution.system_decision}**`,
         `**FINAL ACTION:** **${telemetry.system_execution.final_action}**`,
         ``,
-        `Data Provenance: **${telemetry.metadata.data_provenance || 'LIVE_INGESTED'}** | Vision: **DISABLED**`,
+        `Data Provenance: **${telemetry.metadata.data_provenance || 'LIVE_INGESTED'}**`,
         ``,
         `Timestamps:`,
         `• UTC: ${timeData.utcTime}`,

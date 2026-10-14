@@ -60,7 +60,6 @@ runTest('Test 1: REPLAY provenance is INCONCLUSIVE and cannot emit an alert', ()
     higherTimeframeBias: 'BEARISH',
     newsEvents: newsGuard.getEvents(),
     newsSourceOnline: true,
-    cvConfidence: 0.98,
     dataProvenance: 'REPLAY',
   });
 
@@ -120,7 +119,6 @@ runTest('Test 5: Stage 2 - FVG mitigation state tracking', () => {
     higherTimeframeBias: 'BEARISH',
     newsEvents: newsGuard.getEvents(),
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert(['UNMITIGATED', 'PARTIAL_FILL'].includes(telemetry.validation_metrics.fvg.fvg_mitigation_state));
 });
@@ -135,7 +133,6 @@ runTest('Test 6: Stage 2 - Order Block detection and confluence validation', () 
     higherTimeframeBias: 'BEARISH',
     newsEvents: newsGuard.getEvents(),
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(telemetry.validation_metrics.order_block.ob_detected, true);
   assert.strictEqual(telemetry.validation_metrics.order_block.ob_confluence_status, 'PASS');
@@ -151,7 +148,6 @@ runTest('Test 7: Stage 3 - Bullish 3-candle expansion breakout validation', () =
     higherTimeframeBias: 'BEARISH',
     newsEvents: newsGuard.getEvents(),
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(telemetry.validation_metrics.pattern_3_candle.status, 'PASS');
 });
@@ -168,7 +164,6 @@ runTest('Test 8: Stage 3 - Rejection if C3 closes back inside C1 boundary', () =
     higherTimeframeBias: 'BEARISH',
     newsEvents: newsGuard.getEvents(),
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(telemetry.system_execution.system_decision, 'REJECT');
   assert.strictEqual(telemetry.validation_metrics.pattern_3_candle.status, 'REJECT');
@@ -185,7 +180,6 @@ runTest('Test 9: Stage 4 - TICK_ACTIVITY_PROXY accepts ascending or above 10-per
     higherTimeframeBias: 'BEARISH',
     newsEvents: newsGuard.getEvents(),
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(telemetry.validation_metrics.tick_proxy.status, 'PASS');
   assert.strictEqual(telemetry.validation_metrics.tick_proxy.tick_sequence, 'ASCENDING');
@@ -204,7 +198,6 @@ runTest('Test 10: Stage 4 - Low tick activity proxy triggers deterministic REJEC
     higherTimeframeBias: 'BEARISH',
     newsEvents: newsGuard.getEvents(),
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(telemetry.validation_metrics.tick_proxy.status, 'REJECT');
   assert.strictEqual(telemetry.system_execution.system_decision, 'REJECT');
@@ -224,7 +217,6 @@ runTest('Test 11: Stage 5 - Pushback wick ratio > 0.50 triggers REJECT ("Wick Fa
     higherTimeframeBias: 'BEARISH',
     newsEvents: newsGuard.getEvents(),
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(telemetry.validation_metrics.wick_check.status, 'REJECT');
   assert(telemetry.validation_metrics.wick_check.wick_ratio > 0.50);
@@ -245,7 +237,6 @@ runTest('Test 12: Stage 5 - Sweeping prior swing high without closing above trig
     higherTimeframeBias: 'BEARISH',
     newsEvents: newsGuard.getEvents(),
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(telemetry.validation_metrics.liquidity_sweep.status, 'SWEEP_DETECTED');
   assert.strictEqual(telemetry.system_execution.system_decision, 'REJECT');
@@ -268,7 +259,6 @@ runTest('Test 14: Stage 7 - Bullish FVG must lie strictly below Fib 50% Equilibr
     higherTimeframeBias: 'BEARISH',
     newsEvents: newsGuard.getEvents(),
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(telemetry.validation_metrics.fib_zone.status, 'PASS_DISCOUNT');
 });
@@ -291,7 +281,6 @@ runTest('Test 15: Stage 8 - High-impact red-folder event within +/- 30m window t
     higherTimeframeBias: 'BEARISH',
     newsEvents: [redEvent],
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(telemetry.guardrails.news_guard.news_event_detected, true);
   assert.strictEqual(telemetry.guardrails.news_guard.news_window_state, 'ACTIVE');
@@ -308,7 +297,6 @@ runTest('Test 16: Stage 8 - News source offline triggers INCONCLUSIVE ("Never as
     higherTimeframeBias: 'BEARISH',
     newsEvents: [],
     newsSourceOnline: false, // OFFLINE
-    cvConfidence: 0.98,
   });
   assert.strictEqual(telemetry.guardrails.news_guard.news_window_state, 'NEWS_DATA_UNAVAILABLE');
   assert.strictEqual(telemetry.system_execution.system_decision, 'INCONCLUSIVE');
@@ -325,7 +313,6 @@ runTest('Test 17: Stage 9 - Pressure observation is non-filtering and strictly c
     higherTimeframeBias: 'BEARISH',
     newsEvents: newsGuard.getEvents(),
     newsSourceOnline: true,
-    cvConfidence: 0.98,
     liveTickPressure: {
       classification: 'ALIGNED',
       magnitude: 'HIGH',
@@ -374,7 +361,6 @@ runTest('Test 19: Exact Boundary - Wick pushback ratio <= 0.500 PASS vs > 0.500 
     higherTimeframeBias: 'BEARISH',
     newsEvents: newsGuard.getEvents(),
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(telPass.validation_metrics.wick_check.status, 'PASS', '0.500 wick ratio must PASS');
 
@@ -391,7 +377,6 @@ runTest('Test 19: Exact Boundary - Wick pushback ratio <= 0.500 PASS vs > 0.500 
     higherTimeframeBias: 'BEARISH',
     newsEvents: newsGuard.getEvents(),
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(telFail.validation_metrics.wick_check.status, 'REJECT', '> 0.50 wick ratio must REJECT');
   assert.strictEqual(telFail.system_execution.system_decision, 'REJECT');
@@ -408,7 +393,6 @@ runTest('Test 20: Exact Boundary - Bullish FVG strictly below Fib 50% PASS vs to
     higherTimeframeBias: 'BEARISH',
     newsEvents: newsGuard.getEvents(),
     newsSourceOnline: true,
-    cvConfidence: 0.98,
     customSettings: { fibEquilibriumLevel: 0.20 }, // FVG is around 0.35, so 0.20 forces FVG into Premium relative to threshold
   });
   assert.strictEqual(telReject.validation_metrics.fib_zone.status, 'REJECT');
@@ -426,22 +410,21 @@ runTest('Test 21: Stage 3 Negative Boundary - Close(C3) exactly equal to High(C1
     higherTimeframeBias: 'BEARISH',
     newsEvents: newsGuard.getEvents(),
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(tel.validation_metrics.pattern_3_candle.status, 'REJECT');
   assert.strictEqual(tel.system_execution.system_decision, 'REJECT');
 });
 
-// 22. Vision is permanently disabled in the real-market pilot
-runTest('Test 22: Vision/CV is disabled and cannot influence data quality', () => {
+// 22. Vision is absent from the real-market telemetry contract
+runTest('Test 22: Vision fields are absent and cannot influence data quality', () => {
   const candles = generateDeterministicValidSetup(1.0845);
   const telemetry = executeStrategyPipeline({
     candles, currentCandleIndex: 24, selectedTimeframe: '15m',
-    newsEvents: newsGuard.getEvents(), newsSourceOnline: true, cvConfidence: 0.10,
+    newsEvents: newsGuard.getEvents(), newsSourceOnline: true,
   });
   assert.strictEqual(telemetry.metadata.data_quality, 'COMPLETE');
-  assert.strictEqual(telemetry.vision_verification?.cv_evidence_source, 'UNAVAILABLE');
-  assert.strictEqual(telemetry.vision_verification?.verification_status, 'PASS');
+  assert.equal('vision_verification' in telemetry, false);
+  assert.equal('cv_confidence' in telemetry.metadata, false);
 });
 
 // 23. Data Quality Fail-Safe: Zero-Range Flat Candle
@@ -457,7 +440,6 @@ runTest('Test 23: Data Quality Fail-Safe - Zero range flat candle triggers DEGRA
     selectedTimeframe: '5m',
     newsEvents: newsGuard.getEvents(),
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(tel.metadata.data_quality, 'DEGRADED');
   assert.strictEqual(tel.system_execution.system_decision, 'INCONCLUSIVE');
@@ -474,7 +456,6 @@ runTest('Test 24: Master Telemetry Completeness - All Section 6 schema fields po
     higherTimeframeBias: 'BEARISH',
     newsEvents: newsGuard.getEvents(),
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
 
   // Metadata
@@ -515,8 +496,8 @@ runTest('Test 25: Master Telemetry SHA-256 Hash Chain - Sequential verification 
   const tracker = new (experimentTracker.constructor as any)();
   const candles = generateDeterministicValidSetup(1.0845);
 
-  const t1 = executeStrategyPipeline({ candles, currentCandleIndex: 24, selectedTimeframe: '5m', newsEvents: [], newsSourceOnline: true, cvConfidence: 0.98 });
-  const t2 = executeStrategyPipeline({ candles, currentCandleIndex: 24, selectedTimeframe: '5m', newsEvents: [], newsSourceOnline: true, cvConfidence: 0.98 });
+  const t1 = executeStrategyPipeline({ candles, currentCandleIndex: 24, selectedTimeframe: '5m', newsEvents: [], newsSourceOnline: true });
+  const t2 = executeStrategyPipeline({ candles, currentCandleIndex: 24, selectedTimeframe: '5m', newsEvents: [], newsSourceOnline: true });
   t2.metadata.setup_id = 'EXP-2026-001-002';
 
   tracker.recordCandidate(t1);
@@ -729,7 +710,6 @@ runTest('Test 31: Stage 2 - Bearish FVG formation zone strictly defined as [High
     higherTimeframeBias: 'BEARISH',
     newsEvents: [],
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
 
   assert.strictEqual(tel.validation_metrics.fvg.fvg_status, 'PASS');
@@ -745,7 +725,6 @@ runTest('Test 31: Stage 2 - Bearish FVG formation zone strictly defined as [High
     higherTimeframeBias: 'BEARISH',
     newsEvents: [],
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(failTel.validation_metrics.fvg.fvg_status, 'REJECT');
   assert.strictEqual(failTel.system_execution.system_decision, 'REJECT');
@@ -762,7 +741,6 @@ runTest('Test 32: Stage 2 - Bearish FVG mitigation transitions: PARTIAL_FILL on 
     higherTimeframeBias: 'BEARISH',
     newsEvents: [],
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(telUnmitigated.validation_metrics.fvg.fvg_mitigation_state, 'UNMITIGATED');
 
@@ -777,7 +755,6 @@ runTest('Test 32: Stage 2 - Bearish FVG mitigation transitions: PARTIAL_FILL on 
     higherTimeframeBias: 'BEARISH',
     newsEvents: [],
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(telPartial.validation_metrics.fvg.fvg_mitigation_state, 'PARTIAL_FILL');
 
@@ -791,7 +768,6 @@ runTest('Test 32: Stage 2 - Bearish FVG mitigation transitions: PARTIAL_FILL on 
     higherTimeframeBias: 'BEARISH',
     newsEvents: [],
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(telFilled.validation_metrics.fvg.fvg_status, 'EXPIRED');
   assert.strictEqual(telFilled.validation_metrics.fvg.fvg_mitigation_state, 'COMPLETELY_FILLED');
@@ -808,7 +784,6 @@ runTest('Test 33: Stage 2 - Bearish OB + FVG confluence: (Low(C1) >= Low(Cob) ||
     higherTimeframeBias: 'BEARISH',
     newsEvents: [],
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
 
   assert.strictEqual(tel.validation_metrics.order_block.ob_detected, true);
@@ -825,7 +800,6 @@ runTest('Test 33: Stage 2 - Bearish OB + FVG confluence: (Low(C1) >= Low(Cob) ||
     higherTimeframeBias: 'BEARISH',
     newsEvents: [],
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(failTel.validation_metrics.order_block.ob_confluence_status, 'FAIL');
   assert.strictEqual(failTel.system_execution.system_decision, 'REJECT');
@@ -842,7 +816,6 @@ runTest('Test 34: Stage 3 - Bearish 3-Candle breakout: Close(C3) < Low(C1) PASS 
     higherTimeframeBias: 'BEARISH',
     newsEvents: [],
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(telPass.validation_metrics.pattern_3_candle.status, 'PASS');
 
@@ -856,7 +829,6 @@ runTest('Test 34: Stage 3 - Bearish 3-Candle breakout: Close(C3) < Low(C1) PASS 
     higherTimeframeBias: 'BEARISH',
     newsEvents: [],
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(telEq.validation_metrics.pattern_3_candle.status, 'REJECT');
   assert.strictEqual(telEq.system_execution.system_decision, 'REJECT');
@@ -871,7 +843,6 @@ runTest('Test 34: Stage 3 - Bearish 3-Candle breakout: Close(C3) < Low(C1) PASS 
     higherTimeframeBias: 'BEARISH',
     newsEvents: [],
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(telInside.validation_metrics.pattern_3_candle.status, 'REJECT');
   assert.strictEqual(telInside.system_execution.system_decision, 'REJECT');
@@ -898,7 +869,6 @@ runTest('Test 35: Stage 5 - Bearish lower-wick pushback ratio <= 0.500 PASS vs >
     higherTimeframeBias: 'BEARISH',
     newsEvents: [],
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(telPass.validation_metrics.wick_check.status, 'PASS', '0.500 lower wick ratio must PASS');
 
@@ -919,7 +889,6 @@ runTest('Test 35: Stage 5 - Bearish lower-wick pushback ratio <= 0.500 PASS vs >
     higherTimeframeBias: 'BEARISH',
     newsEvents: [],
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(telFail.validation_metrics.wick_check.status, 'REJECT', '> 0.50 lower wick ratio must REJECT');
   assert.strictEqual(telFail.system_execution.system_decision, 'REJECT');
@@ -940,7 +909,6 @@ runTest('Test 36: Stage 5 - Bearish prior-swing-low liquidity sweep: Low(C3) < S
     higherTimeframeBias: 'BEARISH',
     newsEvents: [],
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
 
   assert.strictEqual(tel.validation_metrics.liquidity_sweep.status, 'SWEEP_DETECTED');
@@ -959,7 +927,6 @@ runTest('Test 37: Stage 7 - Bearish Fib50 Premium rule: FVG Bottom > Fib50 PASS_
     higherTimeframeBias: 'BEARISH',
     newsEvents: [],
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   assert.strictEqual(telPass.validation_metrics.fib_zone.status, 'PASS_PREMIUM');
 
@@ -971,7 +938,6 @@ runTest('Test 37: Stage 7 - Bearish Fib50 Premium rule: FVG Bottom > Fib50 PASS_
     higherTimeframeBias: 'BEARISH',
     newsEvents: [],
     newsSourceOnline: true,
-    cvConfidence: 0.98,
     customSettings: { fibEquilibriumLevel: 0.85 }, // Forces FVG bottom into Discount relative to threshold
   });
   assert.strictEqual(telReject.validation_metrics.fib_zone.status, 'REJECT');
@@ -1022,7 +988,6 @@ runTest('Test 41: Persistence - DurableStorage saves and loads candidates surviv
     selectedTimeframe: '5m',
     newsEvents: [],
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   candidate.metadata.setup_id = 'EXP-2026-001-TEST41';
 
@@ -1114,7 +1079,6 @@ runTest('Test 47: Notification Payload - Message #1 Valid Signal Alert format co
     selectedTimeframe: '5m',
     newsEvents: [],
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   telemetry.metadata.setup_id = 'EXP-2026-001-SIGNAL47';
 
@@ -1138,7 +1102,6 @@ runTest('Test 48: Notification Payload - Message #2 Next-Candle Result Alert for
     selectedTimeframe: '5m',
     newsEvents: [],
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
   telemetry.metadata.setup_id = 'EXP-2026-001-RES48';
 
@@ -1170,7 +1133,6 @@ runTest('Test 49: Notification Delivery Status - Signal Alert tracks Telegram & 
     selectedTimeframe: '5m',
     newsEvents: [],
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
 
   const res = await notificationService.dispatchSignalAlert(telemetry);
@@ -1190,7 +1152,6 @@ runTest('Test 50: Notification Safety - Notification failure does NOT invalidate
     selectedTimeframe: '5m',
     newsEvents: [],
     newsSourceOnline: true,
-    cvConfidence: 0.98,
   });
 
   await notificationService.dispatchSignalAlert(telemetry);
@@ -1273,12 +1234,12 @@ runTest('Test 56: Research History - Analytics engine computes accurate WIN/LOSS
 // 57. Research History: Analytics engine filters by pair (e.g. NQ vs ES) accurately
 runTest('Test 57: Research History - Analytics engine filters by pair (e.g. NQ vs ES) accurately', () => {
   const candles = generateDeterministicValidSetup(1.0845);
-  const cNQ = executeStrategyPipeline({ candles, currentCandleIndex: 24, selectedTimeframe: '5m', newsEvents: [], newsSourceOnline: true, cvConfidence: 0.98 });
+  const cNQ = executeStrategyPipeline({ candles, currentCandleIndex: 24, selectedTimeframe: '5m', newsEvents: [], newsSourceOnline: true });
   cNQ.metadata.setup_id = 'EXP-NQ-1';
   cNQ.metadata.pair = 'NQ';
   cNQ.metadata.asset = 'NQ';
 
-  const cES = executeStrategyPipeline({ candles, currentCandleIndex: 24, selectedTimeframe: '5m', newsEvents: [], newsSourceOnline: true, cvConfidence: 0.98 });
+  const cES = executeStrategyPipeline({ candles, currentCandleIndex: 24, selectedTimeframe: '5m', newsEvents: [], newsSourceOnline: true });
   cES.metadata.setup_id = 'EXP-ES-1';
   cES.metadata.pair = 'ES';
   cES.metadata.asset = 'ES';

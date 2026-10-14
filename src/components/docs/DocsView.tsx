@@ -97,10 +97,10 @@ export const DocsView: React.FC = () => {
                 What ComVision Is &amp; The Problem It Solves
               </h3>
               <p className="text-slate-400 leading-relaxed">
-                <strong>ComVision</strong> is a computer-vision-assisted market microstructure research platform. In quantitative discretionary trading, human operators frequently suffer from cognitive bias, inconsistent rule enforcement, fatigue, and FOMO (fear of missing out).
+                <strong>ComVision</strong> is a market microstructure research platform. In quantitative discretionary trading, human operators frequently suffer from cognitive bias, inconsistent rule enforcement, fatigue, and FOMO (fear of missing out).
               </p>
               <p className="text-slate-400 leading-relaxed">
-                ComVision solves this by applying strict mathematical definitions, deterministic stage gates, optical character verification, and tamper-evident telemetry logging to chart structures before a setup is ever surfaced to an analyst.
+                ComVision solves this by applying strict mathematical definitions, deterministic stage gates, and tamper-evident telemetry logging to chart structures before a setup is ever surfaced to an analyst.
               </p>
             </div>
 
@@ -125,7 +125,7 @@ export const DocsView: React.FC = () => {
                 <span>WHAT THE SYSTEM DOES</span>
               </div>
               <ul className="space-y-1.5 text-slate-400 text-[11px] list-disc list-inside">
-                <li>Ingests normalized OHLCV market feeds and vision streams</li>
+                <li>Ingests normalized OHLCV market feeds</li>
                 <li>Executes 9 sequential deterministic validation filters</li>
                 <li>Logs complete Section 6 telemetry for every evaluated setup</li>
                 <li>Maintains an immutable SHA-256 sequential audit chain</li>
@@ -601,7 +601,7 @@ export const DocsView: React.FC = () => {
             {/* Visual Flow Diagram */}
             <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 font-mono text-xs overflow-x-auto">
               <pre className="text-slate-300 leading-relaxed">
-{`[ Ingest Market OHLCV & Vision Stream ]
+{`[ Ingest Verified Market OHLCV ]
                     │
                     ▼
 [ Stage 1: Market Structure Gate ] ────────(FAIL)──► [ REJECT: Structure Unclear ]
@@ -672,7 +672,7 @@ export const DocsView: React.FC = () => {
           </div>
 
           <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
-            Data integrity is continuously validated across optical character recognition (OCR), canvas streams, and OHLCV feed providers before calculations execute.
+            Data integrity is continuously validated across closed OHLCV candles and provider timestamps before calculations execute.
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-mono">
@@ -682,7 +682,7 @@ export const DocsView: React.FC = () => {
                 <span>COMPLETE</span>
               </div>
               <p className="text-slate-300 text-[11px]">
-                Vision stream confidence &gt; 95%, zero missing candles, zero zero-range bars, and verified timestamps. Core data is fully valid and reliable.
+                Zero missing candles, zero zero-range bars, and verified provider timestamps. Core data is fully valid and reliable.
               </p>
             </div>
 
@@ -692,7 +692,7 @@ export const DocsView: React.FC = () => {
                 <span>DEGRADED</span>
               </div>
               <p className="text-slate-300 text-[11px]">
-                Minor quality issues (e.g., vision confidence between 85% and 95%, or minor latency jitter), but core prices remain usable for evaluation.
+                Minor provider-quality issues or latency jitter, but core prices remain usable for evaluation.
               </p>
             </div>
 
@@ -702,7 +702,7 @@ export const DocsView: React.FC = () => {
                 <span>INVALID</span>
               </div>
               <p className="text-slate-300 text-[11px]">
-                Critical data integrity failure: vision confidence &lt; 85%, corrupted price feeds, missing bars, or corrupted timestamps. Pipeline cannot proceed.
+                Critical data integrity failure: corrupted price feeds, missing bars, or corrupted timestamps. Pipeline cannot proceed.
               </p>
             </div>
 
@@ -877,21 +877,13 @@ export const DocsView: React.FC = () => {
           </div>
 
           <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
-            Detailed operational guide for all 12 primary features of the private research dashboard. Each feature is documented according to its standardized 5-point specification.
+            Detailed operational guide for all 11 primary features of the private research dashboard. Each feature is documented according to its standardized 5-point specification.
           </p>
 
           <div className="space-y-6">
             {[
               {
-                title: '1. Live Vision Stream',
-                whatItDoes: 'Displays the dashboard chart canvas and its current price trajectory; this view is not a connected screen-capture/CV pipeline.',
-                whatUserSees: 'Live animated candle canvas with FVG highlight zones, swing high/low badges, and current bar timer.',
-                whatDataItUses: 'The selected candle source (Twelve Data REST, Alpha Vantage FX_INTRADAY, or explicitly labelled Replay) plus the current simulation/CV evidence metadata.',
-                whatResultMeans: 'Provides visual confirmation of chart geometry currently being evaluated by the sequential pipeline.',
-                whatItDoesNotDo: 'Does NOT interact with the user\'s desktop, execute broker charting scripts, or capture external application windows.',
-              },
-              {
-                title: '2. Experiment Mode (EXP-2026-001)',
+                title: '1. Experiment Mode (EXP-2026-001)',
                 whatItDoes: 'Tracks progress towards the 100-valid-setup sample quota under frozen parameter rules.',
                 whatUserSees: 'Progress bar (0 to 100), lock status banner, setup count breakdown, and frozen parameter values.',
                 whatDataItUses: 'Master telemetry candidates stored in the tamper-evident experiment ledger.',
@@ -899,7 +891,7 @@ export const DocsView: React.FC = () => {
                 whatItDoesNotDo: 'Does NOT allow modifying thresholds, adjusting sample sizes, or resetting the experiment counter.',
               },
               {
-                title: '3. Setup Logs Table',
+                title: '2. Setup Logs Table',
                 whatItDoes: 'Presents an exhaustive, auditable history of all evaluated candidates (PASS, REJECT, and INCONCLUSIVE).',
                 whatUserSees: 'Tabular list with setup ID, timestamp, timeframe, bias, final action, outcome record, and Telemetry inspect button.',
                 whatDataItUses: 'Complete historical array of MasterTelemetry objects.',
@@ -907,7 +899,7 @@ export const DocsView: React.FC = () => {
                 whatItDoesNotDo: 'Does NOT allow deleting rejected setups, modifying recorded parameters, or altering past results.',
               },
               {
-                title: '4. Quantitative Analytics',
+                title: '3. Quantitative Analytics',
                 whatItDoes: 'Calculates performance metrics, win rate, profit factor, average R:R, and outcome distributions.',
                 whatUserSees: 'Summary statistic cards (Win Rate, Profit Factor, Total R, Sample Size) and interactive outcome charts.',
                 whatDataItUses: 'Human-recorded setup outcomes (WIN, LOSS, BREAK_EVEN) tied to validated setup IDs.',
@@ -915,15 +907,15 @@ export const DocsView: React.FC = () => {
                 whatItDoesNotDo: 'Does NOT project future profits, optimize curve-fit variables, or execute retrospective backtests.',
               },
               {
-                title: '5. News Guard View',
+                title: '4. News Guard View',
                 whatItDoes: 'Monitors economic calendar feeds for high-impact red-folder macroeconomic release windows.',
-                whatUserSees: 'Status indicator (CLEAR, ACTIVE_NEWS_LOCKOUT, NEWS_DATA_UNAVAILABLE), active events list, and simulation controls.',
+                whatUserSees: 'Status indicator (CLEAR, ACTIVE_NEWS_LOCKOUT, NEWS_DATA_UNAVAILABLE), active events list.',
                 whatDataItUses: 'Macroeconomic calendar API events + source availability ping.',
                 whatResultMeans: 'Determines whether the macro environment is safe for technical pattern validation.',
                 whatItDoesNotDo: 'Does NOT predict news direction, parse NLP sentiment, or execute straddle orders on announcements.',
               },
               {
-                title: '6. Risk Guardrails',
+                title: '5. Risk Guardrails',
                 whatItDoes: 'Displays quantitative non-execution boundary rules, daily evaluation limits, and maximum risk guidelines.',
                 whatUserSees: 'Static parameter limits (Max Drawdown rule, Risk-per-trade cap, Max setups per day) and compliance checklists.',
                 whatDataItUses: 'Static configuration specifications from Developer-Authoritative v3.4.',
@@ -931,15 +923,15 @@ export const DocsView: React.FC = () => {
                 whatItDoesNotDo: 'Does NOT enforce auto-liquidation, margin stop-outs, or automated account balance controls.',
               },
               {
-                title: '7. Settings View',
+                title: '6. Settings View',
                 whatItDoes: 'Displays engine configuration, data feed provider selection, and API key connectivity status.',
-                whatUserSees: 'Provider selectors (Twelve Data, Alpha Vantage, Replay), timeframe picker, and read-only parameter cards.',
+                whatUserSees: 'Provider selectors (Twelve Data, Alpha Vantage), timeframe picker, and read-only parameter cards.',
                 whatDataItUses: 'Engine runtime configuration object.',
                 whatResultMeans: 'Allows changing data sources and scanning timeframes.',
                 whatItDoesNotDo: 'Does NOT alter frozen Strategy v1.0 mathematical thresholds while EXP-2026-001 is active.',
               },
               {
-                title: '8. Telemetry Inspector Modal',
+                title: '7. Telemetry Inspector Modal',
                 whatItDoes: 'Inspects raw canonical Section 6 telemetry payload and SHA-256 hash chains for any selected setup.',
                 whatUserSees: 'Tabbed JSON explorer with Data Quality, Stages 1-9 metrics, and cryptographic hash verification badge.',
                 whatDataItUses: 'Exact stored MasterTelemetry JSON document.',
@@ -947,7 +939,7 @@ export const DocsView: React.FC = () => {
                 whatItDoesNotDo: 'Does NOT expose private server secrets, database access tokens, or sensitive operator passwords.',
               },
               {
-                title: '9. User Management View',
+                title: '8. User Management View',
                 whatItDoes: 'Allows authorized Administrator accounts to review access requests and manage user authorization statuses.',
                 whatUserSees: 'Table of registered operators, roles (Admin / Analyst), statuses (PENDING, APPROVED, SUSPENDED, REVOKED), and approval buttons.',
                 whatDataItUses: 'Server-side user accounts database.',
@@ -955,7 +947,7 @@ export const DocsView: React.FC = () => {
                 whatItDoesNotDo: 'Does NOT bypass server-side role checks (analyst accounts cannot access or perform user administration).',
               },
               {
-                title: '10. Pause Alerts',
+                title: '9. Pause Alerts',
                 whatItDoes: 'Silences audio/visual notifications on the analyst interface without interrupting pipeline calculation.',
                 whatUserSees: 'Mute/unmute alert toggle button with visual active/muted status pill.',
                 whatDataItUses: 'Client-side audio alert preferences.',
@@ -963,7 +955,7 @@ export const DocsView: React.FC = () => {
                 whatItDoesNotDo: 'Does NOT halt candle ingestion, disable telemetry logging, or stop background scanning.',
               },
               {
-                title: '11. Stop Scanning',
+                title: '10. Stop Scanning',
                 whatItDoes: 'Suspends automated polling and background candle evaluation.',
                 whatUserSees: 'Scanner toggle button showing active pulse when scanning and paused state when halted.',
                 whatDataItUses: 'Engine scannerActive runtime state boolean.',
@@ -971,7 +963,7 @@ export const DocsView: React.FC = () => {
                 whatItDoesNotDo: 'Does NOT erase candidate logs or invalidate existing experiment history.',
               },
               {
-                title: '12. Lock Experiment',
+                title: '11. Lock Experiment',
                 whatItDoes: 'Enforces immutable parameter protection across EXP-2026-001.',
                 whatUserSees: 'Experiment Lock indicator with persistent lock badge in the header and settings view.',
                 whatDataItUses: 'experimentLocked flag stored in engine configuration.',

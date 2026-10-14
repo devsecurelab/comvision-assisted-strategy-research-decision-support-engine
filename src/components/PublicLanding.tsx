@@ -124,7 +124,7 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
           <p className="text-sm sm:text-base text-slate-400 leading-relaxed">
             A strictly non-execution quantitative research platform implementing
             a frozen 9-stage market microstructure validation pipeline, computer
-            vision screen stream recognition, and empirical telemetry logging.
+            empirical telemetry logging.
           </p>
 
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">

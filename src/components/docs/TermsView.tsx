@@ -80,7 +80,7 @@ export const TermsView: React.FC = () => {
           <li>Attempt to bypass, defeat, or disable server-side authorization controls or API rate limiters.</li>
           <li>Scrape, extract, or inject automated headless bots (e.g. Selenium, PyAutoGUI) into the user interface.</li>
           <li>Tamper with or attempt to forge SHA-256 telemetry chains or falsify experiment outcomes.</li>
-          <li>Reverse-engineer, decompile, or misuse the proprietary computer vision and pipeline algorithms.</li>
+          <li>Reverse-engineer, decompile, or misuse the proprietary pipeline algorithms.</li>
         </ul>
       </section>
 

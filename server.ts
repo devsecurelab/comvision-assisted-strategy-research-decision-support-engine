@@ -678,7 +678,6 @@ app.post(['/api/engine/evaluate-candidate', '/api/engine/scan-candidate'], requi
     higherTimeframeBias,
     newsEvents: newsGuard.getEvents(),
     newsSourceOnline: newsGuard.isSourceOnline(),
-    cvEvidenceSource: 'UNAVAILABLE',
     dataProvenance,
     provider: dataProvider,
     pair: selectedPair,

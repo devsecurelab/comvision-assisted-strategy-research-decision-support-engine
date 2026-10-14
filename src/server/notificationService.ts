@@ -307,7 +307,6 @@ export class NotificationService {
     const killZone = telemetry.market_context?.kill_zone === 'INSIDE_KILL_ZONE' ? 'ACTIVE' : 'OUTSIDE';
 
     const newsStatus = telemetry.guardrails?.news_guard?.news_window_state === 'CLEAR' ? 'CLEAR' : 'GUARD_ACTIVE';
-    const visionStatus = telemetry.vision_verification?.verification_status || 'PASS';
 
     return [
       `🟢 COMVISION RESEARCH ALERT — VALID SIGNAL DETECTED`,
@@ -336,7 +335,6 @@ export class NotificationService {
       `Kill Zone: ${killZone}`,
       ``,
       `News Guard: ${newsStatus}`,
-      `Vision Verification: ${visionStatus}`,
       ``,
       `Timestamp:`,
       `UTC: ${timeData.utcTime}`,

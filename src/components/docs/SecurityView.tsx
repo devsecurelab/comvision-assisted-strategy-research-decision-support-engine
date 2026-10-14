@@ -76,7 +76,7 @@ export const SecurityView: React.FC = () => {
           <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl space-y-2">
             <span className="font-mono text-xs font-bold text-indigo-400 block">Analyst Role</span>
             <p className="text-slate-400 text-[11px] leading-relaxed">
-              Authorized to view live vision streams, monitor candidate pipeline evaluations, inspect telemetry, and record empirical trade outcomes. Analysts are strictly barred from administrative endpoints.
+              Authorized to monitor live market-data evaluations, inspect telemetry, and record empirical trade outcomes. Analysts are strictly barred from administrative endpoints.
             </p>
           </div>
 
