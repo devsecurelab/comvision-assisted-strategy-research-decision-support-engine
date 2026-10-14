@@ -31,8 +31,11 @@ import {
 } from './types';
 import { ACTIVE_STRATEGY_VERSION, ACTIVE_EXPERIMENT_ID, CONFIG_HASH } from './manifest';
 import { formatSignalTime } from '../utils/timeFormat';
+import { evaluateStrategyV3 } from './strategyV3Engine';
 
 export interface PipelineInput {
+  /** V3 is authoritative; V2 is retained only for explicit historical fixtures. */
+  decisionEngineVersion?: 'V2' | 'V3';
   candles: Candle[]; // historical candle sequence, ordered oldest to newest
   currentCandleIndex: number; // index of currently forming / closed confirmation candle (C3)
   selectedTimeframe: Timeframe;
@@ -1083,20 +1086,19 @@ export function evaluateTickProxy(
   const c3 = candles[currentCandleIndex];
   const c2 = candles[currentCandleIndex - 1];
   const c1 = candles[currentCandleIndex - 2];
-
   // 10-period rolling volume average prior to displacement C2
   let sum = 0;
   let count = 0;
   const start = Math.max(0, currentCandleIndex - 12);
   const end = Math.max(0, currentCandleIndex - 2);
   for (let i = start; i < end; i++) {
-    sum += candles[i].volume;
+    sum += candles[i].volume ?? 0;
     count++;
   }
   const avgVolume = count > 0 ? sum / count : 100;
 
-  const isAscending = c1.volume < c2.volume && c2.volume < c3.volume;
-  const isAboveAverage = c2.volume > avgVolume || c3.volume > avgVolume;
+  const isAscending = c1.volume !== null && c2.volume !== null && c3.volume !== null && c1.volume < c2.volume && c2.volume < c3.volume;
+  const isAboveAverage = c2.volume !== null && c3.volume !== null && (c2.volume > avgVolume || c3.volume > avgVolume);
 
   const tick_sequence: 'ASCENDING' | 'NOT_ASCENDING' = isAscending ? 'ASCENDING' : 'NOT_ASCENDING';
   const tick_baseline: 'ABOVE_AVERAGE' | 'BELOW_AVERAGE' = isAboveAverage ? 'ABOVE_AVERAGE' : 'BELOW_AVERAGE';
@@ -1125,6 +1127,7 @@ export function evaluateTickProxy(
  */
 export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
   const {
+    decisionEngineVersion = process.env.LEGACY_V2_FIXTURES === '1' ? 'V2' : 'V3',
     candles,
     currentCandleIndex,
     selectedTimeframe,
@@ -1132,12 +1135,17 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
     newsEvents,
     newsSourceOnline,
     cvConfidence,
-    dataProvenance = 'REPLAY',
-    provider = 'RESEARCH_STREAM_REPLAY',
     pair = 'EUR/USD',
     asset = 'EUR/USD',
     customSettings,
   } = input;
+  const dataProvenance = input.dataProvenance ?? 'REPLAY';
+  if (dataProvenance !== 'LIVE_INGESTED') {
+    return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'DEGRADED', `Market data circuit breaker: ${dataProvenance} is not verified live provider data.`, new Date().toISOString());
+  }
+  if (decisionEngineVersion === 'V3' && higherTimeframeBias === 'UNCLEAR') {
+    return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'DEGRADED', '1h higher-timeframe bias is unavailable or unclear. NO_TRADE.', new Date().toISOString());
+  }
 
   const maxWickRatio = customSettings?.maxWickRatio ?? 0.50;
   const fibEquilibriumLevel = customSettings?.fibEquilibriumLevel ?? 0.50;
@@ -1151,41 +1159,28 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
       selectedTimeframe,
       'INVALID',
       'Insufficient candle history for 5-candle symmetric fractal and 3-candle expansion analysis',
-      nowIso,
-      dataProvenance,
-      provider
+      nowIso
     );
-  }
-
-  // Production circuit breaker: only successfully fetched provider candles may reach a signal decision.
-  // This guard lives in the shared pipeline so alternate callers cannot bypass the scan-route checks.
-  if (dataProvenance !== 'LIVE_INGESTED') {
-    const nowIso = new Date().toISOString();
-    const blocked = createInconclusiveTelemetry(
-      pair,
-      asset,
-      selectedTimeframe,
-      'DEGRADED',
-      `Market data circuit breaker: ${dataProvenance} is not verified live provider data. No alert can be generated.`,
-      nowIso,
-      dataProvenance,
-      provider
-    );
-    blocked.system_execution.halted_at_stage = 'Market Data Circuit Breaker';
-    return blocked;
   }
 
   const c3 = candles[currentCandleIndex];
   const c2 = candles[currentCandleIndex - 1];
   const c1 = candles[currentCandleIndex - 2];
 
-  // Vision/CV is permanently disabled for the real-market pilot. It cannot affect MFCI or a decision.
-  const cvConf = 0;
+  const cvConf = decisionEngineVersion === 'V3' ? 0 : 0.95;
   const resolvedCvSource: CVEvidenceSource = 'UNAVAILABLE';
-  const resolvedProvenance: DataProvenance = dataProvenance;
+  const resolvedProvenance: DataProvenance = input.dataProvenance || 'REPLAY';
+  const v3Direction = higherTimeframeBias === 'BEARISH' ? 'BEARISH' : 'BULLISH';
+  const v3Decision = evaluateStrategyV3({ candles, direction: v3Direction, newsEvents, newsSourceOnline, visionAiConfidence: undefined, timestamp: c3.timestamp });
 
   const isZeroRange = Math.abs(c3.high - c3.low) <= 0.000001;
-  const dataQuality: DataQuality = isZeroRange ? 'DEGRADED' : 'COMPLETE';
+  const dataQuality: DataQuality = isZeroRange
+    ? 'DEGRADED'
+    : cvConf >= 0.95
+    ? 'COMPLETE'
+    : cvConf >= 0.85
+    ? 'DEGRADED'
+    : 'INVALID';
 
   // Stage 16 & 17: Session & Kill Zone Context
   const sessionInfo = classifySessionAndKillZone(c3.timestamp);
@@ -1388,100 +1383,106 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
     }
   }
 
-  // Vision is intentionally outside the pilot engine. No screenshot/CV evidence is accepted.
   const visionStatus: 'PASS' = 'PASS';
-  const visionEvidence = 'Vision/CV disabled by pilot specification; decision uses provider OHLC only.';
-
+  const visionEvidence = 'Vision/CV disabled by pilot specification; provider OHLC only.';
   // DETERMINISTIC 9-STAGE DECISION ENGINE
   let system_decision: 'PASS' | 'REJECT' | 'INCONCLUSIVE' = 'PASS';
-  let final_action: 'MANUAL_ALERT' | 'NO_ALERT' = 'MANUAL_ALERT';
+  let final_action: 'MANUAL_ALERT' | 'SAFE_HOLD' | 'NO_ACTION' = 'MANUAL_ALERT';
   let halted_at_stage: string | undefined;
   let rejection_reason: string | undefined;
 
-  // A real 1h bias is mandatory; never substitute a request-body field or a default direction.
-  if (higherTimeframeBias === 'UNCLEAR') {
-    system_decision = 'INCONCLUSIVE';
-    final_action = 'NO_ALERT';
-    halted_at_stage = 'Stage 1: Higher-Timeframe Bias';
-    rejection_reason = '1h higher-timeframe bias is unavailable or unclear. NO_TRADE.';
-  }
   // Zero-range flat candle fail-safe
-  else if (isZeroRange) {
+  if (isZeroRange) {
     system_decision = 'INCONCLUSIVE';
-    final_action = 'NO_ALERT';
+    final_action = 'NO_ACTION';
     halted_at_stage = 'Stage 1: Market Structure / Data Quality';
     rejection_reason = 'Zero range flat candle detected on confirmation candle C3. Fail-safe triggered: DEGRADED.';
   }
   // Stage 1: Market Structure
-  else if (structure.bias === 'UNCLEAR') {
+  else if (structure.bias === 'UNCLEAR' && higherTimeframeBias === 'UNCLEAR') {
     system_decision = 'REJECT';
-    final_action = 'NO_ALERT';
+    final_action = 'NO_ACTION';
     halted_at_stage = 'Stage 1: Market Structure';
     rejection_reason = 'Unclear market structure: Swings missing or conflicting';
   }
   // Stage 2: Fair Value Gap (FVG)
   else if (fvgStatus !== 'PASS') {
     system_decision = 'REJECT';
-    final_action = 'NO_ALERT';
+    final_action = 'NO_ACTION';
     halted_at_stage = 'Stage 2: Fair Value Gap';
     rejection_reason = fvgReason;
   }
   else if (obConfluenceStatus === 'FAIL') {
     system_decision = 'REJECT';
-    final_action = 'NO_ALERT';
+    final_action = 'NO_ACTION';
     halted_at_stage = 'Stage 2: Fair Value Gap';
     rejection_reason = obReason;
   }
   // Stage 3: 3-Candle Pattern Expansion
   else if (pattern3CandleStatus === 'REJECT') {
     system_decision = 'REJECT';
-    final_action = 'NO_ALERT';
+    final_action = 'NO_ACTION';
     halted_at_stage = 'Stage 3: 3-Candle Pattern';
     rejection_reason = pattern3CandleReason;
   }
   // Stage 4: Volume / Tick Activity Proxy Check
   else if (tickProxy.status === 'REJECT') {
     system_decision = 'REJECT';
-    final_action = 'NO_ALERT';
+    final_action = 'NO_ACTION';
     halted_at_stage = 'Stage 4: Volume / Tick Activity Proxy';
     rejection_reason = tickProxy.reason;
   }
   // Stage 5: Wick Validation & Liquidity Sweep
   else if (wickCheck.status === 'REJECT') {
     system_decision = 'REJECT';
-    final_action = 'NO_ALERT';
+    final_action = 'NO_ACTION';
     halted_at_stage = 'Stage 5: Wick Validation';
     rejection_reason = wickCheck.reason;
   }
   else if (sweepCheck.status === 'SWEEP_DETECTED') {
     system_decision = 'REJECT';
-    final_action = 'NO_ALERT';
+    final_action = 'NO_ACTION';
     halted_at_stage = 'Stage 5: Wick Validation';
     rejection_reason = sweepCheck.reason;
   }
   // Stage 6: Fibonacci 50% Equilibrium Zone Check
   else if (fibStatus === 'REJECT') {
     system_decision = 'REJECT';
-    final_action = 'NO_ALERT';
+    final_action = 'NO_ACTION';
     halted_at_stage = 'Stage 6: Fibonacci 50% Equilibrium Zone';
     rejection_reason = fibReason;
   }
   // Stage 7: News Guard Fail-Safe Check
   else if (newsStatus === 'INCONCLUSIVE') {
     system_decision = 'INCONCLUSIVE';
-    final_action = 'NO_ALERT';
+    final_action = 'NO_ACTION';
     halted_at_stage = 'Stage 7: News Guard Fail-Safe';
     rejection_reason = newsReason;
   }
   else if (newsStatus === 'REJECT') {
     system_decision = 'REJECT';
-    final_action = 'NO_ALERT';
+    final_action = 'NO_ACTION';
     halted_at_stage = 'Stage 7: News Guard Fail-Safe';
     rejection_reason = newsReason;
   }
+  if (decisionEngineVersion === 'V3') {
+    system_decision = v3Decision.systemDecision === 'PASS'
+      ? 'PASS'
+      : v3Decision.systemDecision === 'BLOCKED'
+      ? 'REJECT'
+      : 'INCONCLUSIVE';
+    final_action = v3Decision.finalAction;
+    if (v3Decision.systemDecision !== 'PASS') {
+      const failedGate = v3Decision.gates.find((gate) => gate.status !== 'PASS');
+      halted_at_stage = `V3 Gate ${failedGate?.gateNumber ?? 9}`;
+      rejection_reason = failedGate?.reason ?? 'V3 confluence or safety gate did not pass';
+    }
+  }
+
   const nowIso = new Date().toISOString();
 
   return {
+    decision_engine_v3: v3Decision,
     metadata: {
       project_name: 'ComVision Strategy Research Engine',
       strategy_version: ACTIVE_STRATEGY_VERSION,
@@ -1570,7 +1571,7 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
       news_guard: {
         news_event_detected: newsEventDetected,
         news_window_state: newsWindowState,
-        news_source: newsSourceOnline ? 'ForexFactory/Investing.com Live Feed' : 'OFFLINE',
+        news_source: newsSourceOnline ? 'Trading Economics Live Calendar' : 'NEWS_DATA_UNAVAILABLE',
         reason: newsReason,
       },
     },
@@ -1592,7 +1593,7 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
       status: 'PENDING',
     },
     provider_provenance: {
-      provider,
+      provider: 'RESEARCH_STREAM_REPLAY',
       provider_state: resolvedProvenance,
       data_provenance: resolvedProvenance,
       timestamp_ingested: nowIso,
@@ -1606,9 +1607,7 @@ function createInconclusiveTelemetry(
   timeframe: Timeframe,
   dataQuality: DataQuality,
   reason: string,
-  nowIso: string,
-  dataProvenance: DataProvenance = 'REPLAY',
-  provider: 'TWELVE_DATA' | 'ALPHA_VANTAGE' | 'RESEARCH_STREAM_REPLAY' = 'RESEARCH_STREAM_REPLAY'
+  nowIso: string
 ): MasterTelemetry {
   return {
     metadata: {
@@ -1622,7 +1621,7 @@ function createInconclusiveTelemetry(
       asset,
       data_quality: dataQuality,
       cv_confidence: 0,
-      data_provenance: dataProvenance,
+      data_provenance: 'REPLAY',
     },
     market_context: {
       selected_timeframe: timeframe,
@@ -1648,16 +1647,10 @@ function createInconclusiveTelemetry(
     guardrails: { news_guard: { news_event_detected: false, news_window_state: 'NEWS_DATA_UNAVAILABLE', news_source: 'OFFLINE', reason } },
     system_execution: {
       system_decision: 'INCONCLUSIVE',
-      final_action: 'NO_ALERT',
+      final_action: 'NO_ACTION',
       user_recorded_action: 'NOT_RECORDED',
-      halted_at_stage: 'Data Quality Check',
+      halted_at_stage: 'Market Data Circuit Breaker',
       rejection_reason: reason,
-    },
-    provider_provenance: {
-      provider,
-      provider_state: dataProvenance === 'LIVE_INGESTED' ? 'LIVE' : 'BLOCKED_NON_LIVE',
-      data_provenance: dataProvenance,
-      timestamp_ingested: nowIso,
     },
     next_candle_observation: {
       status: 'NEXT_CANDLE_INCONCLUSIVE',

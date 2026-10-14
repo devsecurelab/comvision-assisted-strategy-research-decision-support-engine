@@ -12,7 +12,10 @@ export interface Candle {
   high: number;
   low: number;
   close: number;
-  volume: number; // Represents tick count in CFD/FX feeds
+  volume: number | null;
+  volumeDelta?: number;
+  cvd?: number;
+  pocPrice?: number; // Provider-reported volume; null means unavailable
 }
 
 export type StructuralState = 'BULLISH' | 'BEARISH' | 'UNCLEAR';
@@ -205,7 +208,7 @@ export type TickBaseline = 'ABOVE_AVERAGE' | 'BELOW_AVERAGE';
 // Data Quality & Execution Decisions
 export type DataQuality = 'COMPLETE' | 'DEGRADED' | 'INVALID';
 export type SystemDecision = 'PASS' | 'REJECT' | 'INCONCLUSIVE';
-export type FinalAction = 'MANUAL_ALERT' | 'NO_ALERT' | 'NONE';
+export type FinalAction = 'MANUAL_ALERT' | 'SAFE_HOLD' | 'NO_ACTION';
 
 // Stage 20: Next-Candle Research Observation (Strictly Research-Honest Semantics)
 export type NextCandleObservation =
@@ -233,7 +236,19 @@ export interface PressureObservation {
 }
 
 // Single Telemetry Master Record (Section 5 & 49 Master Schema)
+export interface V3DecisionTelemetry {
+  version: 'RDP_STRATEGY_V3.0';
+  direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  stages: any[];
+  gates: any[];
+  mfci: { sStructure: number; sOrderFlow: number; sLiquidity: number; sVisionAi: number; totalMfci: number; meetsThreshold: boolean };
+  systemDecision: 'PASS' | 'HOLD' | 'BLOCKED';
+  finalAction: 'MANUAL_ALERT' | 'SAFE_HOLD' | 'NO_ACTION';
+  entryPrice: number; stopLoss: number; takeProfit1: number; takeProfit2: number; riskRewardRatio: number;
+}
+
 export interface MasterTelemetry {
+  decision_engine_v3?: V3DecisionTelemetry;
   metadata: {
     project_name: string;
     strategy_version: string; // e.g. "v2.0-FROZEN"

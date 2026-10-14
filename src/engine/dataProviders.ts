@@ -120,7 +120,7 @@ function parseProviderTimestamp(value: unknown, timezone = 'UTC'): string {
   return timestamp.toISOString();
 }
 
-function parseCandleRows(rows: unknown, provider: MarketDataProvider, timezone = 'UTC'): Candle[] {
+function parseCandleRows(rows: unknown, provider: MarketDataProvider, timeframe: Timeframe, timezone = 'UTC'): Candle[] {
   if (!Array.isArray(rows)) throw new MarketDataError('INVALID_PROVIDER_RESPONSE', 'Provider response did not contain a candle array.', provider);
   const candles: Candle[] = rows.map((row: any) => {
     const open = Number(row?.open ?? row?.['1. open']);
@@ -128,8 +128,8 @@ function parseCandleRows(rows: unknown, provider: MarketDataProvider, timezone =
     const low = Number(row?.low ?? row?.['3. low']);
     const close = Number(row?.close ?? row?.['4. close']);
     const volumeValue = row?.volume ?? row?.['5. volume'];
-    const volume = volumeValue === undefined || volumeValue === null || volumeValue === '' ? 0 : Number(volumeValue);
-    if (![open, high, low, close, volume].every(Number.isFinite) || open <= 0 || high <= 0 || low <= 0 || close <= 0 || volume < 0 || high < Math.max(open, close, low) || low > Math.min(open, close, high)) {
+    const volume = volumeValue === undefined || volumeValue === null || volumeValue === '' ? null : Number(volumeValue);
+    if (![open, high, low, close].every(Number.isFinite) || (volume !== null && (!Number.isFinite(volume) || volume < 0)) || open <= 0 || high <= 0 || low <= 0 || close <= 0 || high < Math.max(open, close, low) || low > Math.min(open, close, high)) {
       throw new MarketDataError('INVALID_PROVIDER_RESPONSE', 'Provider returned malformed OHLC values.', provider);
     }
     return {
@@ -143,7 +143,10 @@ function parseCandleRows(rows: unknown, provider: MarketDataProvider, timezone =
   });
 
   candles.sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
-  const deduplicated = candles.filter((candle, index) => index === 0 || candle.timestamp !== candles[index - 1].timestamp);
+  const intervalMs = timeframeToMinutes(timeframe) * 60_000;
+  const nowMs = Date.now();
+  const closed = candles.filter((candle) => Date.parse(candle.timestamp) + intervalMs <= nowMs);
+  const deduplicated = closed.filter((candle, index) => index === 0 || candle.timestamp !== closed[index - 1].timestamp);
   if (deduplicated.length < 25) {
     throw new MarketDataError('INSUFFICIENT_HISTORY', `Provider returned ${deduplicated.length} candles; at least 25 are required.`, provider);
   }
@@ -327,7 +330,7 @@ export class MarketFeedManager {
       const sourceTimezone = provider === 'ALPHA_VANTAGE'
         ? payload?.['Meta Data']?.['6. Time Zone'] || 'US/Eastern'
         : 'UTC';
-      const candles = parseCandleRows(rows, provider, sourceTimezone);
+      const candles = parseCandleRows(rows, provider, timeframe, sourceTimezone);
       const latest = candles[candles.length - 1];
       const ageMs = Date.now() - Date.parse(latest.timestamp);
       const freshnessLimitMs = timeframeToMinutes(timeframe) * 60_000 * 2 + 60_000;

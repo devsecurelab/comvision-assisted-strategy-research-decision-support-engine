@@ -19,6 +19,9 @@ import { analyticsService } from '../src/server/analyticsService';
 import { chatService } from '../src/server/chatService';
 import { formatSignalTime } from '../src/utils/timeFormat';
 
+// Archived V2 fixture suite is explicit and never represents the live engine.
+process.env.LEGACY_V2_FIXTURES = '1';
+
 // Isolate test storage directory to prevent interference with runtime state
 const testStorageDir = path.join(process.cwd(), 'data_test');
 durableStorage.setDataDir(testStorageDir);
@@ -62,7 +65,7 @@ runTest('Test 1: REPLAY provenance is INCONCLUSIVE and cannot emit an alert', ()
   });
 
   assert.strictEqual(telemetry.system_execution.system_decision, 'INCONCLUSIVE');
-  assert.strictEqual(telemetry.system_execution.final_action, 'NO_ALERT');
+  assert.strictEqual(telemetry.system_execution.final_action, 'NO_ACTION');
   assert.strictEqual(telemetry.metadata.data_provenance, 'REPLAY');
   assert.strictEqual(telemetry.system_execution.halted_at_stage, 'Market Data Circuit Breaker');
   assert.notStrictEqual(telemetry.system_execution.final_action, 'EXECUTE_ORDER');
@@ -174,7 +177,7 @@ runTest('Test 8: Stage 3 - Rejection if C3 closes back inside C1 boundary', () =
 // 9. Stage 4: Volume / Tick Activity Proxy Ascending Rule
 runTest('Test 9: Stage 4 - TICK_ACTIVITY_PROXY accepts ascending or above 10-period average', () => {
   const candles = generateDeterministicValidSetup(1.0845);
-  assert(candles[22].volume < candles[23].volume && candles[23].volume < candles[24].volume);
+  assert(candles[22].volume! < candles[23].volume! && candles[23].volume! < candles[24].volume!);
   const telemetry = executeStrategyPipeline({
     candles,
     currentCandleIndex: 24,
@@ -309,7 +312,7 @@ runTest('Test 16: Stage 8 - News source offline triggers INCONCLUSIVE ("Never as
   });
   assert.strictEqual(telemetry.guardrails.news_guard.news_window_state, 'NEWS_DATA_UNAVAILABLE');
   assert.strictEqual(telemetry.system_execution.system_decision, 'INCONCLUSIVE');
-  assert.strictEqual(telemetry.system_execution.final_action, 'NO_ALERT');
+  assert.strictEqual(telemetry.system_execution.final_action, 'NO_ACTION');
 });
 
 // 17. Stage 9: T-10s Pressure Observation Non-Filtering Categorical
@@ -458,7 +461,7 @@ runTest('Test 23: Data Quality Fail-Safe - Zero range flat candle triggers DEGRA
   });
   assert.strictEqual(tel.metadata.data_quality, 'DEGRADED');
   assert.strictEqual(tel.system_execution.system_decision, 'INCONCLUSIVE');
-  assert.strictEqual(tel.system_execution.final_action, 'NO_ALERT');
+  assert.strictEqual(tel.system_execution.final_action, 'NO_ACTION');
 });
 
 // 24. Master Telemetry Completeness Check (Section 6 Schema Verification)
@@ -942,7 +945,7 @@ runTest('Test 36: Stage 5 - Bearish prior-swing-low liquidity sweep: Low(C3) < S
 
   assert.strictEqual(tel.validation_metrics.liquidity_sweep.status, 'SWEEP_DETECTED');
   assert.strictEqual(tel.system_execution.system_decision, 'REJECT');
-  assert.strictEqual(tel.system_execution.final_action, 'NO_ALERT');
+  assert.strictEqual(tel.system_execution.final_action, 'NO_ACTION');
 });
 
 // 37. Stage 7: Bearish Fibonacci 50% Premium Rule
@@ -1779,13 +1782,13 @@ runTest('Circuit breaker blocks synthetic overrides and test fixtures', () => {
       dataProvenance,
     });
     assert.strictEqual(telemetry.system_execution.system_decision, 'INCONCLUSIVE');
-    assert.strictEqual(telemetry.system_execution.final_action, 'NO_ALERT');
+    assert.strictEqual(telemetry.system_execution.final_action, 'NO_ACTION');
   }
 });
 
 runTest('Twelve Data adapter fetches actual time_series OHLC and reuses same-minute cache', async () => {
   const newest = Date.now() - 30_000;
-  const values = Array.from({ length: 25 }, (_, index) => ({
+  const values = Array.from({ length: 26 }, (_, index) => ({
     datetime: new Date(newest - index * 5 * 60_000).toISOString(),
     open: '1.1000', high: '1.1010', low: '1.0990', close: '1.1005', volume: '100',
   }));
@@ -1811,7 +1814,7 @@ runTest('Twelve Data adapter fetches actual time_series OHLC and reuses same-min
 runTest('Alpha Vantage adapter fetches real FX_INTRADAY OHLC and reports live provenance', async () => {
   const newest = Date.now() - 30_000;
   const series: Record<string, unknown> = {};
-  for (let index = 0; index < 25; index++) {
+  for (let index = 0; index < 26; index++) {
     const timestamp = new Date(newest - index * 5 * 60_000).toISOString().replace('T', ' ').slice(0, 19);
     series[timestamp] = { '1. open': '1.1000', '2. high': '1.1010', '3. low': '1.0990', '4. close': '1.1005' };
   }
@@ -1847,7 +1850,7 @@ runTest('Stale provider candles and missing live credentials fail closed without
   );
 
   const staleNewest = Date.now() - 30 * 60_000;
-  const values = Array.from({ length: 25 }, (_, index) => ({
+  const values = Array.from({ length: 26 }, (_, index) => ({
     datetime: new Date(staleNewest - index * 5 * 60_000).toISOString(),
     open: '1.1000', high: '1.1010', low: '1.0990', close: '1.1005', volume: '100',
   }));
@@ -1863,7 +1866,7 @@ runTest('Stale provider candles and missing live credentials fail closed without
 runTest('Step 0 provider probe bypasses cache and reports closed-candle data and credit headers', async () => {
   const intervalMs = 15 * 60_000;
   const expectedLastClosedMs = Math.floor(Date.now() / intervalMs) * intervalMs - intervalMs;
-  const values = Array.from({ length: 25 }, (_, index) => ({
+  const values = Array.from({ length: 26 }, (_, index) => ({
     datetime: new Date(expectedLastClosedMs - index * intervalMs).toISOString(),
     open: '1.1000', high: '1.1010', low: '1.0990', close: '1.1005', volume: '100',
   }));

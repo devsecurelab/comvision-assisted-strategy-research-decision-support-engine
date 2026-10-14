@@ -298,6 +298,7 @@ export class ChatService {
 
       // Execute only on verified live provider candles; vision is permanently disabled.
       const telemetry = executeStrategyPipeline({
+        decisionEngineVersion: 'V3',
         candles: currentCandles,
         currentCandleIndex: currentCandles.length - 1,
         selectedTimeframe: '15m',

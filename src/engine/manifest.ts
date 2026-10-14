@@ -4,9 +4,9 @@
 // Mode: Research / Decision-Support / Manual Alert Only
 // Architectural Boundary: Strictly Non-Execution
 
-export const ACTIVE_STRATEGY_VERSION = 'v2.0-FROZEN';
+export const ACTIVE_STRATEGY_VERSION = 'RDP_STRATEGY_V3.0';
 export const HISTORICAL_STRATEGY_VERSION = 'v1.0-ARCHIVED';
-export const ACTIVE_EXPERIMENT_ID = 'EXP-2026-V2-001';
+export const ACTIVE_EXPERIMENT_ID = 'EXP-2026-V3-REAL-001';
 
 // Canonical Frozen Configuration Snapshot for v2.0
 export const V2_CONFIG_SNAPSHOT = {

@@ -301,7 +301,7 @@ export class ExperimentManager {
       if (currentValid >= STRATEGY_MANIFEST.scope_freeze.target_valid_setups) {
         telemetry.system_execution.rejection_reason = `Target sample size reached (${STRATEGY_MANIFEST.scope_freeze.target_valid_setups} valid setups). Experiment completed.`;
         telemetry.system_execution.system_decision = 'REJECT';
-        telemetry.system_execution.final_action = 'NO_ALERT';
+        telemetry.system_execution.final_action = 'NO_ACTION';
       }
     }
 

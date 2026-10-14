@@ -714,6 +714,7 @@ app.post(['/api/engine/evaluate-candidate', '/api/engine/scan-candidate'], requi
   }
 
   const telemetry = executeStrategyPipeline({
+    decisionEngineVersion: 'V3',
     candles: baseCandles,
     currentCandleIndex: baseCandles.length - 1,
     selectedTimeframe: resolvedTimeframe,
