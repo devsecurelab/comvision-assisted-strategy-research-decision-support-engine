@@ -1128,7 +1128,7 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
     candles,
     currentCandleIndex,
     selectedTimeframe,
-    higherTimeframeBias = 'BULLISH',
+    higherTimeframeBias = 'UNCLEAR',
     newsEvents,
     newsSourceOnline,
     cvConfidence,
@@ -1179,18 +1179,13 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
   const c2 = candles[currentCandleIndex - 1];
   const c1 = candles[currentCandleIndex - 2];
 
-  const cvConf = typeof cvConfidence === 'number' ? cvConfidence : 0.95;
-  const resolvedCvSource: CVEvidenceSource = input.cvEvidenceSource || (input.cvConfidence !== undefined ? 'SIMULATION_HARNESS' : 'SIMULATION_HARNESS');
+  // Vision/CV is permanently disabled for the real-market pilot. It cannot affect MFCI or a decision.
+  const cvConf = 0;
+  const resolvedCvSource: CVEvidenceSource = 'UNAVAILABLE';
   const resolvedProvenance: DataProvenance = dataProvenance;
 
   const isZeroRange = Math.abs(c3.high - c3.low) <= 0.000001;
-  const dataQuality: DataQuality = isZeroRange
-    ? 'DEGRADED'
-    : cvConf >= 0.95
-    ? 'COMPLETE'
-    : cvConf >= 0.85
-    ? 'DEGRADED'
-    : 'INVALID';
+  const dataQuality: DataQuality = isZeroRange ? 'DEGRADED' : 'COMPLETE';
 
   // Stage 16 & 17: Session & Kill Zone Context
   const sessionInfo = classifySessionAndKillZone(c3.timestamp);
@@ -1393,15 +1388,9 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
     }
   }
 
-  // Vision Verification & AI boundary (Transparent simulation harness or real CV)
-  let visionStatus: 'PASS' | 'FAIL' | 'INCONCLUSIVE' = 'PASS';
-  let visionEvidence = resolvedCvSource === 'ACTUAL_CV_EXTRACTED'
-    ? 'Chart screenshot evidence matches price action criteria'
-    : `Research Harness Simulation (${resolvedCvSource}): No live camera CV stream connected`;
-  if (cvConf < 0.85) {
-    visionStatus = 'INCONCLUSIVE';
-    visionEvidence = `CV quality confidence (${(cvConf * 100).toFixed(1)}%) below required 85% threshold`;
-  }
+  // Vision is intentionally outside the pilot engine. No screenshot/CV evidence is accepted.
+  const visionStatus: 'PASS' = 'PASS';
+  const visionEvidence = 'Vision/CV disabled by pilot specification; decision uses provider OHLC only.';
 
   // DETERMINISTIC 9-STAGE DECISION ENGINE
   let system_decision: 'PASS' | 'REJECT' | 'INCONCLUSIVE' = 'PASS';
@@ -1409,15 +1398,22 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
   let halted_at_stage: string | undefined;
   let rejection_reason: string | undefined;
 
+  // A real 1h bias is mandatory; never substitute a request-body field or a default direction.
+  if (higherTimeframeBias === 'UNCLEAR') {
+    system_decision = 'INCONCLUSIVE';
+    final_action = 'NO_ALERT';
+    halted_at_stage = 'Stage 1: Higher-Timeframe Bias';
+    rejection_reason = '1h higher-timeframe bias is unavailable or unclear. NO_TRADE.';
+  }
   // Zero-range flat candle fail-safe
-  if (isZeroRange) {
+  else if (isZeroRange) {
     system_decision = 'INCONCLUSIVE';
     final_action = 'NO_ALERT';
     halted_at_stage = 'Stage 1: Market Structure / Data Quality';
     rejection_reason = 'Zero range flat candle detected on confirmation candle C3. Fail-safe triggered: DEGRADED.';
   }
   // Stage 1: Market Structure
-  else if (structure.bias === 'UNCLEAR' && higherTimeframeBias === 'UNCLEAR') {
+  else if (structure.bias === 'UNCLEAR') {
     system_decision = 'REJECT';
     final_action = 'NO_ALERT';
     halted_at_stage = 'Stage 1: Market Structure';
@@ -1483,14 +1479,6 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
     halted_at_stage = 'Stage 7: News Guard Fail-Safe';
     rejection_reason = newsReason;
   }
-  // Vision verification quality check
-  else if (visionStatus === 'INCONCLUSIVE') {
-    system_decision = 'INCONCLUSIVE';
-    final_action = 'NO_ALERT';
-    halted_at_stage = 'Data Quality / Vision Verification';
-    rejection_reason = visionEvidence;
-  }
-
   const nowIso = new Date().toISOString();
 
   return {

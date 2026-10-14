@@ -4,7 +4,7 @@
 // STRICT NON-EXECUTION BOUNDARY: Informational decision-support only. No trade execution.
 
 import { GoogleGenAI } from '@google/genai';
-import { executeStrategyPipeline } from '../engine/pipeline';
+import { executeStrategyPipeline, detectFractalSwings, evaluateMarketStructure } from '../engine/pipeline';
 import { feedManager } from '../engine/dataProviders';
 import { newsGuard } from '../engine/newsGuard';
 import { analyticsService } from './analyticsService';
@@ -274,18 +274,39 @@ export class ChatService {
       lower.includes('status');
 
     if (isMarketAnalysis || lower.includes(pair.toLowerCase())) {
-      const currentCandles = feedManager.generateDeterministicValidSetup(pair.startsWith('EUR') ? 1.0850 : 18500);
+      const status = feedManager.getStatus();
+      if (status.provider === 'RESEARCH_STREAM_REPLAY') {
+        const responseText = `**NO_TRADE — live provider unavailable**\n\nReplay/demo data is disabled in the pilot live path. Configure Twelve Data or Alpha Vantage before requesting a market analysis.\n\nResearch alert only.`;
+        durableStorage.recordChatMessage({ user_id: userId, user_query: trimmed, assistant_response: responseText, query_type: 'MARKET_CONDITION' });
+        return { message: responseText, queryType: 'MARKET_CONDITION' };
+      }
 
-      // Execute deterministic 9-stage pipeline
+      let currentCandles;
+      let higherTimeframeBias: 'BULLISH' | 'BEARISH' | 'UNCLEAR' = 'UNCLEAR';
+      try {
+        const marketData = await feedManager.fetchCandles(pair, '15m', status.provider);
+        const htfData = await feedManager.fetchCandles(pair, '1h', status.provider);
+        currentCandles = marketData.candles;
+        const htfSwings = detectFractalSwings(htfData.candles, htfData.candles.length - 1);
+        higherTimeframeBias = evaluateMarketStructure(htfSwings).bias;
+        if (higherTimeframeBias === 'UNCLEAR') throw new Error('1h higher-timeframe bias is unclear.');
+      } catch (error: any) {
+        const responseText = `**NO_TRADE — provider data unavailable**\n\n${error?.message || 'The live market-data provider did not return a trustworthy response.'}\n\nResearch alert only.`;
+        durableStorage.recordChatMessage({ user_id: userId, user_query: trimmed, assistant_response: responseText, query_type: 'MARKET_CONDITION' });
+        return { message: responseText, queryType: 'MARKET_CONDITION' };
+      }
+
+      // Execute only on verified live provider candles; vision is permanently disabled.
       const telemetry = executeStrategyPipeline({
         candles: currentCandles,
-        currentCandleIndex: 24,
-        selectedTimeframe: '5m',
+        currentCandleIndex: currentCandles.length - 1,
+        selectedTimeframe: '15m',
+        higherTimeframeBias,
         newsEvents: newsGuard.getEvents(),
         newsSourceOnline: newsGuard.isOnline(),
-        cvEvidenceSource: 'SIMULATION_HARNESS',
-        cvConfidence: 0.95,
-        dataProvenance: 'REPLAY',
+        cvEvidenceSource: 'UNAVAILABLE',
+        dataProvenance: 'LIVE_INGESTED',
+        provider: status.provider,
         pair,
         asset: pair,
       });
@@ -310,7 +331,7 @@ export class ChatService {
         `**SYSTEM DECISION:** **${telemetry.system_execution.system_decision}**`,
         `**FINAL ACTION:** **${telemetry.system_execution.final_action}**`,
         ``,
-        `Data Provenance: **${telemetry.metadata.data_provenance || 'REPLAY'}** | CV Source: **${telemetry.vision_verification?.cv_evidence_source || 'SIMULATION_HARNESS'}**`,
+        `Data Provenance: **${telemetry.metadata.data_provenance || 'LIVE_INGESTED'}** | Vision: **DISABLED**`,
         ``,
         `Timestamps:`,
         `• UTC: ${timeData.utcTime}`,

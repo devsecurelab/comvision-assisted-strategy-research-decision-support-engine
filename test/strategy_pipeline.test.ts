@@ -5,6 +5,7 @@
 import assert from 'node:assert';
 import path from 'node:path';
 import { feedManager, MarketFeedManager } from '../src/engine/dataProviders';
+import { generateDeterministicValidSetup, generateResearchCandles } from './fixtures/marketCandles';
 import { executeStrategyPipeline as executePipeline, detectFractalSwings, evaluateMarketStructure, isInsideCandle, detectLiquidityPools, evaluateMomentum } from '../src/engine/pipeline';
 import { newsGuard } from '../src/engine/newsGuard';
 import { experimentTracker } from '../src/engine/experimentTracker';
@@ -38,6 +39,7 @@ function runTest(name: string, fn: () => void | Promise<void>) {
 // These fixtures exercise strategy calculations; provenance safety is tested separately below.
 const executeStrategyPipeline: typeof executePipeline = (input) => executePipeline({
   ...input,
+  higherTimeframeBias: input.higherTimeframeBias ?? 'BULLISH',
   dataProvenance: input.dataProvenance ?? 'LIVE_INGESTED',
 });
 
@@ -47,7 +49,7 @@ runTest('Test 1: REPLAY provenance is INCONCLUSIVE and cannot emit an alert', ()
   assert.strictEqual(STRATEGY_MANIFEST.architectural_boundary.terminal_state, 'MANUAL_ALERT');
   assert.strictEqual(STRATEGY_MANIFEST.architectural_boundary.direct_broker_connection_allowed, false);
 
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   const telemetry = executePipeline({
     candles,
     currentCandleIndex: 24,
@@ -69,7 +71,7 @@ runTest('Test 1: REPLAY provenance is INCONCLUSIVE and cannot emit an alert', ()
 
 // 2. Stage 1: Market Structure (5-candle fractal with t+2 confirmation delay)
 runTest('Test 2: Stage 1 - 5-candle symmetric fractal swing high/low confirmed strictly at Close of t+2', () => {
-  const candles = feedManager.generateResearchCandles(30);
+  const candles = generateResearchCandles(30);
   const swings = detectFractalSwings(candles, 26);
   assert(swings.length > 0, 'Should detect fractal swings');
   
@@ -94,7 +96,7 @@ runTest('Test 3: Stage 1 - Structure evaluates BULLISH, BEARISH or UNCLEAR corre
 
 // 4. Stage 2: Bullish Fair Value Gap (FVG) Zone
 runTest('Test 4: Stage 2 - Bullish FVG mathematical zone defined as [High(C1), Low(C3)]', () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   const c1 = candles[22];
   const c3 = candles[24];
 
@@ -106,7 +108,7 @@ runTest('Test 4: Stage 2 - Bullish FVG mathematical zone defined as [High(C1), L
 
 // 5. Stage 2: FVG Mitigation States (UNMITIGATED, PARTIAL_FILL, COMPLETELY_FILLED)
 runTest('Test 5: Stage 2 - FVG mitigation state tracking', () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   // Current price in unmitigated state
   const telemetry = executeStrategyPipeline({
     candles,
@@ -122,7 +124,7 @@ runTest('Test 5: Stage 2 - FVG mitigation state tracking', () => {
 
 // 6. Stage 2: Order Block Confluence
 runTest('Test 6: Stage 2 - Order Block detection and confluence validation', () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   const telemetry = executeStrategyPipeline({
     candles,
     currentCandleIndex: 24,
@@ -138,7 +140,7 @@ runTest('Test 6: Stage 2 - Order Block detection and confluence validation', () 
 
 // 7. Stage 3: 3-Candle Pattern Expansion (Close(C3) > High(C1))
 runTest('Test 7: Stage 3 - Bullish 3-candle expansion breakout validation', () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   const telemetry = executeStrategyPipeline({
     candles,
     currentCandleIndex: 24,
@@ -153,7 +155,7 @@ runTest('Test 7: Stage 3 - Bullish 3-candle expansion breakout validation', () =
 
 // 8. Stage 3: Rejection if C3 closes inside C1 boundary
 runTest('Test 8: Stage 3 - Rejection if C3 closes back inside C1 boundary', () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   // Modify C3 close to fall inside C1
   candles[24].close = candles[22].open;
   const telemetry = executeStrategyPipeline({
@@ -171,7 +173,7 @@ runTest('Test 8: Stage 3 - Rejection if C3 closes back inside C1 boundary', () =
 
 // 9. Stage 4: Volume / Tick Activity Proxy Ascending Rule
 runTest('Test 9: Stage 4 - TICK_ACTIVITY_PROXY accepts ascending or above 10-period average', () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   assert(candles[22].volume < candles[23].volume && candles[23].volume < candles[24].volume);
   const telemetry = executeStrategyPipeline({
     candles,
@@ -188,7 +190,7 @@ runTest('Test 9: Stage 4 - TICK_ACTIVITY_PROXY accepts ascending or above 10-per
 
 // 10. Stage 4: Low Tick Activity Proxy Rejection
 runTest('Test 10: Stage 4 - Low tick activity proxy triggers deterministic REJECT', () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   candles[22].volume = 10;
   candles[23].volume = 10;
   candles[24].volume = 10; // flat/low
@@ -207,7 +209,7 @@ runTest('Test 10: Stage 4 - Low tick activity proxy triggers deterministic REJEC
 
 // 11. Stage 5: Wick Pushback Exceeding 50% Triggers REJECT
 runTest('Test 11: Stage 5 - Pushback wick ratio > 0.50 triggers REJECT ("Wick Fakeout")', () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   // Create massive upper wick on C3
   candles[24].high = 1.08700;
   candles[24].open = 1.08460;
@@ -227,7 +229,7 @@ runTest('Test 11: Stage 5 - Pushback wick ratio > 0.50 triggers REJECT ("Wick Fa
 
 // 12. Stage 5: Liquidity Sweep / Fakeout Detection
 runTest('Test 12: Stage 5 - Sweeping prior swing high without closing above triggers SWEEP_DETECTED', () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   // Prior confirmed swing high SH_n is at index 14 with price 1.0868
   // C3 high pierces to 1.08720 (> 1.0868) but fails to close above (closes at 1.08650)
   candles[24].high = 1.08720;
@@ -255,7 +257,7 @@ runTest('Test 13: Stage 6 - Inside candle recognized without resetting pattern s
 
 // 14. Stage 7: Fibonacci 50% Equilibrium Zone Discount Check
 runTest('Test 14: Stage 7 - Bullish FVG must lie strictly below Fib 50% Equilibrium Level', () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   const telemetry = executeStrategyPipeline({
     candles,
     currentCandleIndex: 24,
@@ -270,7 +272,7 @@ runTest('Test 14: Stage 7 - Bullish FVG must lie strictly below Fib 50% Equilibr
 
 // 15. Stage 8: News Guard Active Window Rejection
 runTest('Test 15: Stage 8 - High-impact red-folder event within +/- 30m window triggers REJECT', () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   const now = new Date(candles[24].timestamp).getTime();
   const redEvent = {
     id: 'test-red-folder',
@@ -295,7 +297,7 @@ runTest('Test 15: Stage 8 - High-impact red-folder event within +/- 30m window t
 
 // 16. Stage 8: News Guard Offline Fail-Safe Triggers INCONCLUSIVE
 runTest('Test 16: Stage 8 - News source offline triggers INCONCLUSIVE ("Never assume no news = clear")', () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   const telemetry = executeStrategyPipeline({
     candles,
     currentCandleIndex: 24,
@@ -312,7 +314,7 @@ runTest('Test 16: Stage 8 - News source offline triggers INCONCLUSIVE ("Never as
 
 // 17. Stage 9: T-10s Pressure Observation Non-Filtering Categorical
 runTest('Test 17: Stage 9 - Pressure observation is non-filtering and strictly categorical (no percentages)', () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   const telemetry = executeStrategyPipeline({
     candles,
     currentCandleIndex: 24,
@@ -355,7 +357,7 @@ runTest('Test 18: Access Control - Authorization status lifecycle (PENDING / APP
 
 // 19. Exact Boundary: Wick Pushback Ratio (0.500 passes vs 0.501 rejects)
 runTest('Test 19: Exact Boundary - Wick pushback ratio <= 0.500 PASS vs > 0.500 REJECT ("Wick Fakeout")', () => {
-  const candlesPass = feedManager.generateDeterministicValidSetup(1.0845);
+  const candlesPass = generateDeterministicValidSetup(1.0845);
   // Total range = 0.00100 (high: 1.08550, low: 1.08450)
   // Max(open, close) = 1.08500 -> upper wick = 1.08550 - 1.08500 = 0.00050 -> ratio = exactly 0.500
   candlesPass[24].low = 1.08450;
@@ -373,7 +375,7 @@ runTest('Test 19: Exact Boundary - Wick pushback ratio <= 0.500 PASS vs > 0.500 
   });
   assert.strictEqual(telPass.validation_metrics.wick_check.status, 'PASS', '0.500 wick ratio must PASS');
 
-  const candlesFail = feedManager.generateDeterministicValidSetup(1.0845);
+  const candlesFail = generateDeterministicValidSetup(1.0845);
   // Upper wick = 0.00051 / 0.00100 = 0.510 (> 0.50)
   candlesFail[24].low = 1.08450;
   candlesFail[24].high = 1.08550;
@@ -394,7 +396,7 @@ runTest('Test 19: Exact Boundary - Wick pushback ratio <= 0.500 PASS vs > 0.500 
 
 // 20. Exact Boundary: Fibonacci 50% Equilibrium Level
 runTest('Test 20: Exact Boundary - Bullish FVG strictly below Fib 50% PASS vs touching/above Fib 50% REJECT', () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   // Setting fibEquilibriumLevel lower than FVG Top causes rejection
   const telReject = executeStrategyPipeline({
     candles,
@@ -412,7 +414,7 @@ runTest('Test 20: Exact Boundary - Bullish FVG strictly below Fib 50% PASS vs to
 
 // 21. Stage 3 Negative Boundary: Close(C3) == High(C1)
 runTest('Test 21: Stage 3 Negative Boundary - Close(C3) exactly equal to High(C1) fails expansion (> High(C1))', () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   candles[24].close = candles[22].high; // Exactly equal, not strictly greater
   const tel = executeStrategyPipeline({
     candles,
@@ -427,49 +429,21 @@ runTest('Test 21: Stage 3 Negative Boundary - Close(C3) exactly equal to High(C1
   assert.strictEqual(tel.system_execution.system_decision, 'REJECT');
 });
 
-// 22. OCR / CV Confidence Quality Metric Thresholds (<85%, 85-95%, >95%)
-runTest('Test 22: OCR/CV Quality Metric - <85% INVALID (INCONCLUSIVE), 85-95% DEGRADED, >95% COMPLETE', () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
-
-  // 1. Below 85% -> INVALID -> INCONCLUSIVE, NO_ALERT
-  const telInvalid = executeStrategyPipeline({
-    candles,
-    currentCandleIndex: 24,
-    selectedTimeframe: '5m',
-    newsEvents: newsGuard.getEvents(),
-    newsSourceOnline: true,
-    cvConfidence: 0.82, // < 85%
+// 22. Vision is permanently disabled in the real-market pilot
+runTest('Test 22: Vision/CV is disabled and cannot influence data quality', () => {
+  const candles = generateDeterministicValidSetup(1.0845);
+  const telemetry = executeStrategyPipeline({
+    candles, currentCandleIndex: 24, selectedTimeframe: '15m',
+    newsEvents: newsGuard.getEvents(), newsSourceOnline: true, cvConfidence: 0.10,
   });
-  assert.strictEqual(telInvalid.metadata.data_quality, 'INVALID');
-  assert.strictEqual(telInvalid.system_execution.system_decision, 'INCONCLUSIVE');
-  assert.strictEqual(telInvalid.system_execution.final_action, 'NO_ALERT');
-
-  // 2. 85% to 95% -> DEGRADED -> evaluated with DEGRADED tag
-  const telDegraded = executeStrategyPipeline({
-    candles,
-    currentCandleIndex: 24,
-    selectedTimeframe: '5m',
-    newsEvents: newsGuard.getEvents(),
-    newsSourceOnline: true,
-    cvConfidence: 0.90, // 85-95%
-  });
-  assert.strictEqual(telDegraded.metadata.data_quality, 'DEGRADED');
-
-  // 3. Above 95% -> COMPLETE
-  const telComplete = executeStrategyPipeline({
-    candles,
-    currentCandleIndex: 24,
-    selectedTimeframe: '5m',
-    newsEvents: newsGuard.getEvents(),
-    newsSourceOnline: true,
-    cvConfidence: 0.98, // > 95%
-  });
-  assert.strictEqual(telComplete.metadata.data_quality, 'COMPLETE');
+  assert.strictEqual(telemetry.metadata.data_quality, 'COMPLETE');
+  assert.strictEqual(telemetry.vision_verification?.cv_evidence_source, 'UNAVAILABLE');
+  assert.strictEqual(telemetry.vision_verification?.verification_status, 'PASS');
 });
 
 // 23. Data Quality Fail-Safe: Zero-Range Flat Candle
 runTest('Test 23: Data Quality Fail-Safe - Zero range flat candle triggers DEGRADED + INCONCLUSIVE', () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   candles[24].high = 1.08450;
   candles[24].low = 1.08450;
   candles[24].open = 1.08450;
@@ -489,7 +463,7 @@ runTest('Test 23: Data Quality Fail-Safe - Zero range flat candle triggers DEGRA
 
 // 24. Master Telemetry Completeness Check (Section 6 Schema Verification)
 runTest('Test 24: Master Telemetry Completeness - All Section 6 schema fields populated without omission', () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   const tel = executeStrategyPipeline({
     candles,
     currentCandleIndex: 24,
@@ -536,7 +510,7 @@ runTest('Test 24: Master Telemetry Completeness - All Section 6 schema fields po
 // 25. Master Telemetry SHA-256 Hash Chain Integrity & Tamper Detection
 runTest('Test 25: Master Telemetry SHA-256 Hash Chain - Sequential verification and tamper detection', () => {
   const tracker = new (experimentTracker.constructor as any)();
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
 
   const t1 = executeStrategyPipeline({ candles, currentCandleIndex: 24, selectedTimeframe: '5m', newsEvents: [], newsSourceOnline: true, cvConfidence: 0.98 });
   const t2 = executeStrategyPipeline({ candles, currentCandleIndex: 24, selectedTimeframe: '5m', newsEvents: [], newsSourceOnline: true, cvConfidence: 0.98 });
@@ -635,7 +609,7 @@ runTest('Test 30: Session Revocation & Quick Demo - Logout destroys session; Qui
  * Produces a verified, mathematically valid Bearish setup conforming to v3.4
  */
 function generateDeterministicBearishSetup(basePrice = 1.0850): Candle[] {
-  const candles = feedManager.generateResearchCandles(25, basePrice);
+  const candles = generateResearchCandles(25, basePrice);
   const now = Date.now();
   const tMinus = (mins: number) => new Date(now - mins * 60 * 1000).toISOString();
 
@@ -1038,7 +1012,7 @@ runTest('Test 40: Scope Freeze - Rejection of timeframe/threshold mutation under
 
 // 41. Persistence: DurableStorage saves and loads candidates surviving re-instantiation
 runTest('Test 41: Persistence - DurableStorage saves and loads candidates surviving re-instantiation', () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   const candidate = executeStrategyPipeline({
     candles,
     currentCandleIndex: 24,
@@ -1130,7 +1104,7 @@ runTest('Test 46: Credential Security - Secure bootstrap admin generated via env
 
 // 47. Notification Payload: Message #1 Valid Signal Alert format contains all required fields
 runTest('Test 47: Notification Payload - Message #1 Valid Signal Alert format contains all required fields', () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   const telemetry = executeStrategyPipeline({
     candles,
     currentCandleIndex: 24,
@@ -1154,7 +1128,7 @@ runTest('Test 47: Notification Payload - Message #1 Valid Signal Alert format co
 
 // 48. Notification Payload: Message #2 Next-Candle Result Alert format contains all required fields
 runTest('Test 48: Notification Payload - Message #2 Next-Candle Result Alert format contains all required fields', () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   const telemetry = executeStrategyPipeline({
     candles,
     currentCandleIndex: 24,
@@ -1186,7 +1160,7 @@ runTest('Test 48: Notification Payload - Message #2 Next-Candle Result Alert for
 
 // 49. Notification Delivery Status: Signal Alert tracks Telegram & Email delivery states
 runTest('Test 49: Notification Delivery Status - Signal Alert tracks Telegram & Email delivery states', async () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   const telemetry = executeStrategyPipeline({
     candles,
     currentCandleIndex: 24,
@@ -1206,7 +1180,7 @@ runTest('Test 49: Notification Delivery Status - Signal Alert tracks Telegram & 
 
 // 50. Notification Safety: Notification failure does NOT invalidate candidate decision or alter experiment stats
 runTest('Test 50: Notification Safety - Notification failure does NOT invalidate candidate decision or alter experiment stats', async () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   const telemetry = executeStrategyPipeline({
     candles,
     currentCandleIndex: 24,
@@ -1295,7 +1269,7 @@ runTest('Test 56: Research History - Analytics engine computes accurate WIN/LOSS
 
 // 57. Research History: Analytics engine filters by pair (e.g. NQ vs ES) accurately
 runTest('Test 57: Research History - Analytics engine filters by pair (e.g. NQ vs ES) accurately', () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   const cNQ = executeStrategyPipeline({ candles, currentCandleIndex: 24, selectedTimeframe: '5m', newsEvents: [], newsSourceOnline: true, cvConfidence: 0.98 });
   cNQ.metadata.setup_id = 'EXP-NQ-1';
   cNQ.metadata.pair = 'NQ';
@@ -1351,10 +1325,9 @@ runTest('Test 60: Chat Assistant - Market condition query executes deterministic
 
   const res = await chatService.processQuery(user, 'What is the current market condition on NQ?');
   assert.strictEqual(res.queryType, 'MARKET_CONDITION');
-  assert(res.message.includes('DETERMINISTIC MARKET ANALYSIS'));
-  assert(res.message.includes('NQ'));
-  assert(res.message.includes('Stage 1 (Structure)'));
-  assert(res.message.includes('Stage 9 (Pressure)'));
+  assert(res.message.includes('NO_TRADE'));
+  assert(res.message.includes('live provider unavailable') || res.message.includes('provider data unavailable'));
+  assert(res.message.includes('Research alert only'));
 });
 
 // 61. Chat Assistant: Bengali historical queries ("গত ৩ দিনে কয়টা WIN এবং কয়টা LOSS?") return verified counts
@@ -1795,7 +1768,7 @@ runTest('Test 71: Strategy v2.0 - Momentum numerical formulas, baseline calculat
 
 
 runTest('Circuit breaker blocks synthetic overrides and test fixtures', () => {
-  const candles = feedManager.generateDeterministicValidSetup(1.0845);
+  const candles = generateDeterministicValidSetup(1.0845);
   for (const dataProvenance of ['SYNTHETIC_OVERRIDE', 'TEST'] as const) {
     const telemetry = executePipeline({
       candles,

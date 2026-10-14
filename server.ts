@@ -15,7 +15,7 @@ import { authService } from './src/server/auth';
 import { feedManager, MarketDataError, MarketDataProvider, timeframeToMinutes } from './src/engine/dataProviders';
 import { newsGuard } from './src/engine/newsGuard';
 import { experimentTracker } from './src/engine/experimentTracker';
-import { executeStrategyPipeline } from './src/engine/pipeline';
+import { executeStrategyPipeline, detectFractalSwings, evaluateMarketStructure } from './src/engine/pipeline';
 import { STRATEGY_MANIFEST, ACTIVE_EXPERIMENT_ID } from './src/engine/manifest';
 import { Candle, DataProvenance, EngineSettings, Timeframe, UserAccount } from './src/engine/types';
 import { durableStorage } from './src/server/storage';
@@ -86,7 +86,7 @@ app.use(express.json());
 const currentSettings: EngineSettings = {
   maxWickRatio: 0.50,
   fibEquilibriumLevel: 0.50,
-  selectedTimeframe: '5m',
+  selectedTimeframe: '15m',
   activeProvider: process.env.TWELVE_DATA_API_KEY
     ? 'TWELVE_DATA'
     : process.env.ALPHA_VANTAGE_API_KEY
@@ -680,45 +680,47 @@ app.post('/api/chat/query', requireApprovedUser, async (req: AuthenticatedReques
 
 // Live Evaluation & Telemetry Dispatch (Invoked by scanner or manual trigger)
 app.post(['/api/engine/evaluate-candidate', '/api/engine/scan-candidate'], requireApprovedUser, async (req: AuthenticatedRequest, res) => {
-  const { pair, candleOverride, customBias, cvConfidence, cvEvidenceSource, timeframe } = req.body;
+  const { pair, timeframe } = req.body;
   const selectedPair = pair || 'EUR/USD';
   const resolvedTimeframe = ((timeframe as string) || currentSettings.selectedTimeframe) as Timeframe;
   const selectedProvider = currentSettings.activeProvider as MarketDataProvider;
-  let baseCandles: Candle[];
+  let baseCandles: Candle[] = [];
   let dataProvenance: DataProvenance = 'REPLAY';
   let dataProvider: MarketDataProvider = selectedProvider;
+  let higherTimeframeBias: 'BULLISH' | 'BEARISH' | 'UNCLEAR' = 'UNCLEAR';
   let marketDataError: { code: string; message: string } | undefined;
 
-  if (Array.isArray(candleOverride) && candleOverride.length > 0) {
-    baseCandles = candleOverride;
-    dataProvenance = 'SYNTHETIC_OVERRIDE';
-  } else {
-    try {
-      const marketData = await feedManager.fetchCandles(selectedPair, resolvedTimeframe, selectedProvider);
-      baseCandles = marketData.candles;
-      dataProvenance = marketData.dataProvenance;
-      dataProvider = marketData.provider;
-    } catch (error: any) {
-      baseCandles = [];
-      dataProvenance = 'REPLAY';
-      marketDataError = {
-        code: error instanceof MarketDataError ? error.code : 'MARKET_DATA_UNAVAILABLE',
-        message: error instanceof MarketDataError ? error.message : 'Market data is unavailable. No signal was generated.',
-      };
+  try {
+    const marketData = await feedManager.fetchCandles(selectedPair, resolvedTimeframe, selectedProvider);
+    baseCandles = marketData.candles;
+    dataProvenance = marketData.dataProvenance;
+    dataProvider = marketData.provider;
+    if (resolvedTimeframe !== '1h') {
+      const htf = await feedManager.fetchCandles(selectedPair, '1h', selectedProvider);
+      const htfIndex = htf.candles.length - 1;
+      const htfSwings = detectFractalSwings(htf.candles, htfIndex);
+      higherTimeframeBias = evaluateMarketStructure(htfSwings).bias;
+      if (higherTimeframeBias === 'UNCLEAR') {
+        baseCandles = [];
+        marketDataError = { code: 'HTF_BIAS_UNCLEAR', message: '1h higher-timeframe bias is unclear. No signal was generated.' };
+      }
     }
+  } catch (error: any) {
+    dataProvenance = 'REPLAY';
+    marketDataError = {
+      code: error instanceof MarketDataError ? error.code : 'MARKET_DATA_UNAVAILABLE',
+      message: error instanceof MarketDataError ? error.message : 'Market data is unavailable. No signal was generated.',
+    };
   }
-  const resolvedCvSource = cvEvidenceSource || 'SIMULATION_HARNESS';
-  const resolvedCvConfidence = typeof cvConfidence === 'number' ? cvConfidence : 0.95;
 
   const telemetry = executeStrategyPipeline({
     candles: baseCandles,
     currentCandleIndex: baseCandles.length - 1,
     selectedTimeframe: resolvedTimeframe,
-    higherTimeframeBias: customBias || 'BEARISH',
+    higherTimeframeBias,
     newsEvents: newsGuard.getEvents(),
     newsSourceOnline: newsGuard.isSourceOnline(),
-    cvConfidence: resolvedCvConfidence,
-    cvEvidenceSource: resolvedCvSource,
+    cvEvidenceSource: 'UNAVAILABLE',
     dataProvenance,
     provider: dataProvider,
     pair: selectedPair,
