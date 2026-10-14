@@ -1,0 +1,286 @@
+$ npm run lint
+
+> react-example@0.0.0 lint
+> tsc --noEmit
+
+
+$ npm test
+
+> react-example@0.0.0 test
+> tsx test/strategy_v3_engine.test.ts && tsx test/strategy_v3_reachability.test.ts && tsx test/w1b_production_surface.test.ts && tsx test/strategy_pipeline.test.ts
+
+=== V3 PILOT TESTS: 7 assertions passed ===
+[REACHABILITY] PRICE_ONLY 5m EUR/USD BULLISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] PRICE_ONLY 5m EUR/USD BULLISH marginal=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] PRICE_ONLY 5m EUR/USD BEARISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] PRICE_ONLY 5m EUR/USD BEARISH marginal=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] PRICE_ONLY 5m USD/JPY BULLISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] PRICE_ONLY 5m USD/JPY BULLISH marginal=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] PRICE_ONLY 5m USD/JPY BEARISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] PRICE_ONLY 5m USD/JPY BEARISH marginal=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] PRICE_ONLY 15m EUR/USD BULLISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] PRICE_ONLY 15m EUR/USD BULLISH marginal=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] PRICE_ONLY 15m EUR/USD BEARISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] PRICE_ONLY 15m EUR/USD BEARISH marginal=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] PRICE_ONLY 15m USD/JPY BULLISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] PRICE_ONLY 15m USD/JPY BULLISH marginal=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] PRICE_ONLY 15m USD/JPY BEARISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] PRICE_ONLY 15m USD/JPY BEARISH marginal=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] PRICE_ONLY 30m EUR/USD BULLISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] PRICE_ONLY 30m EUR/USD BULLISH marginal=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] PRICE_ONLY 30m EUR/USD BEARISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] PRICE_ONLY 30m EUR/USD BEARISH marginal=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] PRICE_ONLY 30m USD/JPY BULLISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] PRICE_ONLY 30m USD/JPY BULLISH marginal=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] PRICE_ONLY 30m USD/JPY BEARISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] PRICE_ONLY 30m USD/JPY BEARISH marginal=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,0.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] FULL 5m EUR/USD BULLISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] FULL 5m EUR/USD BULLISH marginal=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] FULL 5m EUR/USD BEARISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] FULL 5m EUR/USD BEARISH marginal=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] FULL 5m USD/JPY BULLISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] FULL 5m USD/JPY BULLISH marginal=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] FULL 5m USD/JPY BEARISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] FULL 5m USD/JPY BEARISH marginal=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] FULL 15m EUR/USD BULLISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] FULL 15m EUR/USD BULLISH marginal=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] FULL 15m EUR/USD BEARISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] FULL 15m EUR/USD BEARISH marginal=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] FULL 15m USD/JPY BULLISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] FULL 15m USD/JPY BULLISH marginal=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] FULL 15m USD/JPY BEARISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] FULL 15m USD/JPY BEARISH marginal=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] FULL 30m EUR/USD BULLISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] FULL 30m EUR/USD BULLISH marginal=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] FULL 30m EUR/USD BEARISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] FULL 30m EUR/USD BEARISH marginal=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] FULL 30m USD/JPY BULLISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] FULL 30m USD/JPY BULLISH marginal=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] FULL 30m USD/JPY BEARISH: windows=5000 MANUAL_ALERT=5000/5000
+[FUNNEL] FULL 30m USD/JPY BEARISH marginal=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0% cumulative=100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%,100.0%
+[REACHABILITY] matrix complete: 120000/120000 MANUAL_ALERT windows across PRICE_ONLY/FULL, 5m/15m/30m and EUR/USD/USD/JPY scales
+=== V3 REACHABILITY SUITE: PRICE_ONLY/FULL matrix and funnel assertions passed ===
+=== W1b PRODUCTION SURFACE TEST: simulation, replay selector, and Vision mock surfaces removed ===
+[AuthService] Bootstrapped initial admin: admin@devsecure.engine. Credentials saved securely to data/.admin_bootstrap_secret
+=== RUNNING COMVISION ENGINE DETERMINISTIC TEST SUITE ===
+
+[PASS] Test 1: REPLAY provenance is INCONCLUSIVE and cannot emit an alert
+[PASS] Test 2: Stage 1 - 5-candle symmetric fractal swing high/low confirmed strictly at Close of t+2
+[PASS] Test 3: Stage 1 - Structure evaluates BULLISH, BEARISH or UNCLEAR correctly
+[PASS] Test 4: Stage 2 - Bullish FVG mathematical zone defined as [High(C1), Low(C3)]
+[PASS] Test 5: Stage 2 - FVG mitigation state tracking
+[PASS] Test 6: Stage 2 - Order Block detection and confluence validation
+[PASS] Test 7: Stage 3 - Bullish 3-candle expansion breakout validation
+[PASS] Test 8: Stage 3 - Rejection if C3 closes back inside C1 boundary
+[PASS] Test 9: Stage 4 - TICK_ACTIVITY_PROXY accepts ascending or above 10-period average
+[PASS] Test 10: Stage 4 - Low tick activity proxy triggers deterministic REJECT
+[PASS] Test 11: Stage 5 - Pushback wick ratio > 0.50 triggers REJECT ("Wick Fakeout")
+[PASS] Test 12: Stage 5 - Sweeping prior swing high without closing above triggers SWEEP_DETECTED
+[PASS] Test 13: Stage 6 - Inside candle recognized without resetting pattern sequence
+[PASS] Test 14: Stage 7 - Bullish FVG must lie strictly below Fib 50% Equilibrium Level
+[PASS] Test 15: Stage 8 - High-impact red-folder event within +/- 30m window triggers REJECT
+[PASS] Test 16: Stage 8 - News source offline triggers INCONCLUSIVE ("Never assume no news = clear")
+[PASS] Test 17: Stage 9 - Pressure observation is non-filtering and strictly categorical (no percentages)
+[PASS] Test 18: Access Control - Authorization status lifecycle (PENDING / APPROVED / SUSPENDED / REVOKED)
+[PASS] Test 19: Exact Boundary - Wick pushback ratio <= 0.500 PASS vs > 0.500 REJECT ("Wick Fakeout")
+[PASS] Test 20: Exact Boundary - Bullish FVG strictly below Fib 50% PASS vs touching/above Fib 50% REJECT
+[PASS] Test 21: Stage 3 Negative Boundary - Close(C3) exactly equal to High(C1) fails expansion (> High(C1))
+[PASS] Test 22: Vision/CV is disabled and cannot influence data quality
+[PASS] Test 23: Data Quality Fail-Safe - Zero range flat candle triggers DEGRADED + INCONCLUSIVE
+[PASS] Test 24: Master Telemetry Completeness - All Section 6 schema fields populated without omission
+[PASS] Test 25: Master Telemetry SHA-256 Hash Chain - Sequential verification and tamper detection
+[PASS] Test 26: EXP-2026-001 Scope Freeze - Blocks parameter modification attempts during locked experiment
+[PASS] Test 27: Server-Side Auth - 401 Unauthorized for missing, invalid, or expired tokens
+[PASS] Test 28: Server-Side Auth - 403 Forbidden on PENDING, SUSPENDED, and REVOKED accounts
+[PASS] Test 29: Server-Side Role Separation - Analyst role blocked from user administration
+[PASS] Test 30: Session Revocation & Quick Demo - Logout destroys session; Quick Demo requires server auth
+[PASS] Test 31: Stage 2 - Bearish FVG formation zone strictly defined as [High(C3), Low(C1)]
+[PASS] Test 32: Stage 2 - Bearish FVG mitigation transitions: PARTIAL_FILL on retest, COMPLETELY_FILLED on invalidation
+[PASS] Test 33: Stage 2 - Bearish OB + FVG confluence: (Low(C1) >= Low(Cob) || fvgTop >= Low(Cob)) && High(C3) < High(Cob)
+[PASS] Test 34: Stage 3 - Bearish 3-Candle breakout: Close(C3) < Low(C1) PASS vs Close(C3) >= Low(C1) REJECT
+[PASS] Test 35: Stage 5 - Bearish lower-wick pushback ratio <= 0.500 PASS vs > 0.500 REJECT ("Wick Fakeout")
+[PASS] Test 36: Stage 5 - Bearish prior-swing-low liquidity sweep: Low(C3) < SL_n && Close(C3) >= SL_n triggers SWEEP_DETECTED
+[PASS] Test 37: Stage 7 - Bearish Fib50 Premium rule: FVG Bottom > Fib50 PASS_PREMIUM vs FVG Bottom <= Fib50 REJECT
+[PASS] Test 38: Scope Freeze - Rejection of maxWickRatio mutation under locked EXP-2026-001
+[PASS] Test 39: Scope Freeze - Rejection of fibEquilibriumLevel mutation under locked EXP-2026-001
+[PASS] Test 40: Scope Freeze - Rejection of timeframe/threshold mutation under locked EXP-2026-001
+[PASS] Test 41: Persistence - DurableStorage saves and loads candidates surviving re-instantiation
+[PASS] Test 42: Persistence - DurableStorage saves and loads user accounts surviving re-instantiation
+[PASS] Test 43: Persistence - DurableStorage saves and loads session tokens surviving re-instantiation
+[PASS] Test 44: Persistence - DurableStorage saves and loads experiment state & hash chain surviving re-instantiation
+[PASS] Test 45: Credential Security - Zero hardcoded cleartext production passwords in auth service
+[PASS] Test 46: Credential Security - Secure bootstrap admin generated via environment or private entropy
+[PASS] Test 47: Notification Payload - Message #1 Valid Signal Alert format contains all required fields
+[PASS] Test 48: Notification Payload - Message #2 Next-Candle Result Alert format contains all required fields
+[PASS] Test 49: Notification Delivery Status - Signal Alert tracks Telegram & Email delivery states
+[PASS] Test 50: Notification Safety - Notification failure does NOT invalidate candidate decision or alter experiment stats
+[PASS] Test 51: Notification Manual Test - sendTestNotification() handles unconfigured channels gracefully
+[PASS] Test 52: Next-Candle Result - Bullish signal: next candle close > open resolves to NEXT_CANDLE_FAVORABLE
+[PASS] Test 53: Next-Candle Result - Bullish signal: next candle close <= open resolves to NEXT_CANDLE_UNFAVORABLE or NEUTRAL
+[PASS] Test 54: Next-Candle Result - Bearish signal: next candle close < open resolves to NEXT_CANDLE_FAVORABLE
+[PASS] Test 55: Next-Candle Result - User Action NOT_TAKEN does NOT alter NEXT_CANDLE_FAVORABLE research outcome
+[PASS] Test 56: Research History - Analytics engine computes accurate WIN/LOSS/TAKEN/NOT_TAKEN counts
+[PASS] Test 57: Research History - Analytics engine filters by pair (e.g. NQ vs ES) accurately
+[PASS] Test 58: Date Boundary - Natural language date parser handles Bengali & English date ranges
+[PASS] Test 59: Chat Assistant - Strategy mutation attempt is strictly blocked with frozen explanation
+[PASS] Test 60: Chat Assistant - Market condition query executes deterministic Strategy v1.0 pipeline without hallucination
+[PASS] Test 61: Chat Assistant - Bengali historical queries return verified counts
+[PASS] Test 62: Audit Log Linkage - Every signal, outcome, notification, and chat event shares the authoritative setup_id
+[PASS] Test 63: Telegram Updates - Handles unconfigured bot token safely without exposing secrets
+[PASS] Test 64: Telegram Updates - Correctly parses Telegram /start message update and extracts user Chat ID
+[PASS] Test 65: Telegram Chat ID - setTelegramChatId updates active target and persists in storage
+[PASS] Test 66: Telegram Security - Error sanitizer strips bot token from API failure messages
+[PASS] Test 67: Telegram Test Alert - Returns status DISABLED when Chat ID or bot token is missing
+[PASS] Test 68: Telegram Test Alert - Verifies successful dispatch and zero token leakage on error
+[PASS] Test 69: Strategy v2.0 - NEXT_CANDLE_FAVORABLE/UNFAVORABLE/NEUTRAL/INCONCLUSIVE semantics and user-action separation
+[PASS] Test 70: Strategy v2.0 - BSL/SSL pool formation, equality tolerance, touches, merge, and invalidation
+[PASS] Test 71: Strategy v2.0 - Momentum numerical formulas, baseline calculation, and equality boundaries
+[PASS] Circuit breaker blocks synthetic overrides and test fixtures
+[PASS] Twelve Data adapter fetches actual time_series OHLC and reuses same-minute cache
+[PASS] Alpha Vantage adapter fetches real FX_INTRADAY OHLC and reports live provenance
+[PASS] Stale provider candles and missing live credentials fail closed without replay fallback
+[PASS] Step 0 provider probe bypasses cache and reports closed-candle data and credit headers
+[PASS] Alpha Vantage premium endpoint denial reports UNSUPPORTED_ON_FREE_KEY without raw provider text
+
+=== TEST SUITE FINISHED: 77 PASSED, 0 FAILED ===
+
+
+$ npm run test:legacy
+
+> react-example@0.0.0 test:legacy
+> LEGACY_V2_FIXTURES=1 tsx test/strategy_pipeline.test.ts
+
+[AuthService] Bootstrapped initial admin: admin@devsecure.engine. Credentials saved securely to data/.admin_bootstrap_secret
+=== RUNNING COMVISION ENGINE DETERMINISTIC TEST SUITE ===
+
+[PASS] Test 1: REPLAY provenance is INCONCLUSIVE and cannot emit an alert
+[PASS] Test 2: Stage 1 - 5-candle symmetric fractal swing high/low confirmed strictly at Close of t+2
+[PASS] Test 3: Stage 1 - Structure evaluates BULLISH, BEARISH or UNCLEAR correctly
+[PASS] Test 4: Stage 2 - Bullish FVG mathematical zone defined as [High(C1), Low(C3)]
+[PASS] Test 5: Stage 2 - FVG mitigation state tracking
+[PASS] Test 6: Stage 2 - Order Block detection and confluence validation
+[PASS] Test 7: Stage 3 - Bullish 3-candle expansion breakout validation
+[PASS] Test 8: Stage 3 - Rejection if C3 closes back inside C1 boundary
+[PASS] Test 9: Stage 4 - TICK_ACTIVITY_PROXY accepts ascending or above 10-period average
+[PASS] Test 10: Stage 4 - Low tick activity proxy triggers deterministic REJECT
+[PASS] Test 11: Stage 5 - Pushback wick ratio > 0.50 triggers REJECT ("Wick Fakeout")
+[PASS] Test 12: Stage 5 - Sweeping prior swing high without closing above triggers SWEEP_DETECTED
+[PASS] Test 13: Stage 6 - Inside candle recognized without resetting pattern sequence
+[PASS] Test 14: Stage 7 - Bullish FVG must lie strictly below Fib 50% Equilibrium Level
+[PASS] Test 15: Stage 8 - High-impact red-folder event within +/- 30m window triggers REJECT
+[PASS] Test 16: Stage 8 - News source offline triggers INCONCLUSIVE ("Never assume no news = clear")
+[PASS] Test 17: Stage 9 - Pressure observation is non-filtering and strictly categorical (no percentages)
+[PASS] Test 18: Access Control - Authorization status lifecycle (PENDING / APPROVED / SUSPENDED / REVOKED)
+[PASS] Test 19: Exact Boundary - Wick pushback ratio <= 0.500 PASS vs > 0.500 REJECT ("Wick Fakeout")
+[PASS] Test 20: Exact Boundary - Bullish FVG strictly below Fib 50% PASS vs touching/above Fib 50% REJECT
+[PASS] Test 21: Stage 3 Negative Boundary - Close(C3) exactly equal to High(C1) fails expansion (> High(C1))
+[PASS] Test 22: Vision/CV is disabled and cannot influence data quality
+[PASS] Test 23: Data Quality Fail-Safe - Zero range flat candle triggers DEGRADED + INCONCLUSIVE
+[PASS] Test 24: Master Telemetry Completeness - All Section 6 schema fields populated without omission
+[PASS] Test 25: Master Telemetry SHA-256 Hash Chain - Sequential verification and tamper detection
+[PASS] Test 26: EXP-2026-001 Scope Freeze - Blocks parameter modification attempts during locked experiment
+[PASS] Test 27: Server-Side Auth - 401 Unauthorized for missing, invalid, or expired tokens
+[PASS] Test 28: Server-Side Auth - 403 Forbidden on PENDING, SUSPENDED, and REVOKED accounts
+[PASS] Test 29: Server-Side Role Separation - Analyst role blocked from user administration
+[PASS] Test 30: Session Revocation & Quick Demo - Logout destroys session; Quick Demo requires server auth
+[PASS] Test 31: Stage 2 - Bearish FVG formation zone strictly defined as [High(C3), Low(C1)]
+[PASS] Test 32: Stage 2 - Bearish FVG mitigation transitions: PARTIAL_FILL on retest, COMPLETELY_FILLED on invalidation
+[PASS] Test 33: Stage 2 - Bearish OB + FVG confluence: (Low(C1) >= Low(Cob) || fvgTop >= Low(Cob)) && High(C3) < High(Cob)
+[PASS] Test 34: Stage 3 - Bearish 3-Candle breakout: Close(C3) < Low(C1) PASS vs Close(C3) >= Low(C1) REJECT
+[PASS] Test 35: Stage 5 - Bearish lower-wick pushback ratio <= 0.500 PASS vs > 0.500 REJECT ("Wick Fakeout")
+[PASS] Test 36: Stage 5 - Bearish prior-swing-low liquidity sweep: Low(C3) < SL_n && Close(C3) >= SL_n triggers SWEEP_DETECTED
+[PASS] Test 37: Stage 7 - Bearish Fib50 Premium rule: FVG Bottom > Fib50 PASS_PREMIUM vs FVG Bottom <= Fib50 REJECT
+[PASS] Test 38: Scope Freeze - Rejection of maxWickRatio mutation under locked EXP-2026-001
+[PASS] Test 39: Scope Freeze - Rejection of fibEquilibriumLevel mutation under locked EXP-2026-001
+[PASS] Test 40: Scope Freeze - Rejection of timeframe/threshold mutation under locked EXP-2026-001
+[PASS] Test 41: Persistence - DurableStorage saves and loads candidates surviving re-instantiation
+[PASS] Test 42: Persistence - DurableStorage saves and loads user accounts surviving re-instantiation
+[PASS] Test 43: Persistence - DurableStorage saves and loads session tokens surviving re-instantiation
+[PASS] Test 44: Persistence - DurableStorage saves and loads experiment state & hash chain surviving re-instantiation
+[PASS] Test 45: Credential Security - Zero hardcoded cleartext production passwords in auth service
+[PASS] Test 46: Credential Security - Secure bootstrap admin generated via environment or private entropy
+[PASS] Test 47: Notification Payload - Message #1 Valid Signal Alert format contains all required fields
+[PASS] Test 48: Notification Payload - Message #2 Next-Candle Result Alert format contains all required fields
+[PASS] Test 49: Notification Delivery Status - Signal Alert tracks Telegram & Email delivery states
+[PASS] Test 50: Notification Safety - Notification failure does NOT invalidate candidate decision or alter experiment stats
+[PASS] Test 51: Notification Manual Test - sendTestNotification() handles unconfigured channels gracefully
+[PASS] Test 52: Next-Candle Result - Bullish signal: next candle close > open resolves to NEXT_CANDLE_FAVORABLE
+[PASS] Test 53: Next-Candle Result - Bullish signal: next candle close <= open resolves to NEXT_CANDLE_UNFAVORABLE or NEUTRAL
+[PASS] Test 54: Next-Candle Result - Bearish signal: next candle close < open resolves to NEXT_CANDLE_FAVORABLE
+[PASS] Test 55: Next-Candle Result - User Action NOT_TAKEN does NOT alter NEXT_CANDLE_FAVORABLE research outcome
+[PASS] Test 56: Research History - Analytics engine computes accurate WIN/LOSS/TAKEN/NOT_TAKEN counts
+[PASS] Test 57: Research History - Analytics engine filters by pair (e.g. NQ vs ES) accurately
+[PASS] Test 58: Date Boundary - Natural language date parser handles Bengali & English date ranges
+[PASS] Test 59: Chat Assistant - Strategy mutation attempt is strictly blocked with frozen explanation
+[PASS] Test 60: Chat Assistant - Market condition query executes deterministic Strategy v1.0 pipeline without hallucination
+[PASS] Test 61: Chat Assistant - Bengali historical queries return verified counts
+[PASS] Test 62: Audit Log Linkage - Every signal, outcome, notification, and chat event shares the authoritative setup_id
+[PASS] Test 63: Telegram Updates - Handles unconfigured bot token safely without exposing secrets
+[PASS] Test 64: Telegram Updates - Correctly parses Telegram /start message update and extracts user Chat ID
+[PASS] Test 65: Telegram Chat ID - setTelegramChatId updates active target and persists in storage
+[PASS] Test 66: Telegram Security - Error sanitizer strips bot token from API failure messages
+[PASS] Test 67: Telegram Test Alert - Returns status DISABLED when Chat ID or bot token is missing
+[PASS] Test 68: Telegram Test Alert - Verifies successful dispatch and zero token leakage on error
+[PASS] Test 69: Strategy v2.0 - NEXT_CANDLE_FAVORABLE/UNFAVORABLE/NEUTRAL/INCONCLUSIVE semantics and user-action separation
+[PASS] Test 70: Strategy v2.0 - BSL/SSL pool formation, equality tolerance, touches, merge, and invalidation
+[PASS] Test 71: Strategy v2.0 - Momentum numerical formulas, baseline calculation, and equality boundaries
+[PASS] Circuit breaker blocks synthetic overrides and test fixtures
+[PASS] Twelve Data adapter fetches actual time_series OHLC and reuses same-minute cache
+[PASS] Alpha Vantage adapter fetches real FX_INTRADAY OHLC and reports live provenance
+[PASS] Stale provider candles and missing live credentials fail closed without replay fallback
+[PASS] Step 0 provider probe bypasses cache and reports closed-candle data and credit headers
+[PASS] Alpha Vantage premium endpoint denial reports UNSUPPORTED_ON_FREE_KEY without raw provider text
+
+=== TEST SUITE FINISHED: 77 PASSED, 0 FAILED ===
+
+
+$ npm run build
+
+> react-example@0.0.0 build
+> vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs
+
+vite v8.3.0 building client environment for production...
+transforming...
+[32m✓[0m 2095 modules transformed.
+rendering chunks...
+computing gzip size...
+[2mdist/[0m[32mregisterSW.js                          [0m[1;2m  0.13 kB[0m
+[2mdist/[0m[32mmanifest.webmanifest                   [0m[1;2m  0.52 kB[0m
+[2mdist/[0m[32mindex.html                             [0m[1;2m  1.72 kB[0m[2m │ gzip:   0.62 kB[0m
+[2mdist/[0m[2massets/[0m[35mindex-BKJzj1sr.css              [0m[1;2m 37.32 kB[0m[2m │ gzip:   7.05 kB[0m
+[2mdist/[0m[2massets/[0m[36mhash-ipf024x3.js                [0m[1;2m  0.28 kB[0m[2m │ gzip:   0.18 kB[0m
+[2mdist/[0m[2massets/[0m[36mRiskView-D5KymL9V.js            [0m[1;2m  2.67 kB[0m[2m │ gzip:   1.03 kB[0m
+[2mdist/[0m[2massets/[0m[36mAuditLogView-BJ-r_3vv.js        [0m[1;2m  2.74 kB[0m[2m │ gzip:   1.08 kB[0m
+[2mdist/[0m[2massets/[0m[36mNewsGuardView-ijvMHQwL.js       [0m[1;2m  3.52 kB[0m[2m │ gzip:   1.30 kB[0m
+[2mdist/[0m[2massets/[0m[36mAnalyticsView-Clxn7kg4.js       [0m[1;2m  3.67 kB[0m[2m │ gzip:   1.12 kB[0m
+[2mdist/[0m[2massets/[0m[36mUserManagementView-gzVRoDc0.js  [0m[1;2m  4.34 kB[0m[2m │ gzip:   1.47 kB[0m
+[2mdist/[0m[2massets/[0m[36mTermsView-Bggi6vgx.js           [0m[1;2m  6.72 kB[0m[2m │ gzip:   2.43 kB[0m
+[2mdist/[0m[2massets/[0m[36mAboutView-mfbaMsUT.js           [0m[1;2m  7.53 kB[0m[2m │ gzip:   2.65 kB[0m
+[2mdist/[0m[2massets/[0m[36mSecurityView-BrtivAyl.js        [0m[1;2m  7.98 kB[0m[2m │ gzip:   2.39 kB[0m
+[2mdist/[0m[2massets/[0m[36mExperimentView-Bg6d7-S0.js      [0m[1;2m  8.75 kB[0m[2m │ gzip:   2.63 kB[0m
+[2mdist/[0m[2massets/[0m[36mPrivacyView-C_VQO1U3.js         [0m[1;2m 10.00 kB[0m[2m │ gzip:   2.84 kB[0m
+[2mdist/[0m[2massets/[0m[36mTelegramAdminTool-DlaS5NQO.js   [0m[1;2m 14.23 kB[0m[2m │ gzip:   3.68 kB[0m
+[2mdist/[0m[2massets/[0m[36mSettingsView-C1gIa859.js        [0m[1;2m 15.07 kB[0m[2m │ gzip:   4.00 kB[0m
+[2mdist/[0m[2massets/[0m[36mDocsView-DyiMjlyD.js            [0m[1;2m 60.78 kB[0m[2m │ gzip:  13.37 kB[0m
+[2mdist/[0m[2massets/[0m[36mindex-Dk3-dqmM.js               [0m[1;2m464.28 kB[0m[2m │ gzip: 137.65 kB[0m
+
+✓ built in 1.02s
+
+PWA v1.3.0
+mode      generateSW
+precache  29 entries (651.57 KiB)
+files generated
+  dist/sw.js
+  dist/workbox-9c191d2f.js
+
+$ forbidden surface gate
+forbidden surface gate: PASS
+deleted Vision files gate: PASS
+
+$ git diff --check
+
+$ git status --short --branch
+## [32mmain[m...[31morigin/main[m
+
+$ git log -1 --oneline --decorate
+[33m18324cc[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Add W1b raw verification evidence
