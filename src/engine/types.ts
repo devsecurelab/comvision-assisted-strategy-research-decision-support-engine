@@ -241,10 +241,12 @@ export interface V3DecisionTelemetry {
   direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
   stages: any[];
   gates: any[];
-  mfci: { sStructure: number; sOrderFlow: number; sLiquidity: number; sVisionAi: number; totalMfci: number; meetsThreshold: boolean };
+  engineMode?: 'FULL' | 'PRICE_ONLY';
+  excludedStages?: Array<{ stage: number; name: string; reason: string }>;
+  mfci: { sStructure: number; sOrderFlow: number | null; sLiquidity: number; sVisionAi: number | null; totalMfci: number; meetsThreshold: boolean };
   systemDecision: 'PASS' | 'HOLD' | 'BLOCKED';
   finalAction: 'MANUAL_ALERT' | 'SAFE_HOLD' | 'NO_ACTION';
-  entryPrice: number; stopLoss: number; takeProfit1: number; takeProfit2: number; riskRewardRatio: number;
+  entryPrice: number; stopLoss?: number; takeProfit1?: number; takeProfit2?: number; riskRewardRatio?: number;
 }
 
 export interface MasterTelemetry {

@@ -12,7 +12,11 @@ const v3 = evaluateStrategyV3({ candles, direction: 'BULLISH', newsEvents: [], n
 assert.equal(v3.version, 'RDP_STRATEGY_V3.0');
 assert.equal(v3.stages.length, 19);
 assert.equal(v3.gates.length, 9);
-assert.equal(v3.mfci.sVisionAi, 0);
+assert.equal(v3.mfci.sVisionAi, null);
+assert.equal(v3.engineMode, 'PRICE_ONLY');
+assert.ok(v3.excludedStages.some((stage) => stage.stage === 3 && stage.reason === 'CHOCH_DELTA_UNAVAILABLE'));
+assert.equal(v3.stages[2].available, false);
+assert.equal(v3.stages[2].score, null);
 assert.ok(Math.abs(v3.mfci.totalMfci - (0.35 * v3.mfci.sStructure + 0.20 * v3.mfci.sLiquidity) / 0.55) < 1e-12);
 const offline = evaluateStrategyV3({ candles, direction: 'BULLISH', newsEvents: [], newsSourceOnline: false });
 assert.equal(offline.gates[8].status, 'BLOCKED');
