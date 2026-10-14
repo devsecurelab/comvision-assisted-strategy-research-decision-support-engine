@@ -45,7 +45,7 @@ export interface PipelineInput {
   cvConfidence?: number; // 0.0 to 1.0
   cvEvidenceSource?: CVEvidenceSource;
   dataProvenance?: DataProvenance;
-  provider?: 'TWELVE_DATA' | 'ALPHA_VANTAGE' | 'RESEARCH_STREAM_REPLAY';
+  provider?: 'TWELVE_DATA' | 'ALPHA_VANTAGE';
   pair?: string;
   asset?: string;
   liveTickPressure?: {
@@ -1593,7 +1593,6 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
       status: 'PENDING',
     },
     provider_provenance: {
-      provider: 'RESEARCH_STREAM_REPLAY',
       provider_state: resolvedProvenance,
       data_provenance: resolvedProvenance,
       timestamp_ingested: nowIso,

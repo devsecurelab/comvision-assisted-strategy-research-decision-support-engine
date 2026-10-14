@@ -97,31 +97,23 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Provider Provenance Badge */}
         <div className={`hidden lg:flex items-center gap-2 px-3 py-1 rounded-full border text-xs ${
-          providerStatus?.isFallbackLive
-            ? 'bg-amber-950/60 border-amber-500/60 text-amber-200'
-            : providerStatus?.status === 'ONLINE'
+          providerStatus?.status === 'ONLINE'
               ? 'bg-emerald-950/60 border-emerald-500/60 text-emerald-200'
               : 'bg-rose-950/60 border-rose-500/60 text-rose-200'
         }`}>
           <Database className={`w-3.5 h-3.5 ${
-            providerStatus?.isFallbackLive
-              ? 'text-amber-400 animate-pulse'
-              : providerStatus?.status === 'ONLINE' ? 'text-emerald-400' : 'text-rose-400'
+            providerStatus?.status === 'ONLINE' ? 'text-emerald-400' : 'text-rose-400'
           }`} />
           <span className="text-[11px] font-mono">
             Provider:{' '}
             <strong className={
-              providerStatus?.isFallbackLive
-                ? 'text-amber-300'
-                : providerStatus?.status === 'ONLINE' ? 'text-emerald-300' : 'text-rose-300'
+              providerStatus?.status === 'ONLINE' ? 'text-emerald-300' : 'text-rose-300'
             }>
-              {providerStatus?.isFallbackLive
-                ? 'FAILOVER SIMULATION (NO DATA)'
-                : providerStatus?.provider === 'TWELVE_DATA'
+              {providerStatus?.provider === 'TWELVE_DATA'
                 ? `Twelve Data${providerStatus?.status === 'ONLINE' ? ' • VERIFIED' : ' • NOT VERIFIED'}`
                 : providerStatus?.provider === 'ALPHA_VANTAGE'
                 ? `Alpha Vantage${providerStatus?.status === 'ONLINE' ? ' • VERIFIED' : ' • NOT VERIFIED'}`
-                : 'Research Replay'}
+                : 'Live provider not selected'}
             </strong>
           </span>
         </div>

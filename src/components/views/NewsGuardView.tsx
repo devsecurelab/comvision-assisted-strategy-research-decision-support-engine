@@ -1,21 +1,17 @@
 // News Guard View Component
 // Implements Fail-Safe Verification and Economic Calendar Tracking
 import React from 'react';
-import { Globe, AlertTriangle, ShieldCheck, Power, Plus } from 'lucide-react';
+import { Globe, ShieldCheck } from 'lucide-react';
 import { NewsEvent } from '../../engine/types';
 
 interface NewsGuardViewProps {
   newsEvents: NewsEvent[];
   newsSourceOnline: boolean;
-  onToggleNewsSource: () => void;
-  onSimulateRedFolder: () => void;
 }
 
 export const NewsGuardView: React.FC<NewsGuardViewProps> = ({
   newsEvents,
   newsSourceOnline,
-  onToggleNewsSource,
-  onSimulateRedFolder,
 }) => {
   return (
     <div className="space-y-6 max-w-7xl mx-auto w-full">
@@ -30,29 +26,9 @@ export const NewsGuardView: React.FC<NewsGuardViewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
-          <button
-            onClick={onSimulateRedFolder}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 font-semibold text-xs rounded-lg border border-rose-500/30 transition"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Simulate Active Red-Folder</span>
-          </button>
-
-          <button
-            onClick={onToggleNewsSource}
-            className={`flex items-center gap-1.5 px-3 py-1.5 font-semibold text-xs rounded-lg border transition ${
-              newsSourceOnline
-                ? 'bg-emerald-600/20 border-emerald-500/30 text-emerald-300'
-                : 'bg-amber-600/20 border-amber-500/30 text-amber-300'
-            }`}
-          >
-            <Power className="w-3.5 h-3.5" />
-            <span>
-              News Feed: {newsSourceOnline ? 'ONLINE' : 'OFFLINE (TEST FAIL-SAFE)'}
-            </span>
-          </button>
-        </div>
+        <span className={`px-3 py-1.5 text-xs font-mono font-bold rounded-lg border ${newsSourceOnline ? 'bg-emerald-600/20 border-emerald-500/30 text-emerald-300' : 'bg-amber-600/20 border-amber-500/30 text-amber-300'}`}>
+          News Feed: {newsSourceOnline ? 'ONLINE' : 'UNAVAILABLE — FAIL-SAFE'}
+        </span>
       </div>
 
       {/* Fail-Safe Protocol Notice */}

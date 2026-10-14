@@ -366,7 +366,7 @@ export interface MasterTelemetry {
     details?: string;
   };
   provider_provenance?: {
-    provider: 'TWELVE_DATA' | 'ALPHA_VANTAGE' | 'RESEARCH_STREAM_REPLAY';
+    provider?: 'TWELVE_DATA' | 'ALPHA_VANTAGE';
     provider_state?: string;
     rate_limit_usage?: string;
     timestamp_ingested: string;
@@ -399,7 +399,7 @@ export interface EngineSettings {
   maxWickRatio: number; // default 0.50 (frozen)
   fibEquilibriumLevel: number; // default 0.50 (frozen)
   selectedTimeframe: Timeframe;
-  activeProvider: 'TWELVE_DATA' | 'ALPHA_VANTAGE' | 'AUTO_FALLBACK' | 'RESEARCH_STREAM_REPLAY';
+  activeProvider: 'TWELVE_DATA' | 'ALPHA_VANTAGE';
   twelveDataApiKeyConfigured: boolean;
   alphaVantageApiKeyConfigured: boolean;
   experimentLocked: boolean;

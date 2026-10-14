@@ -1,9 +1,9 @@
 // Market data adapters. Live provenance is assigned only after a successful provider HTTP response.
-// Replay candles are available only when RESEARCH_STREAM_REPLAY is explicitly selected.
+// Replay is retained only as a fail-closed test provenance; normal production selection is live-provider-only.
 
 import { Candle, DataProvenance, Timeframe } from './types';
 
-export type MarketDataProvider = 'TWELVE_DATA' | 'ALPHA_VANTAGE' | 'RESEARCH_STREAM_REPLAY';
+export type MarketDataProvider = 'TWELVE_DATA' | 'ALPHA_VANTAGE';
 
 export interface ProviderQuotaInfo {
   used: number;
@@ -19,7 +19,6 @@ export interface ProviderStatus {
   requestsUsedToday: number;
   rateLimitWarning?: string;
   provenanceDetails: string;
-  isFallbackLive: boolean;
   quota: {
     twelveData: ProviderQuotaInfo;
     alphaVantage: ProviderQuotaInfo;
@@ -158,8 +157,7 @@ export class MarketFeedManager {
   private alphaVantageApiKey: string;
   private twelveDataRequestsToday = 0;
   private alphaVantageRequestsToday = 0;
-  private fallbackLiveActive = false;
-  private activeProvider: MarketDataProvider = 'RESEARCH_STREAM_REPLAY';
+  private activeProvider: MarketDataProvider = 'TWELVE_DATA';
   private usageDay = new Date().toISOString().slice(0, 10);
   private lastSuccessfulSync = '';
   private lastSuccessfulProvider: MarketDataProvider | undefined;
@@ -176,7 +174,7 @@ export class MarketFeedManager {
       ? 'TWELVE_DATA'
       : this.alphaVantageApiKey
         ? 'ALPHA_VANTAGE'
-        : 'RESEARCH_STREAM_REPLAY';
+        : 'TWELVE_DATA';
   }
 
   public setKeys(twelveKey: string, avKey: string) {
@@ -188,24 +186,13 @@ export class MarketFeedManager {
         ? 'TWELVE_DATA'
         : this.alphaVantageApiKey
           ? 'ALPHA_VANTAGE'
-          : 'RESEARCH_STREAM_REPLAY';
+          : 'TWELVE_DATA';
     }
   }
 
   public selectProvider(provider: MarketDataProvider): ProviderStatus {
     this.activeProvider = provider;
-    this.fallbackLiveActive = false;
     return this.getStatus();
-  }
-
-  /** Kept for the UI's explicitly-labelled fallback simulation control; it never fetches data. */
-  public simulateFallbackLive(enable?: boolean): ProviderStatus {
-    this.fallbackLiveActive = typeof enable === 'boolean' ? enable : !this.fallbackLiveActive;
-    return this.getStatus();
-  }
-
-  public isFallbackLive(): boolean {
-    return this.fallbackLiveActive;
   }
 
   public incrementRequests(target?: 'TWELVE_DATA' | 'ALPHA_VANTAGE') {
@@ -221,24 +208,19 @@ export class MarketFeedManager {
     const alphaConfigured = !!this.alphaVantageApiKey;
     const selectedConfigured = this.isConfigured(this.activeProvider);
     const selectedHasLiveResponse = this.lastSuccessfulProvider === this.activeProvider && this.lastFailedProvider !== this.activeProvider;
-    const warning = this.activeProvider === 'RESEARCH_STREAM_REPLAY'
-      ? 'Replay/demo data selected. No live market-data request is being made.'
-      : !selectedConfigured
+    const warning = !selectedConfigured
         ? `${this.activeProvider} is selected but its API key is not configured.`
         : undefined;
 
     return {
       provider: this.activeProvider,
-      status: this.activeProvider !== 'RESEARCH_STREAM_REPLAY' && selectedConfigured && selectedHasLiveResponse ? 'ONLINE' : 'OFFLINE',
+      status: selectedConfigured && selectedHasLiveResponse ? 'ONLINE' : 'OFFLINE',
       lastSync: this.lastSuccessfulSync,
       requestsUsedToday: this.activeProvider === 'ALPHA_VANTAGE' ? this.alphaVantageRequestsToday : this.twelveDataRequestsToday,
       rateLimitWarning: warning,
-      provenanceDetails: this.activeProvider === 'RESEARCH_STREAM_REPLAY'
-        ? 'Explicit deterministic demo/replay feed (not live market data)'
-        : this.activeProvider === 'TWELVE_DATA'
+      provenanceDetails: this.activeProvider === 'TWELVE_DATA'
           ? 'Twelve Data time_series REST API'
           : 'Alpha Vantage FX_INTRADAY REST API',
-      isFallbackLive: this.fallbackLiveActive,
       quota: {
         twelveData: { used: this.twelveDataRequestsToday, limit: 0, configured: twelveConfigured, status: twelveConfigured ? (this.lastSuccessfulProvider === 'TWELVE_DATA' && this.lastFailedProvider !== 'TWELVE_DATA' ? 'ONLINE' : 'STANDBY') : 'UNCONFIGURED' },
         alphaVantage: { used: this.alphaVantageRequestsToday, limit: 0, configured: alphaConfigured, status: alphaConfigured ? (this.lastSuccessfulProvider === 'ALPHA_VANTAGE' && this.lastFailedProvider !== 'ALPHA_VANTAGE' ? 'ONLINE' : 'STANDBY') : 'UNCONFIGURED' },
@@ -248,16 +230,9 @@ export class MarketFeedManager {
 
   public async fetchCandles(pair: string, timeframe: Timeframe = '5m', provider: MarketDataProvider = this.activeProvider): Promise<MarketDataResult> {
     const normalizedPair = normalizePair(pair);
-    if (provider === 'RESEARCH_STREAM_REPLAY') {
-      throw new MarketDataError(
-        'LIVE_PROVIDER_REQUIRED',
-        'Replay/demo data is disabled in the pilot live path. Configure Twelve Data or Alpha Vantage.',
-        provider,
-      );
-    }
 
     if (!this.isConfigured(provider)) {
-      throw new MarketDataError('PROVIDER_NOT_CONFIGURED', `${provider} is selected but its API key is missing. Select REPLAY explicitly or configure a valid provider key.`, provider);
+      throw new MarketDataError('PROVIDER_NOT_CONFIGURED', `${provider} is selected but its API key is missing. Configure a live provider key.`, provider);
     }
 
     const minute = Math.floor(Date.now() / 60_000);

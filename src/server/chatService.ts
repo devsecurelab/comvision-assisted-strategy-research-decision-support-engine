@@ -275,11 +275,6 @@ export class ChatService {
 
     if (isMarketAnalysis || lower.includes(pair.toLowerCase())) {
       const status = feedManager.getStatus();
-      if (status.provider === 'RESEARCH_STREAM_REPLAY') {
-        const responseText = `**NO_TRADE — live provider unavailable**\n\nReplay/demo data is disabled in the pilot live path. Configure Twelve Data or Alpha Vantage before requesting a market analysis.\n\nResearch alert only.`;
-        durableStorage.recordChatMessage({ user_id: userId, user_query: trimmed, assistant_response: responseText, query_type: 'MARKET_CONDITION' });
-        return { message: responseText, queryType: 'MARKET_CONDITION' };
-      }
 
       let currentCandles;
       let higherTimeframeBias: 'BULLISH' | 'BEARISH' | 'UNCLEAR' = 'UNCLEAR';

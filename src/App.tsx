@@ -5,7 +5,6 @@ import React, { lazy, Suspense, useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { DecisionAlertCard } from './components/DecisionAlertCard';
-import { LiveVisionStream } from './components/LiveVisionStream';
 import { SetupLogsTable } from './components/SetupLogsTable';
 import { TelemetryModal } from './components/TelemetryModal';
 import { RecordResultModal } from './components/RecordResultModal';
@@ -15,7 +14,6 @@ import { ValidSetupsModal } from './components/ValidSetupsModal';
 import { ValidSetupsFeed } from './components/ValidSetupsFeed';
 import { PublicLanding } from './components/PublicLanding';
 import { ChevronRight } from 'lucide-react';
-const VisionView = lazy(() => import('./components/views/VisionView').then((module) => ({ default: module.VisionView })));
 const ExperimentView = lazy(() => import('./components/views/ExperimentView').then((module) => ({ default: module.ExperimentView })));
 const AnalyticsView = lazy(() => import('./components/views/AnalyticsView').then((module) => ({ default: module.AnalyticsView })));
 const NewsGuardView = lazy(() => import('./components/views/NewsGuardView').then((module) => ({ default: module.NewsGuardView })));
@@ -115,7 +113,7 @@ export default function App() {
   >('CLEAR');
   const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('5m');
   const [selectedProvider, setSelectedProvider] = useState<
-    'TWELVE_DATA' | 'ALPHA_VANTAGE' | 'REPLAY'
+    'TWELVE_DATA' | 'ALPHA_VANTAGE'
   >('TWELVE_DATA');
 
   // Modals state
@@ -176,7 +174,7 @@ export default function App() {
         }
         if (data.providerStatus) {
           setProviderStatus(data.providerStatus);
-          setSelectedProvider(data.providerStatus.provider === 'RESEARCH_STREAM_REPLAY' ? 'REPLAY' : data.providerStatus.provider);
+          if (data.providerStatus.provider === 'TWELVE_DATA' || data.providerStatus.provider === 'ALPHA_VANTAGE') setSelectedProvider(data.providerStatus.provider);
         }
         setScannerActive(data.settings?.scannerActive ?? true);
         if (data.newsStatus) {
@@ -365,54 +363,6 @@ export default function App() {
     }
   };
 
-  const handleToggleNewsSource = async () => {
-    if (!authToken) return;
-    try {
-      const res = await apiFetch('/api/news/toggle-source', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({}),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setNewsOnline(data.newsSourceOnline);
-        if (data.windowCheck) {
-          setNewsWindowState(data.windowCheck.windowState);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to toggle news source:', err);
-    }
-  };
-
-  const handleSimulateRedFolder = async () => {
-    if (!authToken) return;
-    try {
-      const res = await apiFetch('/api/news/trigger-simulated', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({
-          minutes: 10,
-          title: 'Simulated High-Impact Macro Shock',
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.windowCheck) {
-          setNewsWindowState(data.windowCheck.windowState);
-        }
-        fetchEngineData();
-      }
-    } catch (err) {
-      console.error('Failed to simulate red folder:', err);
-    }
-  };
 
   const handleSelectTimeframe = async (tf: Timeframe) => {
     setSelectedTimeframe(tf);
@@ -434,7 +384,7 @@ export default function App() {
     }
   };
 
-  const handleSelectProvider = async (provider: 'TWELVE_DATA' | 'ALPHA_VANTAGE' | 'REPLAY') => {
+  const handleSelectProvider = async (provider: 'TWELVE_DATA' | 'ALPHA_VANTAGE') => {
     setSelectedProvider(provider);
     if (!authToken) return;
     try {
@@ -452,29 +402,6 @@ export default function App() {
       }
     } catch (err) {
       console.error('Failed to select market data provider:', err);
-    }
-  };
-
-  const handleSimulateFallback = async (enable?: boolean) => {
-    if (!authToken) return;
-    try {
-      const res = await apiFetch('/api/engine/simulate-fallback', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({ enable }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setProviderStatus(data.providerStatus);
-        if (data.providerStatus?.provider) {
-          setSelectedProvider(data.providerStatus.provider === 'RESEARCH_STREAM_REPLAY' ? 'REPLAY' : data.providerStatus.provider);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to toggle fallback simulation:', err);
     }
   };
 
@@ -627,10 +554,10 @@ export default function App() {
 
         {/* Dynamic View Body */}
         <main className="flex-1 overflow-y-auto p-6 space-y-6">
-          {(!currentAlert || currentAlert.metadata.data_provenance !== 'LIVE_INGESTED' || providerStatus?.provider === 'RESEARCH_STREAM_REPLAY' || providerStatus?.status === 'OFFLINE') && (
+          {(!currentAlert || currentAlert.metadata.data_provenance !== 'LIVE_INGESTED' || providerStatus?.status === 'OFFLINE') && (
             <div role="alert" className="max-w-7xl mx-auto w-full rounded-xl border-2 border-rose-500 bg-rose-950/90 px-5 py-4 text-rose-50 shadow-lg shadow-rose-950/40">
-              <div className="text-base sm:text-lg font-black tracking-wide">⚠️ REPLAY/DEMO DATA — NOT LIVE</div>
-              <p className="mt-1 text-sm text-rose-100">No verified live market data is available for the current setup. The circuit breaker blocks alerts unless candles come from a live provider. Do not use this output for trading decisions.</p>
+              <div className="text-base sm:text-lg font-black tracking-wide">⚠️ LIVE DATA UNAVAILABLE — NO ALERT</div>
+              <p className="mt-1 text-sm text-rose-100">No verified live market data is available for the current setup. The circuit breaker blocks alerts until a live provider response is verified.</p>
             </div>
           )}
           {activeTab === 'overview' && (
@@ -747,13 +674,6 @@ export default function App() {
                   />
                 </div>
 
-                {/* Right 1 Col: AI Live Vision Stream Monitor */}
-                <div>
-                  <LiveVisionStream
-                    cvConfidence={currentAlert?.metadata.cv_confidence ?? 0.98}
-                    onFullScreenVision={() => setActiveTab('vision')}
-                  />
-                </div>
               </div>
 
               {/* Recent Activity Table */}
@@ -766,8 +686,6 @@ export default function App() {
           )}
 
           <Suspense fallback={<div className="p-8 text-slate-400">Loading dashboard view…</div>}>
-          {activeTab === 'vision' && <VisionView currentAlert={currentAlert} />}
-
           {activeTab === 'experiment' && (
             <ExperimentView candidates={candidateHistory} />
           )}
@@ -788,8 +706,6 @@ export default function App() {
             <NewsGuardView
               newsEvents={newsEvents}
               newsSourceOnline={newsOnline}
-              onToggleNewsSource={handleToggleNewsSource}
-              onSimulateRedFolder={handleSimulateRedFolder}
             />
           )}
 
@@ -802,7 +718,6 @@ export default function App() {
               selectedProvider={selectedProvider}
               onSelectProvider={handleSelectProvider}
               providerStatus={providerStatus}
-              onSimulateFallback={handleSimulateFallback}
               onDownloadHandover={handleDownloadHandover}
               authToken={authToken}
               isAdmin={currentUser?.role === 'ADMIN'}

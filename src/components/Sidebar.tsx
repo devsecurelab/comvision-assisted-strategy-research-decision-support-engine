@@ -2,7 +2,6 @@
 import React from 'react';
 import {
   Activity,
-  Eye,
   FlaskConical,
   History,
   BarChart2,
@@ -130,13 +129,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               label="Overview"
               active={activeTab === 'overview'}
               onClick={() => handleItemClick('overview')}
-            />
-            <SidebarItem
-              id="nav-vision"
-              icon={<Eye className="w-4 h-4" />}
-              label="AI Live Vision"
-              active={activeTab === 'vision'}
-              onClick={() => handleItemClick('vision')}
             />
             <SidebarItem
               id="nav-experiment"

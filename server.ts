@@ -91,7 +91,7 @@ const currentSettings: EngineSettings = {
     ? 'TWELVE_DATA'
     : process.env.ALPHA_VANTAGE_API_KEY
       ? 'ALPHA_VANTAGE'
-      : 'RESEARCH_STREAM_REPLAY',
+      : 'TWELVE_DATA',
   twelveDataApiKeyConfigured: !!process.env.TWELVE_DATA_API_KEY,
   alphaVantageApiKeyConfigured: !!process.env.ALPHA_VANTAGE_API_KEY,
   experimentLocked: experimentTracker.isExperimentLocked(),
@@ -257,26 +257,11 @@ app.post('/api/engine/toggle-scanner', requireApprovedUser, (req, res) => {
   res.json({ scannerActive: currentSettings.scannerActive });
 });
 
-app.post('/api/engine/simulate-fallback', requireApprovedUser, (req: AuthenticatedRequest, res) => {
-  const { enable } = req.body;
-  const status = feedManager.simulateFallbackLive(enable);
-  durableStorage.recordAuditEvent({
-    event_type: 'PROVIDER_FALLBACK_SIMULATION',
-    actor_id: req.user?.id,
-    actor_email: req.user?.email,
-    details: {
-      fallbackActive: status.isFallbackLive,
-      activeProvider: status.provider,
-      status: status.status,
-    },
-  });
-  res.json({ success: true, providerStatus: status });
-});
 
 app.post('/api/engine/select-provider', requireApprovedUser, (req: AuthenticatedRequest, res) => {
   const { provider } = req.body;
-  if (provider === 'TWELVE_DATA' || provider === 'ALPHA_VANTAGE' || provider === 'REPLAY' || provider === 'RESEARCH_STREAM_REPLAY') {
-    const resolvedProvider: MarketDataProvider = provider === 'REPLAY' ? 'RESEARCH_STREAM_REPLAY' : provider;
+  if (provider === 'TWELVE_DATA' || provider === 'ALPHA_VANTAGE') {
+    const resolvedProvider: MarketDataProvider = provider;
     currentSettings.activeProvider = resolvedProvider;
     const status = feedManager.selectProvider(resolvedProvider);
     durableStorage.recordAuditEvent({
@@ -287,7 +272,7 @@ app.post('/api/engine/select-provider', requireApprovedUser, (req: Authenticated
     });
     return res.json({ success: true, providerStatus: status });
   }
-  res.status(400).json({ error: 'INVALID_PROVIDER', message: 'Valid providers are TWELVE_DATA, ALPHA_VANTAGE, REPLAY' });
+  res.status(400).json({ error: 'INVALID_PROVIDER', message: 'Valid providers are TWELVE_DATA and ALPHA_VANTAGE' });
 });
 
 // Dashboard Operator Timeframe Authority (Section 3.1)
@@ -476,7 +461,6 @@ app.get('/api/market/feed', requireApprovedUser, async (req, res) => {
     return res.status(503).json({
       error: providerError?.code || 'MARKET_DATA_UNAVAILABLE',
       message: providerError?.message || 'Market data is unavailable. No signal was generated.',
-      dataProvenance: 'REPLAY',
       providerStatus: feedManager.getStatus(),
     });
   }
@@ -562,34 +546,7 @@ app.get('/api/news/status', requireApprovedUser, (_req, res) => {
   });
 });
 
-app.post('/api/news/toggle-source', requireApprovedUser, (_req, res) => {
-  const current = newsGuard.isSourceOnline();
-  newsGuard.setSourceStatus(!current);
-  const windowCheck = newsGuard.checkNewsWindow();
-  res.json({
-    success: true,
-    newsSourceOnline: newsGuard.isSourceOnline(),
-    isOnline: newsGuard.isOnline(),
-    windowCheck: {
-      ...windowCheck,
-      windowState: windowCheck.state,
-    },
-  });
-});
 
-app.post('/api/news/trigger-simulated', requireApprovedUser, (req, res) => {
-  const { minutes = 10, title = 'Simulated High-Impact Macro Shock' } = req.body || {};
-  newsGuard.triggerSimulatedRedFolderEvent(minutes, title);
-  const windowCheck = newsGuard.checkNewsWindow();
-  res.json({
-    success: true,
-    events: newsGuard.getEvents(),
-    windowCheck: {
-      ...windowCheck,
-      windowState: windowCheck.state,
-    },
-  });
-});
 
 app.get('/api/audit/verify-chain', requireApprovedUser, (_req, res) => {
   const verification = experimentTracker.verifyHashChain();
@@ -853,7 +810,7 @@ app.post('/api/admin/settings', requireAdmin, (req: AuthenticatedRequest, res) =
   }
 
   if (activeProvider) {
-    if (activeProvider === 'TWELVE_DATA' || activeProvider === 'ALPHA_VANTAGE' || activeProvider === 'RESEARCH_STREAM_REPLAY') {
+    if (activeProvider === 'TWELVE_DATA' || activeProvider === 'ALPHA_VANTAGE') {
       currentSettings.activeProvider = activeProvider;
       feedManager.selectProvider(activeProvider);
     }
