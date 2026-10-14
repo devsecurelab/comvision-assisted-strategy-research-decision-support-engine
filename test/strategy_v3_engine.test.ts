@@ -17,6 +17,7 @@ assert.equal(v3.engineMode, 'PRICE_ONLY');
 assert.ok(v3.excludedStages.some((stage) => stage.stage === 3 && stage.reason === 'CHOCH_DELTA_UNAVAILABLE'));
 assert.equal(v3.stages[2].available, false);
 assert.equal(v3.stages[2].score, null);
+assert.equal(v3.gates[3].status, 'UNAVAILABLE');
 assert.ok(Math.abs(v3.mfci.totalMfci - (0.35 * v3.mfci.sStructure + 0.20 * v3.mfci.sLiquidity) / 0.55) < 1e-12);
 const offline = evaluateStrategyV3({ candles, direction: 'BULLISH', newsEvents: [], newsSourceOnline: false });
 assert.equal(offline.gates[8].status, 'BLOCKED');

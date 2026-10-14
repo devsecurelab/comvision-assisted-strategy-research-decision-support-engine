@@ -26,3 +26,15 @@ export function idealPriceOnlySetup(basePrice: number, timeframe: Timeframe, dir
   if (direction === 'BULLISH') return bullish;
   return bullish.map((c) => ({ ...c, open: 2 * basePrice - c.open, high: 2 * basePrice - c.low, low: 2 * basePrice - c.high, close: 2 * basePrice - c.close }));
 }
+
+/** Test-only FULL fixture: every candle has volume, delta, CVD and provider POC. */
+export function idealFullSetup(basePrice: number, timeframe: Timeframe, direction: 'BULLISH' | 'BEARISH'): Candle[] {
+  const candles = idealPriceOnlySetup(basePrice, timeframe, direction);
+  return candles.map((candle, index) => ({
+    ...candle,
+    volume: index === candles.length - 1 ? 500 : 100,
+    volumeDelta: index === candles.length - 1 ? (direction === 'BULLISH' ? 200 : -200) : (direction === 'BULLISH' ? 1 : -1),
+    cvd: index === candles.length - 1 ? (direction === 'BULLISH' ? 2 : -2) : (direction === 'BULLISH' ? 1 : -1),
+    pocPrice: index === candles.length - 4 ? candle.low : candle.close,
+  }));
+}
