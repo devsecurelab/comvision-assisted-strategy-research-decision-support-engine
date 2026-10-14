@@ -1,7 +1,7 @@
 // Master Application Component
 // ComVision-Assisted Strategy Research & Decision-Support Engine
 
-import React, { useState, useEffect } from 'react';
+import React, { lazy, Suspense, useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { DecisionAlertCard } from './components/DecisionAlertCard';
@@ -15,20 +15,20 @@ import { ValidSetupsModal } from './components/ValidSetupsModal';
 import { ValidSetupsFeed } from './components/ValidSetupsFeed';
 import { PublicLanding } from './components/PublicLanding';
 import { ChevronRight } from 'lucide-react';
-import { VisionView } from './components/views/VisionView';
-import { ExperimentView } from './components/views/ExperimentView';
-import { AnalyticsView } from './components/views/AnalyticsView';
-import { NewsGuardView } from './components/views/NewsGuardView';
-import { RiskView } from './components/views/RiskView';
-import { SettingsView } from './components/views/SettingsView';
-import { AuditLogView } from './components/views/AuditLogView';
-import { UserManagementView } from './components/views/UserManagementView';
+const VisionView = lazy(() => import('./components/views/VisionView').then((module) => ({ default: module.VisionView })));
+const ExperimentView = lazy(() => import('./components/views/ExperimentView').then((module) => ({ default: module.ExperimentView })));
+const AnalyticsView = lazy(() => import('./components/views/AnalyticsView').then((module) => ({ default: module.AnalyticsView })));
+const NewsGuardView = lazy(() => import('./components/views/NewsGuardView').then((module) => ({ default: module.NewsGuardView })));
+const RiskView = lazy(() => import('./components/views/RiskView').then((module) => ({ default: module.RiskView })));
+const SettingsView = lazy(() => import('./components/views/SettingsView').then((module) => ({ default: module.SettingsView })));
+const AuditLogView = lazy(() => import('./components/views/AuditLogView').then((module) => ({ default: module.AuditLogView })));
+const UserManagementView = lazy(() => import('./components/views/UserManagementView').then((module) => ({ default: module.UserManagementView })));
 import { DocsLayout } from './components/docs/DocsLayout';
-import { DocsView } from './components/docs/DocsView';
-import { AboutView } from './components/docs/AboutView';
-import { PrivacyView } from './components/docs/PrivacyView';
-import { TermsView } from './components/docs/TermsView';
-import { SecurityView } from './components/docs/SecurityView';
+const DocsView = lazy(() => import('./components/docs/DocsView').then((module) => ({ default: module.DocsView })));
+const AboutView = lazy(() => import('./components/docs/AboutView').then((module) => ({ default: module.AboutView })));
+const PrivacyView = lazy(() => import('./components/docs/PrivacyView').then((module) => ({ default: module.PrivacyView })));
+const TermsView = lazy(() => import('./components/docs/TermsView').then((module) => ({ default: module.TermsView })));
+const SecurityView = lazy(() => import('./components/docs/SecurityView').then((module) => ({ default: module.SecurityView })));
 import { Footer } from './components/Footer';
 import {
   MasterTelemetry,
@@ -531,11 +531,13 @@ export default function App() {
           userStatus={currentUser?.status}
           onOpenAuth={() => setIsAuthModalOpen(true)}
         >
-          {(currentRoute === '/docs' || currentRoute === '/documentation') && <DocsView />}
-          {currentRoute === '/about' && <AboutView />}
-          {currentRoute === '/privacy' && <PrivacyView />}
-          {currentRoute === '/terms' && <TermsView />}
-          {currentRoute === '/security' && <SecurityView />}
+          <Suspense fallback={<div className="p-8 text-slate-400">Loading documentation…</div>}>
+            {(currentRoute === '/docs' || currentRoute === '/documentation') && <DocsView />}
+            {currentRoute === '/about' && <AboutView />}
+            {currentRoute === '/privacy' && <PrivacyView />}
+            {currentRoute === '/terms' && <TermsView />}
+            {currentRoute === '/security' && <SecurityView />}
+          </Suspense>
         </DocsLayout>
         <AuthModal
           isOpen={isAuthModalOpen}
@@ -763,6 +765,7 @@ export default function App() {
             </div>
           )}
 
+          <Suspense fallback={<div className="p-8 text-slate-400">Loading dashboard view…</div>}>
           {activeTab === 'vision' && <VisionView currentAlert={currentAlert} />}
 
           {activeTab === 'experiment' && (
@@ -812,6 +815,7 @@ export default function App() {
             <UserManagementView authToken={authToken} />
           )}
 
+          </Suspense>
           {/* Consistent Footer in Authenticated Dashboard */}
           <div className="pt-8">
             <Footer

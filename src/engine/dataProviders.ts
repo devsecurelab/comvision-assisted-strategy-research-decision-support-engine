@@ -120,7 +120,7 @@ function parseProviderTimestamp(value: unknown, timezone = 'UTC'): string {
   return timestamp.toISOString();
 }
 
-function parseCandleRows(rows: unknown, provider: MarketDataProvider, timeframe: Timeframe, timezone = 'UTC'): Candle[] {
+function parseCandleRows(rows: unknown, provider: MarketDataProvider, timeframe: Timeframe, timezone = 'UTC', requireClosed = true): Candle[] {
   if (!Array.isArray(rows)) throw new MarketDataError('INVALID_PROVIDER_RESPONSE', 'Provider response did not contain a candle array.', provider);
   const candles: Candle[] = rows.map((row: any) => {
     const open = Number(row?.open ?? row?.['1. open']);
@@ -145,7 +145,7 @@ function parseCandleRows(rows: unknown, provider: MarketDataProvider, timeframe:
   candles.sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
   const intervalMs = timeframeToMinutes(timeframe) * 60_000;
   const nowMs = Date.now();
-  const closed = candles.filter((candle) => Date.parse(candle.timestamp) + intervalMs <= nowMs);
+  const closed = requireClosed ? candles.filter((candle) => Date.parse(candle.timestamp) + intervalMs <= nowMs) : candles;
   const deduplicated = closed.filter((candle, index) => index === 0 || candle.timestamp !== closed[index - 1].timestamp);
   if (deduplicated.length < 25) {
     throw new MarketDataError('INSUFFICIENT_HISTORY', `Provider returned ${deduplicated.length} candles; at least 25 are required.`, provider);
@@ -270,11 +270,20 @@ export class MarketFeedManager {
       return { ...result, candles: cloneCandles(result.candles), cacheHit: true };
     }
 
-    const fetchTask = this.fetchProviderCandles(normalizedPair, timeframe, provider).finally(() => this.inFlight.delete(cacheKey));
+    const fetchTask = this.fetchProviderCandles(normalizedPair, timeframe, provider, true).finally(() => this.inFlight.delete(cacheKey));
     this.inFlight.set(cacheKey, fetchTask);
     const result = await fetchTask;
     this.cache.set(cacheKey, { minute, result: { ...result, candles: cloneCandles(result.candles) } });
     return { ...result, candles: cloneCandles(result.candles), cacheHit: false };
+  }
+
+  public async fetchHistoricalCandles(pair: string, timeframe: Timeframe, startDate: string, endDate: string, provider: 'TWELVE_DATA' = 'TWELVE_DATA'): Promise<MarketDataResult> {
+    const normalizedPair = normalizePair(pair);
+    if (provider !== 'TWELVE_DATA' || !this.twelveDataApiKey) throw new MarketDataError('PROVIDER_NOT_CONFIGURED', 'R8 requires TWELVE_DATA_API_KEY; no replay or simulated fallback is permitted.', provider);
+    const start = new Date(`${startDate}T00:00:00Z`);
+    const end = new Date(`${endDate}T23:59:59Z`);
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start >= end) throw new MarketDataError('INVALID_BACKTEST_RANGE', 'R8 start/end dates must be valid and start before end.', provider);
+    return this.fetchProviderCandles(normalizedPair, timeframe, provider, false, { startDate, endDate, outputSize: 5000 });
   }
 
   /** Forces one real-provider request for the protected Step 0 health probe; never uses replay or cache. */
@@ -285,13 +294,13 @@ export class MarketFeedManager {
     return this.fetchProviderCandles(normalizePair(pair), timeframe, provider);
   }
 
-  private async fetchProviderCandles(pair: string, timeframe: Timeframe, provider: 'TWELVE_DATA' | 'ALPHA_VANTAGE'): Promise<MarketDataResult> {
+  private async fetchProviderCandles(pair: string, timeframe: Timeframe, provider: 'TWELVE_DATA' | 'ALPHA_VANTAGE', requireClosed = true, historical?: { startDate: string; endDate: string; outputSize: number }): Promise<MarketDataResult> {
     const startedAt = Date.now();
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12_000);
     try {
       const url = provider === 'TWELVE_DATA'
-        ? this.buildTwelveDataUrl(pair, timeframe)
+        ? this.buildTwelveDataUrl(pair, timeframe, historical)
         : this.buildAlphaVantageUrl(pair, timeframe);
       this.incrementRequests(provider);
       const response = await this.request(url, { signal: controller.signal, headers: { Accept: 'application/json' } });
@@ -330,12 +339,14 @@ export class MarketFeedManager {
       const sourceTimezone = provider === 'ALPHA_VANTAGE'
         ? payload?.['Meta Data']?.['6. Time Zone'] || 'US/Eastern'
         : 'UTC';
-      const candles = parseCandleRows(rows, provider, timeframe, sourceTimezone);
+      const candles = parseCandleRows(rows, provider, timeframe, sourceTimezone, requireClosed);
       const latest = candles[candles.length - 1];
-      const ageMs = Date.now() - Date.parse(latest.timestamp);
-      const freshnessLimitMs = timeframeToMinutes(timeframe) * 60_000 * 2 + 60_000;
-      if (ageMs < -60_000 || ageMs > freshnessLimitMs) {
-        throw new MarketDataError('STALE_MARKET_DATA', `Latest ${provider} candle is stale (${Math.round(ageMs / 1000)} seconds old).`, provider);
+      if (requireClosed) {
+        const ageMs = Date.now() - Date.parse(latest.timestamp);
+        const freshnessLimitMs = timeframeToMinutes(timeframe) * 60_000 * 2 + 60_000;
+        if (ageMs < -60_000 || ageMs > freshnessLimitMs) {
+          throw new MarketDataError('STALE_MARKET_DATA', `Latest ${provider} candle is stale (${Math.round(ageMs / 1000)} seconds old).`, provider);
+        }
       }
       this.lastSuccessfulSync = new Date().toISOString();
       this.lastSuccessfulProvider = provider;
@@ -362,12 +373,16 @@ export class MarketFeedManager {
     }
   }
 
-  private buildTwelveDataUrl(pair: string, timeframe: Timeframe): string {
+  private buildTwelveDataUrl(pair: string, timeframe: Timeframe, historical?: { startDate: string; endDate: string; outputSize: number }): string {
     const url = new URL('https://api.twelvedata.com/time_series');
     url.searchParams.set('symbol', pair);
     url.searchParams.set('interval', timeframeToTwelveDataInterval[timeframe]);
-    url.searchParams.set('outputsize', '100');
+    url.searchParams.set('outputsize', String(historical?.outputSize ?? 100));
     url.searchParams.set('timezone', 'UTC');
+    if (historical) {
+      url.searchParams.set('start_date', historical.startDate);
+      url.searchParams.set('end_date', historical.endDate);
+    }
     url.searchParams.set('apikey', this.twelveDataApiKey);
     return url.toString();
   }
