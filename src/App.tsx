@@ -5,6 +5,7 @@ import React, { lazy, Suspense, useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { DecisionAlertCard } from './components/DecisionAlertCard';
+import { BinaryStatusCard } from './components/BinaryStatusCard';
 import { SetupLogsTable } from './components/SetupLogsTable';
 import { TelemetryModal } from './components/TelemetryModal';
 import { RecordResultModal } from './components/RecordResultModal';
@@ -640,6 +641,9 @@ export default function App() {
 
               {/* Primary Dual Column Layout */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-3">
+                  <BinaryStatusCard alert={currentAlert} scannerActive={scannerActive} />
+                </div>
                 {/* Left 2 Cols: Decision Alert Card */}
                 <div className="lg:col-span-2">
                   <DecisionAlertCard

@@ -2,6 +2,7 @@
 // Strategy v1.0-FROZEN Master Specification (EXP-2026-001)
 // Mode: Research / Decision-Support / Manual Alert Only
 // Architectural Boundary: Strictly Non-Execution
+import { createHash } from 'node:crypto';
 
 import {
   Candle,
@@ -55,7 +56,11 @@ export interface PipelineInput {
     maxWickRatio?: number;
     fibEquilibriumLevel?: number;
   };
+  payoutPct?: number;
 }
+
+const deterministicSetupId = (pair: string, timeframe: Timeframe, signalTimestamp: string, engine: string) =>
+  `V3-${createHash('sha256').update(`${pair}|${timeframe}|${signalTimestamp}|${engine}`).digest('hex').slice(0, 20)}`;
 
 /**
  * Stage 1: Market Structure (5-Candle Symmetric Fractal)
@@ -1473,7 +1478,7 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
       project_name: 'ComVision Strategy Research Engine',
       strategy_version: ACTIVE_STRATEGY_VERSION,
       experiment_id: ACTIVE_EXPERIMENT_ID,
-      setup_id: `EXP-${String(Math.floor(Math.random() * 900000) + 100000)}`,
+      setup_id: deterministicSetupId(pair, selectedTimeframe, c3.timestamp, decisionEngineVersion),
       config_hash: CONFIG_HASH,
       timestamp_utc: nowIso,
       signal_timestamp_utc: c3.timestamp,
@@ -1481,6 +1486,17 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
       asset,
       data_quality: dataQuality,
       data_provenance: resolvedProvenance,
+      engine_mode: v3Decision.engineMode,
+      excluded_stages: v3Decision.excludedStages,
+      mfci_total: v3Decision.mfci.totalMfci,
+      mfci_structure: v3Decision.mfci.sStructure,
+      mfci_orderflow: v3Decision.mfci.sOrderFlow,
+      mfci_liquidity: v3Decision.mfci.sLiquidity,
+      mfci_band: v3Decision.mfciBand,
+      status: v3Decision.status,
+      status_reason: v3Decision.statusReason,
+      first_failed_gate: v3Decision.firstFailedGate,
+      payout_pct: input.payoutPct,
     },
     market_context: {
       selected_timeframe: selectedTimeframe,
@@ -1591,7 +1607,7 @@ function createInconclusiveTelemetry(
       project_name: 'ComVision Strategy Research Engine',
       strategy_version: ACTIVE_STRATEGY_VERSION,
       experiment_id: ACTIVE_EXPERIMENT_ID,
-      setup_id: `V2-${String(Math.floor(Math.random() * 900000) + 100000)}`,
+      setup_id: deterministicSetupId(pair, timeframe, nowIso, 'V3_FAIL_CLOSED'),
       config_hash: CONFIG_HASH,
       timestamp_utc: nowIso,
       pair,

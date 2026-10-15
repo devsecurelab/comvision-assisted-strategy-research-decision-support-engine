@@ -208,6 +208,8 @@ export type TickBaseline = 'ABOVE_AVERAGE' | 'BELOW_AVERAGE';
 export type DataQuality = 'COMPLETE' | 'DEGRADED' | 'INVALID';
 export type SystemDecision = 'PASS' | 'REJECT' | 'INCONCLUSIVE';
 export type FinalAction = 'MANUAL_ALERT' | 'SAFE_HOLD' | 'NO_ACTION';
+export type BinarySignal = 'CALL' | 'PUT' | 'NO_TRADE';
+export type MfciBand = 'ABOVE_THRESHOLD' | 'BELOW_THRESHOLD' | 'UNAVAILABLE';
 
 // Stage 20: Next-Candle Research Observation (Strictly Research-Honest Semantics)
 export type NextCandleObservation =
@@ -245,6 +247,11 @@ export interface V3DecisionTelemetry {
   mfci: { sStructure: number; sOrderFlow: number | null; sLiquidity: number; totalMfci: number; meetsThreshold: boolean };
   systemDecision: 'PASS' | 'HOLD' | 'BLOCKED';
   finalAction: 'MANUAL_ALERT' | 'SAFE_HOLD' | 'NO_ACTION';
+  binarySignal: BinarySignal;
+  mfciBand: MfciBand;
+  status: 'PASS' | 'HOLD' | 'BLOCKED';
+  statusReason: string;
+  firstFailedGate?: number;
   entryPrice: number; stopLoss?: number; takeProfit1?: number; takeProfit2?: number; riskRewardRatio?: number;
 }
 
@@ -264,6 +271,19 @@ export interface MasterTelemetry {
     data_provenance?: DataProvenance;
     sha256_hash?: string;
     prev_hash?: string;
+    engine_mode?: 'FULL' | 'PRICE_ONLY';
+    excluded_stages?: Array<{ stage: number; name: string; reason: string }>;
+    mfci_total?: number;
+    mfci_structure?: number;
+    mfci_orderflow?: number | null;
+    mfci_liquidity?: number;
+    mfci_band?: MfciBand;
+    status?: string;
+    status_reason?: string;
+    first_failed_gate?: number;
+    payout_pct?: number;
+    payout_set_at?: string;
+    payout_source?: 'TELEGRAM_MANUAL';
   };
   market_context: {
     selected_timeframe: Timeframe;

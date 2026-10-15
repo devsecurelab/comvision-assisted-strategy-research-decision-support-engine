@@ -307,11 +307,14 @@ export class NotificationService {
     const killZone = telemetry.market_context?.kill_zone === 'INSIDE_KILL_ZONE' ? 'ACTIVE' : 'OUTSIDE';
 
     const newsStatus = telemetry.guardrails?.news_guard?.news_window_state === 'CLEAR' ? 'CLEAR' : 'GUARD_ACTIVE';
+    const v3 = telemetry.decision_engine_v3;
+    const binarySignal = v3?.binarySignal || 'NO_TRADE';
 
     return [
-      `🟢 COMVISION RESEARCH ALERT — VALID SIGNAL DETECTED`,
+      `COMVISION RESEARCH ALERT — ${binarySignal}`,
       ``,
       `Strategy: v2.0-FROZEN (EXP-2026-V2-001)`,
+      `Strategy: decision_engine_v3 (research only)`,
       `Asset: ${asset}`,
       `Timeframe: ${tf}`,
       `Bias: ${bias}`,
@@ -340,7 +343,12 @@ export class NotificationService {
       `UTC: ${timeData.utcTime}`,
       `BDT (Asia/Dhaka): ${timeData.bdtTime}`,
       ``,
-      `Decision: MANUAL_RESEARCH_ALERT`,
+      `Binary Signal: ${binarySignal}`,
+      `Status: ${v3?.status || telemetry.system_execution.system_decision}`,
+      `MFCI: ${v3 ? v3.mfci.totalMfci.toFixed(3) : 'UNAVAILABLE'} (${v3?.mfciBand || 'UNAVAILABLE'})`,
+      `Engine Mode: ${v3?.engineMode || telemetry.metadata.engine_mode || 'UNAVAILABLE'}`,
+      `Provider: ${telemetry.provider_provenance?.provider || 'UNAVAILABLE'}`,
+      `Reason: ${v3?.statusReason || telemetry.system_execution.rejection_reason || 'No qualifying setup.'}`,
       `Setup Record: ${setupId}`,
       ``,
       `⚠️ MANUAL RESEARCH ALERT ONLY: Strictly non-execution decision-support alert.`,
