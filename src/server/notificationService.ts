@@ -9,9 +9,10 @@ import { formatSignalTime } from '../utils/timeFormat';
 import { displayPair, isSupportedPair, payoutRegistry } from './payoutRegistry';
 import { favoriteRegistry } from './favoriteRegistry';
 import { feedManager } from '../engine/dataProviders';
-import { detectFractalSwings, evaluateMarketStructure, executeStrategyPipeline } from '../engine/pipeline';
-import { experimentTracker } from '../engine/experimentTracker';
 import { newsGuard } from '../engine/newsGuard';
+import type { ScanLoop, ScanResult, ScanService, ScanTimeframe } from '../engine/scanScheduler';
+import { SCAN_TIMEFRAMES } from '../engine/scanScheduler';
+import { buildLedgerReport, formatLedgerReport } from '../engine/edgeMonitor';
 
 export interface NotificationConfig {
   telegramEnabled: boolean;
@@ -28,6 +29,47 @@ export interface NotificationConfig {
 export class NotificationService {
   private config: NotificationConfig;
   private mailTransporter: any = null;
+  private scanService?: ScanService;
+  private scanLoop?: ScanLoop;
+
+  /** Wires the R9 scan service and loop so owner commands (/scan, /result, /health, /resume, /report, /autoscan) can use them. */
+  public attachScanService(service: ScanService, loop: ScanLoop): void {
+    this.scanService = service;
+    this.scanLoop = loop;
+  }
+
+  public formatScanResult(result: ScanResult): string {
+    const time = result.signal_candle_open_ts ? formatSignalTime(result.signal_candle_open_ts) : undefined;
+    const v3 = result.telemetry?.decision_engine_v3;
+    return [
+      `${result.status} ${result.pair} ${result.timeframe}${result.cached ? ' (same candle, cached — no credit used)' : ''}`,
+      `Reason: ${result.reason}`,
+      `MFCI: ${v3 ? `${v3.mfci.totalMfci.toFixed(3)} (${v3.mfciBand})` : 'UNAVAILABLE'} | Mode: ${v3?.engineMode ?? 'UNAVAILABLE'}`,
+      `Signal candle: ${time ? `${time.utcTime} UTC / ${time.bdtTime} BDT` : 'UNAVAILABLE'}`,
+      result.signal_id ? `Signal ID: ${result.signal_id} | valid until ${result.valid_until}` : '',
+      result.failover_reason ? `Provider failover: ${result.failover_reason}` : '',
+      'Research alert only — no execution.',
+    ].filter(Boolean).join('\n');
+  }
+
+  public buildHealthText(): string {
+    const scheduler = feedManager.getSchedulerSnapshot();
+    const clock = feedManager.getClockState();
+    const loopState = this.scanLoop?.state();
+    const ledgerCheck = this.scanService?.ledger.verify();
+    const edge = this.scanService?.edge.current();
+    return [
+      'COMVISION /health',
+      `Auto-scan: ${loopState ? `${loopState.enabled ? 'ON' : 'OFF'} ${loopState.timeframe}` : 'NOT_WIRED'} | last run ${loopState?.lastRunAt ?? 'never'}${loopState?.lastError ? ` | last error ${loopState.lastError}` : ''}`,
+      `Last cycle: ${loopState?.lastSummary || 'none'}`,
+      `Provider: last OK ${clock.lastSuccessfulProvider ?? 'none'} at ${clock.lastSuccessfulSync || 'never'}${clock.lastFailedProvider ? ` | last failed ${clock.lastFailedProvider}` : ''}`,
+      `Credits today: ${scheduler.dayUsed}/${scheduler.perDay} (hard stop ${scheduler.hardStopDaily}, auto ${scheduler.autoUsed}/${scheduler.autoDailyBudget}) | minute ${scheduler.minuteUsed}/${scheduler.perMinute}`,
+      `Clock drift: ${clock.driftMs === null ? 'UNAVAILABLE' : `${clock.driftMs} ms`} (${clock.status})`,
+      `News source: ${newsGuard.isSourceOnline() ? 'ONLINE' : 'OFFLINE (fail-closed)'}`,
+      `Ledger: ${ledgerCheck ? (ledgerCheck.ok ? `OK (${ledgerCheck.entries} entries)` : `TAMPERED ${ledgerCheck.reason} at ${ledgerCheck.brokenAt}`) : 'NOT_WIRED'}`,
+      `Edge: ${edge ? (edge.paused ? `EDGE_LOST since ${edge.lostAt} — এখন ট্রেড নয় (${edge.reason})` : 'ACTIVE') : 'NOT_WIRED'}`,
+    ].join('\n');
+  }
 
   constructor() {
     const savedSettings = durableStorage.loadAppSettings();
@@ -305,7 +347,8 @@ export class NotificationService {
         processed++; responses.push(result); await this.sendTelegramText(result);
         durableStorage.recordAuditEvent({ event_type: 'TELEGRAM_PAYOUT_COMMAND', details: { command: message.text.split(/\s+/)[0], outcome: result.startsWith('ERROR') ? 'REJECTED' : 'APPLIED' } });
       }
-      durableStorage.saveAppSettings({ ...settings, telegramUpdateOffset: nextOffset });
+      // Re-read: commands above (e.g. /payout, /fav) persisted their own changes to the same settings file.
+      durableStorage.saveAppSettings({ ...durableStorage.loadAppSettings(), telegramUpdateOffset: nextOffset });
       return { configured: true, processed, rejected, responses };
     } catch { return { configured: true, processed: 0, rejected: 0, responses: [], error: 'TELEGRAM_REQUEST_FAILED' }; }
   }
@@ -333,25 +376,41 @@ export class NotificationService {
     }
     if (command === '/scan') {
       const pair = tokens[1] || ''; if (!isSupportedPair(pair)) return 'ERROR UNSUPPORTED_SYMBOL: use EURUSD or EUR/USD.';
-      const payout = payoutRegistry.get(pair); if (!payout) return `PAYOUT_UNSET: set /payout ${pair.replace('/', '')} 87 first.`;
-      if (payout.pct < 85) return `PAYOUT_BELOW_MIN: ${payout.pct}% is below 85%; scan not run.`;
-      const timeframe = (process.env.TELEGRAM_SCAN_TIMEFRAME || '15m') as any;
-      try {
-        const primary = await feedManager.fetchCandles(displayPair(pair), timeframe, 'TWELVE_DATA');
-        const candles = primary.candles;
-        const htf = await feedManager.fetchCandles(displayPair(pair), '1h', 'TWELVE_DATA');
-        const htfBias = evaluateMarketStructure(detectFractalSwings(htf.candles, htf.candles.length - 1)).bias;
-        if (htfBias === 'UNCLEAR') return `NO_TRADE ${displayPair(pair)} ${timeframe}: HTF_BIAS_UNCLEAR.`;
-        const telemetry = executeStrategyPipeline({ decisionEngineVersion: 'V3', candles, currentCandleIndex: candles.length - 1, selectedTimeframe: timeframe, higherTimeframeBias: htfBias, newsEvents: newsGuard.getEvents(), newsSourceOnline: newsGuard.isSourceOnline(), dataProvenance: primary.dataProvenance, provider: primary.provider, pair: displayPair(pair) });
-        const recorded = experimentTracker.recordCandidate(telemetry);
-        const v3 = recorded.decision_engine_v3;
-        return `${v3?.binarySignal || 'NO_TRADE'} ${displayPair(pair)} ${timeframe} | MFCI ${v3?.mfci.totalMfci.toFixed(3) || 'UNAVAILABLE'} | ${v3?.statusReason || recorded.system_execution.rejection_reason || 'No qualifying setup.'} | BDT ${formatSignalTime(recorded.metadata.signal_timestamp_utc || recorded.metadata.timestamp_utc).bdtTime} | Research alert only.`;
-      } catch (error) { return `NO_TRADE ${displayPair(pair)}: PROVIDER_ERROR — ${error instanceof Error ? error.message : 'market data unavailable'}.`; }
+      if (!this.scanService) return 'NO_TRADE: SCAN_SERVICE_NOT_WIRED.';
+      const tf = (tokens[2] || this.scanLoop?.state().timeframe || process.env.TELEGRAM_SCAN_TIMEFRAME || '15m') as ScanTimeframe;
+      if (!SCAN_TIMEFRAMES.includes(tf)) return 'ERROR UNSUPPORTED_TIMEFRAME: use 5m, 15m or 30m.';
+      return this.formatScanResult(await this.scanService.scanPair(pair, tf, 'MANUAL'));
+    }
+    if (command === '/result') {
+      if (!this.scanService) return 'ERROR SCAN_SERVICE_NOT_WIRED.';
+      if (!tokens[1] || !tokens[2]) return 'ERROR INVALID_RESULT: use /result <signal_id> win|loss|tie|skipped.';
+      return this.scanService.recordManualResult(tokens[1], tokens[2]);
+    }
+    if (command === '/health') return this.buildHealthText();
+    if (command === '/resume') {
+      if (!this.scanService) return 'ERROR SCAN_SERVICE_NOT_WIRED.';
+      return this.scanService.edge.resume(tokens.slice(1).join(' ')).message;
+    }
+    if (command === '/report') {
+      if (!this.scanService) return 'ERROR SCAN_SERVICE_NOT_WIRED.';
+      const weekly = (tokens[1] || '').toLowerCase() === 'weekly';
+      const since = Date.now() - (weekly ? 7 : 1) * 86_400_000;
+      return formatLedgerReport(weekly ? 'WEEKLY REPORT' : 'DAILY REPORT', buildLedgerReport(this.scanService.ledger.signals(), since));
+    }
+    if (command === '/autoscan') {
+      if (!this.scanLoop) return 'ERROR SCAN_LOOP_NOT_WIRED.';
+      const action = (tokens[1] || '').toLowerCase(); const tf = tokens[2] as ScanTimeframe | undefined;
+      if (action !== 'on' && action !== 'off') return 'ERROR INVALID_AUTOSCAN: use /autoscan on [5m|15m|30m] or /autoscan off.';
+      if (tf && !SCAN_TIMEFRAMES.includes(tf)) return 'ERROR UNSUPPORTED_TIMEFRAME: use 5m, 15m or 30m.';
+      this.scanLoop.setEnabled(action === 'on', tf);
+      if (action === 'on') this.scanLoop.start(); else this.scanLoop.stop();
+      const state = this.scanLoop.state();
+      return `Auto-scan ${state.enabled ? 'ON' : 'OFF'} (${state.timeframe}).`;
     }
     return null;
   }
 
-  private async sendTelegramText(text: string): Promise<void> {
+  public async sendTelegramText(text: string): Promise<void> {
     if (!this.config.telegramBotToken || !this.config.telegramChatId) return;
     const url = `https://api.telegram.org/bot${this.config.telegramBotToken}/sendMessage`;
     await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: this.config.telegramChatId, text }) });
@@ -360,81 +419,33 @@ export class NotificationService {
   /**
    * Formats Message #1: VALID SIGNAL ALERT payload (Strategy v2.0-FROZEN Specification Section 35)
    */
-  public formatSignalAlert(telemetry: MasterTelemetry): string {
-    const setupId = telemetry.metadata?.setup_id || 'UNKNOWN';
-    const asset = telemetry.metadata?.pair || telemetry.metadata?.asset || 'EUR/USD';
-    const tf = telemetry.market_context?.selected_timeframe || '5m';
-    const bias = telemetry.market_context?.local_bias || 'BULLISH';
-    const timeData = formatSignalTime(telemetry.metadata?.signal_timestamp_utc || telemetry.metadata?.timestamp_utc);
-
-    const bosInfo = telemetry.validation_metrics?.bos?.bos_detected
-      ? `${telemetry.validation_metrics.bos.bos_direction} BOS`
-      : 'Structural Continuity';
-    const chochInfo = telemetry.validation_metrics?.choch?.choch_status || 'NO_CHoCH';
-    const fvgInfo = telemetry.validation_metrics?.fvg?.fvg_status === 'PASS' ? 'Confirmed' : 'None';
-    const ifvgInfo = telemetry.validation_metrics?.ifvg?.ifvg_status === 'IFVG_CONFIRMED'
-      ? `${telemetry.validation_metrics.ifvg.ifvg_direction} IFVG`
-      : 'None';
-    const bprInfo = telemetry.validation_metrics?.bpr?.bpr_status === 'BPR_CONFIRMED' ? 'Confirmed' : 'None';
-    const obInfo = telemetry.validation_metrics?.order_block?.ob_detected ? 'Valid' : 'None';
-    const breakerInfo = telemetry.validation_metrics?.breaker_block?.breaker_status === 'BREAKER_CONFIRMED'
-      ? `${telemetry.validation_metrics.breaker_block.breaker_direction} Breaker`
-      : 'None';
-
-    const targetContext = telemetry.validation_metrics?.bsl_ssl?.selected_liquidity_target || 'BSL';
-    const momentumInfo = telemetry.validation_metrics?.momentum?.momentum_state || 'Aligned';
-    const wickStatus = telemetry.validation_metrics?.wick_check?.status || 'PASS';
-    const oteStatus = telemetry.validation_metrics?.ote?.zone_status || 'INSIDE_OTE';
-    const session = telemetry.market_context?.session || 'London';
-    const killZone = telemetry.market_context?.kill_zone === 'INSIDE_KILL_ZONE' ? 'ACTIVE' : 'OUTSIDE';
-
-    const newsStatus = telemetry.guardrails?.news_guard?.news_window_state === 'CLEAR' ? 'CLEAR' : 'GUARD_ACTIVE';
+  public formatSignalAlert(telemetry: MasterTelemetry, extra: { signalId?: string; validUntil?: string } = {}): string {
     const v3 = telemetry.decision_engine_v3;
     const binarySignal = v3?.binarySignal || 'NO_TRADE';
-
+    const pair = telemetry.metadata?.pair || telemetry.metadata?.asset || 'UNAVAILABLE';
+    const tf = telemetry.market_context?.selected_timeframe || 'UNAVAILABLE';
+    const signalTs = telemetry.metadata?.signal_candle_open_ts || telemetry.metadata?.signal_timestamp_utc;
+    const time = signalTs ? formatSignalTime(signalTs) : undefined;
+    const payout = telemetry.metadata?.payout_pct;
+    const gateLine = (v3?.gates || []).map((gate: any) => `G${gate.gateNumber} ${gate.status}`).join(' | ');
     return [
       `COMVISION RESEARCH ALERT — ${binarySignal}`,
+      `Research alert only — no broker execution.`,
       ``,
-      `Strategy: v2.0-FROZEN (EXP-2026-V2-001)`,
-      `Strategy: decision_engine_v3 (research only)`,
-      `Asset: ${asset}`,
-      `Timeframe: ${tf}`,
-      `Bias: ${bias}`,
-      ``,
-      `--- STAGE RESULTS ---`,
-      `Structure: ${bosInfo}`,
-      `CHoCH: ${chochInfo}`,
-      `FVG: ${fvgInfo}`,
-      `IFVG: ${ifvgInfo}`,
-      `BPR: ${bprInfo}`,
-      `OB: ${obInfo}`,
-      `Breaker: ${breakerInfo}`,
-      ``,
-      `BSL/SSL:`,
-      `Target Context: ${targetContext}`,
-      ``,
-      `Momentum: ${momentumInfo}`,
-      `Wick: ${wickStatus}`,
-      `OTE: ${oteStatus}`,
-      `Session: ${session}`,
-      `Kill Zone: ${killZone}`,
-      ``,
-      `News Guard: ${newsStatus}`,
-      ``,
-      `Timestamp:`,
-      `UTC: ${timeData.utcTime}`,
-      `BDT (Asia/Dhaka): ${timeData.bdtTime}`,
-      ``,
-      `Binary Signal: ${binarySignal}`,
-      `Status: ${v3?.status || telemetry.system_execution.system_decision}`,
-      `MFCI: ${v3 ? v3.mfci.totalMfci.toFixed(3) : 'UNAVAILABLE'} (${v3?.mfciBand || 'UNAVAILABLE'})`,
-      `Engine Mode: ${v3?.engineMode || telemetry.metadata.engine_mode || 'UNAVAILABLE'}`,
-      `Provider: ${telemetry.provider_provenance?.provider || 'UNAVAILABLE'}`,
-      `Reason: ${v3?.statusReason || telemetry.system_execution.rejection_reason || 'No qualifying setup.'}`,
-      `Setup Record: ${setupId}`,
-      ``,
-      `⚠️ MANUAL RESEARCH ALERT ONLY: Strictly non-execution decision-support alert.`,
-    ].join('\n');
+      `Pair: ${pair} | Timeframe: ${tf} | Expiry: ${tf}`,
+      `HTF (1h) bias: ${telemetry.metadata?.htf_bias || 'UNAVAILABLE'}`,
+      `Signal candle open: ${time ? `${time.utcTime} UTC / ${time.bdtTime} BDT` : 'UNAVAILABLE'}`,
+      extra.signalId ? `Signal ID: ${extra.signalId}` : '',
+      extra.validUntil ? `Valid until: ${extra.validUntil}` : '',
+      `Payout: ${payout === undefined ? 'UNSET' : `${payout}% (breakeven ${(100 / (1 + payout / 100)).toFixed(1)}%)`}`,
+      `MFCI: ${v3 ? v3.mfci.totalMfci.toFixed(3) : 'UNAVAILABLE'} (${v3?.mfciBand || 'UNAVAILABLE'}) | Mode: ${v3?.engineMode || telemetry.metadata?.engine_mode || 'UNAVAILABLE'}`,
+      `Gates: ${gateLine || 'UNAVAILABLE'}`,
+      `Session: ${telemetry.market_context?.session || 'UNKNOWN'} | Kill zone: ${telemetry.market_context?.kill_zone || 'UNKNOWN'}`,
+      `News guard: ${(v3?.operationalGuards || []).map((guard: any) => `${guard.status} — ${guard.reason}`).join('; ') || 'UNAVAILABLE'}`,
+      `Provider: ${telemetry.metadata?.provider || 'UNAVAILABLE'} | Provenance: ${telemetry.metadata?.data_provenance || 'UNAVAILABLE'}`,
+      `Reason: ${v3?.statusReason || telemetry.metadata?.status_reason || telemetry.system_execution.rejection_reason || 'NO_QUALIFYING_SETUP'}`,
+      `Strategy: decision_engine_v3 | ${telemetry.metadata?.experiment_id || 'UNAVAILABLE'} | Setup ${telemetry.metadata?.setup_id || 'UNAVAILABLE'}`,
+    ].filter((line) => line !== '').join('\n');
   }
 
   /**
@@ -457,7 +468,7 @@ export class NotificationService {
       `🔎 COMVISION NEXT-CANDLE RESULT ALERT`,
       ``,
       `Setup: ${outcome?.setup_id || telemetry.metadata?.setup_id}`,
-      `Strategy: v2.0-FROZEN (EXP-2026-V2-001)`,
+      `Strategy: decision_engine_v3 (${telemetry.metadata?.experiment_id || 'UNAVAILABLE'})`,
       ``,
       `Next Candle Observation:`,
       `${obsOutcome} (${rawOutcome})`,
@@ -486,14 +497,14 @@ export class NotificationService {
   /**
    * Dispatches Message #1: VALID SIGNAL ALERT
    */
-  public async dispatchSignalAlert(telemetry: MasterTelemetry): Promise<{
+  public async dispatchSignalAlert(telemetry: MasterTelemetry, extra: { signalId?: string; validUntil?: string } = {}): Promise<{
     telegram: 'SENT' | 'FAILED' | 'DISABLED';
     email: 'SENT' | 'FAILED' | 'DISABLED';
   }> {
     const setupId = telemetry.metadata.setup_id;
     const pair = telemetry.metadata.pair || telemetry.metadata.asset || 'EUR/USD';
     const bias = telemetry.market_context.local_bias;
-    const messageText = this.formatSignalAlert(telemetry);
+    const messageText = this.formatSignalAlert(telemetry, extra);
 
     let telegramStatus: 'SENT' | 'FAILED' | 'DISABLED' = 'DISABLED';
     let emailStatus: 'SENT' | 'FAILED' | 'DISABLED' = 'DISABLED';
@@ -545,7 +556,7 @@ export class NotificationService {
       setup_id: setupId,
       type: 'SIGNAL_ALERT',
       channel: 'TELEGRAM',
-      recipient: this.config.telegramChatId || 'NOT_CONFIGURED',
+      recipient: this.config.telegramChatId ? 'OWNER_CHAT' : 'NOT_CONFIGURED',
       status: telegramStatus,
       payload_summary: `${pair} ${bias} ${setupId}`,
     });
@@ -640,7 +651,7 @@ export class NotificationService {
       setup_id: outcome.setup_id,
       type: 'RESULT_ALERT',
       channel: 'TELEGRAM',
-      recipient: this.config.telegramChatId || 'NOT_CONFIGURED',
+      recipient: this.config.telegramChatId ? 'OWNER_CHAT' : 'NOT_CONFIGURED',
       status: telegramStatus,
       payload_summary: `${outcome.pair} Result: ${outcome.signal_outcome} (${outcome.setup_id})`,
     });
@@ -806,7 +817,7 @@ export class NotificationService {
           setup_id: 'TEST-TELEGRAM',
           type: 'SIGNAL_ALERT',
           channel: 'TELEGRAM',
-          recipient: chatId,
+          recipient: 'OWNER_CHAT',
           status: 'SENT',
           payload_summary: `Telegram Bot Test Alert verified (Message ID: ${messageId || 'N/A'})`,
         });
@@ -834,7 +845,7 @@ export class NotificationService {
           setup_id: 'TEST-TELEGRAM',
           type: 'SIGNAL_ALERT',
           channel: 'TELEGRAM',
-          recipient: chatId,
+          recipient: 'OWNER_CHAT',
           status: 'FAILED',
           payload_summary: `Telegram Bot Test Alert failed: ${sanitize(errMsg)}`,
         });

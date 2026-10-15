@@ -32,6 +32,9 @@ import {
 import { ACTIVE_STRATEGY_VERSION, ACTIVE_EXPERIMENT_ID, CONFIG_HASH } from './manifest';
 import { formatSignalTime } from '../utils/timeFormat';
 import { evaluateStrategyV3 } from './strategyV3Engine';
+import { classifySessionAndKillZone } from './session';
+import { deriveHtfBias, MIN_ENGINE_CANDLES } from './strategyV3Engine';
+import { timeframeMs, validateCandleSeries } from './dataIntegrity';
 
 export interface PipelineInput {
   /** V3 is authoritative; V2 is retained only for explicit historical fixtures. */
@@ -57,7 +60,14 @@ export interface PipelineInput {
     fibEquilibriumLevel?: number;
   };
   payoutPct?: number;
+  payoutSetAt?: string;
+  /** Closed 1h candles; when supplied the engine derives HTF bias itself from the latest closed 1h structure. */
+  htfCandles?: Candle[];
+  /** Wall-clock used for the forming-candle check. Live callers pass Date.now(); R8 passes the causal replay clock. */
+  nowMs?: number;
 }
+
+export const MIN_PAYOUT_PCT = 85;
 
 const deterministicSetupId = (pair: string, timeframe: Timeframe, signalTimestamp: string, engine: string) =>
   `V3-${createHash('sha256').update(`${pair}|${timeframe}|${signalTimestamp}|${engine}`).digest('hex').slice(0, 20)}`;
@@ -999,74 +1009,8 @@ export function evaluateMomentum(candles: Candle[], currentIdx: number): Momentu
   };
 }
 
-/**
- * Stage 16 & 17: Session Context & Kill Zones (Deterministic UTC windows)
- * ASIA: 00:00 - 06:00 UTC (Kill Zone: 01:00 - 04:00 UTC)
- * LONDON: 07:00 - 16:00 UTC (Kill Zone: 07:00 - 10:00 UTC)
- * NEW_YORK: 12:00 - 21:00 UTC (Kill Zone: 12:00 - 15:00 UTC)
- * LONDON_NEW_YORK_OVERLAP: 12:00 - 16:00 UTC
- */
-export function classifySessionAndKillZone(timestampIso: string): SessionContext {
-  const date = new Date(timestampIso);
-  const hourUtc = date.getUTCHours();
-  const minuteUtc = date.getUTCMinutes();
-  const timeDec = hourUtc + minuteUtc / 60;
-
-  const timeFormatted = formatSignalTime(timestampIso);
-
-  let session: MarketSession = 'OFF_PEAK';
-  let session_start_utc = '00:00';
-  let session_end_utc = '24:00';
-
-  let kill_zone: KillZoneState = 'OUTSIDE_KILL_ZONE';
-  let kill_zone_start_utc: string | undefined;
-  let kill_zone_end_utc: string | undefined;
-
-  // London / NY Overlap
-  if (timeDec >= 12 && timeDec <= 16) {
-    session = 'LONDON_NEW_YORK_OVERLAP';
-    session_start_utc = '12:00';
-    session_end_utc = '16:00';
-  } else if (timeDec >= 7 && timeDec < 16) {
-    session = 'LONDON';
-    session_start_utc = '07:00';
-    session_end_utc = '16:00';
-  } else if (timeDec >= 12 && timeDec < 21) {
-    session = 'NEW_YORK';
-    session_start_utc = '12:00';
-    session_end_utc = '21:00';
-  } else if (timeDec >= 0 && timeDec < 6) {
-    session = 'ASIA';
-    session_start_utc = '00:00';
-    session_end_utc = '06:00';
-  }
-
-  // Kill Zones
-  if (timeDec >= 7 && timeDec <= 10) {
-    kill_zone = 'INSIDE_KILL_ZONE';
-    kill_zone_start_utc = '07:00';
-    kill_zone_end_utc = '10:00';
-  } else if (timeDec >= 12 && timeDec <= 15) {
-    kill_zone = 'INSIDE_KILL_ZONE';
-    kill_zone_start_utc = '12:00';
-    kill_zone_end_utc = '15:00';
-  } else if (timeDec >= 1 && timeDec <= 4) {
-    kill_zone = 'INSIDE_KILL_ZONE';
-    kill_zone_start_utc = '01:00';
-    kill_zone_end_utc = '04:00';
-  }
-
-  return {
-    session,
-    kill_zone,
-    session_start_utc,
-    session_end_utc,
-    kill_zone_start_utc,
-    kill_zone_end_utc,
-    timestamp_utc: timeFormatted.utcTime,
-    timestamp_bdt: timeFormatted.bdtTime,
-  };
-}
+/** Stage 16 & 17 have exactly one implementation: the DST-aware owner rules in ./session. */
+export { classifySessionAndKillZone };
 
 export function isInsideCandle(current: Candle, previous: Candle): boolean {
   return current.high <= previous.high && current.low >= previous.low;
@@ -1094,13 +1038,15 @@ export function evaluateTickProxy(
   const start = Math.max(0, currentCandleIndex - 12);
   const end = Math.max(0, currentCandleIndex - 2);
   for (let i = start; i < end; i++) {
-    sum += candles[i].volume ?? 0;
+    const volume = candles[i].volume;
+    if (typeof volume !== 'number' || !Number.isFinite(volume)) continue;
+    sum += volume;
     count++;
   }
-  const avgVolume = count > 0 ? sum / count : 100;
+  const avgVolume = count > 0 ? sum / count : Number.NaN;
 
   const isAscending = c1.volume !== null && c2.volume !== null && c3.volume !== null && c1.volume < c2.volume && c2.volume < c3.volume;
-  const isAboveAverage = c2.volume !== null && c3.volume !== null && (c2.volume > avgVolume || c3.volume > avgVolume);
+  const isAboveAverage = Number.isFinite(avgVolume) && c2.volume !== null && c3.volume !== null && (c2.volume > avgVolume || c3.volume > avgVolume);
 
   const tick_sequence: 'ASCENDING' | 'NOT_ASCENDING' = isAscending ? 'ASCENDING' : 'NOT_ASCENDING';
   const tick_baseline: 'ABOVE_AVERAGE' | 'BELOW_AVERAGE' = isAboveAverage ? 'ABOVE_AVERAGE' : 'BELOW_AVERAGE';
@@ -1130,7 +1076,7 @@ export function evaluateTickProxy(
 export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
   const {
     decisionEngineVersion = process.env.LEGACY_V2_FIXTURES === '1' ? 'V2' : 'V3',
-    candles,
+    candles: inputCandles,
     currentCandleIndex,
     selectedTimeframe,
     higherTimeframeBias = 'UNCLEAR',
@@ -1140,12 +1086,30 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
     asset = 'EUR/USD',
     customSettings,
   } = input;
-  const dataProvenance = input.dataProvenance ?? 'REPLAY';
+  // Zero lookahead: the V3 path never sees candles after the decision candle.
+  const candles = decisionEngineVersion === 'V3' && Array.isArray(inputCandles) ? inputCandles.slice(0, Math.max(0, currentCandleIndex + 1)) : inputCandles;
+  const dataProvenance: DataProvenance = input.dataProvenance ?? 'NOT_LIVE';
+  const failContext = { dataProvenance, provider: input.provider, payoutPct: input.payoutPct, signalCandleOpenTs: candles?.[currentCandleIndex]?.timestamp ?? null };
   if (dataProvenance !== 'LIVE_INGESTED') {
-    return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'DEGRADED', `Market data circuit breaker: ${dataProvenance} is not verified live provider data.`, new Date().toISOString());
+    return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'DEGRADED', `NOT_LIVE_DATA: ${dataProvenance} is not verified live provider data. NO_TRADE.`, new Date().toISOString(), failContext);
   }
-  if (decisionEngineVersion === 'V3' && higherTimeframeBias === 'UNCLEAR') {
-    return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'DEGRADED', '1h higher-timeframe bias is unavailable or unclear. NO_TRADE.', new Date().toISOString());
+  if (decisionEngineVersion === 'V3') {
+    if (input.payoutPct === undefined || input.payoutPct === null || !Number.isFinite(input.payoutPct)) {
+      return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'DEGRADED', 'PAYOUT_UNSET: payout not set via Telegram. NO_TRADE.', new Date().toISOString(), failContext);
+    }
+    if (input.payoutPct < MIN_PAYOUT_PCT) {
+      return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'DEGRADED', `PAYOUT_BELOW_MIN: ${input.payoutPct}% < ${MIN_PAYOUT_PCT}%. NO_TRADE.`, new Date().toISOString(), failContext);
+    }
+    const series = candles ? candles.slice(0, currentCandleIndex + 1) : [];
+    const quality = validateCandleSeries(series, { timeframe: selectedTimeframe, nowMs: input.nowMs, minCandles: MIN_ENGINE_CANDLES });
+    if (!quality.ok) {
+      return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'INVALID', `DATA_QUALITY_FAIL: ${quality.issues.slice(0, 3).map((issue) => `${issue.code} ${issue.detail}`).join('; ')}`, new Date().toISOString(), { ...failContext, dataQualityIssues: quality.issues.map((issue) => issue.code) });
+    }
+  }
+  const signalCloseIso = candles?.[currentCandleIndex] ? new Date(Date.parse(candles[currentCandleIndex].timestamp) + timeframeMs(selectedTimeframe)).toISOString() : new Date(0).toISOString();
+  const resolvedHtfBias = decisionEngineVersion === 'V3' && input.htfCandles ? deriveHtfBias(input.htfCandles, signalCloseIso) : higherTimeframeBias;
+  if (decisionEngineVersion === 'V3' && resolvedHtfBias === 'UNCLEAR') {
+    return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'DEGRADED', 'HTF_BIAS_UNCLEAR: 1h higher-timeframe bias is unavailable or unclear. NO_TRADE.', new Date().toISOString(), failContext);
   }
 
   const maxWickRatio = customSettings?.maxWickRatio ?? 0.50;
@@ -1168,9 +1132,12 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
   const c2 = candles[currentCandleIndex - 1];
   const c1 = candles[currentCandleIndex - 2];
 
-  const resolvedProvenance: DataProvenance = input.dataProvenance || 'REPLAY';
-  const v3Direction = higherTimeframeBias === 'BEARISH' ? 'BEARISH' : 'BULLISH';
-  const v3Decision = evaluateStrategyV3({ candles, direction: v3Direction, newsEvents, newsSourceOnline, timestamp: c3.timestamp });
+  const resolvedProvenance: DataProvenance = dataProvenance;
+  const v3Decision = evaluateStrategyV3({ candles: candles.slice(0, currentCandleIndex + 1), htfBias: resolvedHtfBias, newsEvents, newsSourceOnline, timeframe: selectedTimeframe, timestamp: c3.timestamp });
+  if (decisionEngineVersion === 'V3' && (v3Decision.mfci.totalMfci === null || v3Decision.mfci.sStructure === null || v3Decision.mfci.sLiquidity === null || v3Decision.entryPrice === null)) {
+    return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'INVALID', v3Decision.statusReason, new Date().toISOString(), failContext);
+  }
+  const v3Telemetry = { ...v3Decision, mfci: { ...v3Decision.mfci, sStructure: v3Decision.mfci.sStructure ?? Number.NaN, sLiquidity: v3Decision.mfci.sLiquidity ?? Number.NaN, totalMfci: v3Decision.mfci.totalMfci ?? Number.NaN }, entryPrice: v3Decision.entryPrice ?? Number.NaN };
 
   const isZeroRange = Math.abs(c3.high - c3.low) <= 0.000001;
   const dataQuality: DataQuality = isZeroRange ? 'DEGRADED' : 'COMPLETE';
@@ -1473,7 +1440,7 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
   const nowIso = new Date().toISOString();
 
   return {
-    decision_engine_v3: v3Decision,
+    decision_engine_v3: decisionEngineVersion === 'V3' ? v3Telemetry : undefined,
     metadata: {
       project_name: 'ComVision Strategy Research Engine',
       strategy_version: ACTIVE_STRATEGY_VERSION,
@@ -1486,6 +1453,11 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
       asset,
       data_quality: dataQuality,
       data_provenance: resolvedProvenance,
+      decision_engine: 'decision_engine_v3',
+      provider: input.provider ?? 'UNAVAILABLE',
+      poc_label: v3Decision.pocLabel,
+      signal_candle_open_ts: v3Decision.signalCandleOpenTs,
+      htf_bias: resolvedHtfBias,
       engine_mode: v3Decision.engineMode,
       excluded_stages: v3Decision.excludedStages,
       mfci_total: v3Decision.mfci.totalMfci,
@@ -1497,6 +1469,8 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
       status_reason: v3Decision.statusReason,
       first_failed_gate: v3Decision.firstFailedGate,
       payout_pct: input.payoutPct,
+      payout_set_at: input.payoutSetAt,
+      payout_source: input.payoutPct !== undefined ? 'TELEGRAM_MANUAL' : undefined,
     },
     market_context: {
       selected_timeframe: selectedTimeframe,
@@ -1600,7 +1574,8 @@ function createInconclusiveTelemetry(
   timeframe: Timeframe,
   dataQuality: DataQuality,
   reason: string,
-  nowIso: string
+  nowIso: string,
+  context: { dataProvenance?: DataProvenance; provider?: 'TWELVE_DATA' | 'ALPHA_VANTAGE'; payoutPct?: number; signalCandleOpenTs?: string | null; dataQualityIssues?: string[] } = {}
 ): MasterTelemetry {
   return {
     metadata: {
@@ -1613,7 +1588,22 @@ function createInconclusiveTelemetry(
       pair,
       asset,
       data_quality: dataQuality,
-      data_provenance: 'REPLAY',
+      data_provenance: context.dataProvenance ?? 'NOT_LIVE',
+      decision_engine: 'decision_engine_v3',
+      provider: context.provider ?? 'UNAVAILABLE',
+      poc_label: 'UNAVAILABLE',
+      signal_candle_open_ts: context.signalCandleOpenTs ?? null,
+      data_quality_issues: context.dataQualityIssues,
+      engine_mode: 'PRICE_ONLY',
+      excluded_stages: [],
+      mfci_total: null,
+      mfci_structure: null,
+      mfci_orderflow: null,
+      mfci_liquidity: null,
+      mfci_band: 'UNAVAILABLE',
+      status: reason.startsWith('DATA_QUALITY_FAIL') ? 'DATA_QUALITY_FAIL' : 'BLOCKED',
+      status_reason: reason,
+      payout_pct: context.payoutPct,
     },
     market_context: {
       selected_timeframe: timeframe,

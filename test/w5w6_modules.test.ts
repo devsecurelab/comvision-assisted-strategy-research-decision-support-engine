@@ -20,3 +20,16 @@ assert.equal(verdict(1, 20, 85), 'INCONCLUSIVE');
 const table = confidenceByMfci(Array.from({ length: 30 }, (_, i) => ({ mfci: 0.86, favorable: i < 20 })));
 assert.equal(table['0.85-0.90'].n, 30); assert.equal(table['0.85-0.90'].winRate, 2 / 3);
 console.log('=== W5/W6 MODULES: Wilson confidence, verdict, durable token bucket and budget limits passed ===');
+
+// W6 budget: auto-scans stop at 70% of daily capacity; every request stops at the 80% hard stop.
+durableStorage.setDataDir(fs.mkdtempSync(path.join(os.tmpdir(), 'comvision-w6-hard-')));
+const hard = new RateLimitScheduler({ perMinute: 100, perDay: 10 });
+let hardAllowed = 0; for (let i = 0; i < 10; i++) if (hard.consume('ON_DEMAND').allowed) hardAllowed++;
+assert.equal(hardAllowed, 8);
+assert.equal(hard.consume('ON_DEMAND').reason, 'DAY_HARD_STOP');
+assert.equal(hard.snapshot().remainingDay, 0);
+durableStorage.setDataDir(fs.mkdtempSync(path.join(os.tmpdir(), 'comvision-w6-auto-')));
+const autoOnly = new RateLimitScheduler({ perMinute: 100, perDay: 10 });
+let autoAllowed = 0; for (let i = 0; i < 10; i++) if (autoOnly.consume('AUTO').allowed) autoAllowed++;
+assert.equal(autoAllowed, 7);
+console.log('=== W6 BUDGET: 70% auto budget and 80% hard stop passed ===');

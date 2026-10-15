@@ -1,92 +1,96 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
-import { evaluateStrategyV3 } from '../src/engine/strategyV3Engine';
 import { feedManager, MarketDataError } from '../src/engine/dataProviders';
-import type { Candle, Timeframe } from '../src/engine/types';
-import { confidenceByMfci, verdict, wilsonInterval } from '../src/engine/backtestStats';
+import { buildR8Report, candlesToCsv, csvToCandles, dateChunks, mergeCandles, parseNewsCsv, sha256 } from '../src/engine/r8Backtest';
+import type { Candle, NewsEvent, Timeframe } from '../src/engine/types';
 
-type Direction = 'BULLISH' | 'BEARISH';
-const pairs = (process.env.R8_PAIRS || 'EUR/USD').split(',').map((value) => value.trim()).filter(Boolean);
-const timeframes = (process.env.R8_TIMEFRAMES || '5m').split(',').map((value) => value.trim()) as Timeframe[];
-const startDate = process.env.R8_START_DATE || '2025-01-01';
-const endDate = process.env.R8_END_DATE || '2025-03-31';
-const outputPath = process.env.R8_OUTPUT || 'data/r8-backtest-results.json';
-const payoutPct = Number(process.env.R8_PAYOUT_PCT || 85);
-const csvDir = process.env.R8_CSV_DIR || 'data/r8-historical';
+/**
+ * R8 historical validation. Uses the live executeStrategyPipeline causally, real Twelve Data
+ * history fetched in date chunks, and saves CSV + SHA-256 manifest. It never fabricates data:
+ * without a key (or a previously exported, hash-verified CSV set) it exits with R8_NOT_RUN.
+ */
+const pairs = (process.env.R8_PAIRS || 'EUR/USD').split(',').map((v) => v.trim()).filter(Boolean);
+const timeframes = (process.env.R8_TIMEFRAMES || '5m,15m,30m').split(',').map((v) => v.trim()) as Timeframe[];
+const startDate = process.env.R8_START_DATE || '';
+const endDate = process.env.R8_END_DATE || '';
+const payoutPct = Number(process.env.R8_PAYOUT_PCT);
+const outDir = process.env.R8_OUTPUT_DIR || 'data/r8';
+const csvDir = process.env.R8_CSV_DIR || path.join(outDir, 'historical');
+const csvInputDir = process.env.R8_CSV_INPUT_DIR;
+const requestGapMs = Number(process.env.R8_REQUEST_GAP_MS || 8_000);
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const safe = (pair: string) => pair.replace(/[^A-Za-z0-9]+/g, '_');
 
-function candleCsv(candles: Candle[]): string {
-  const header = 'timestamp,open,high,low,close,volume,volumeDelta,cvd,pocPrice\n';
-  const rows = candles.map((c) => [c.timestamp, c.open, c.high, c.low, c.close, c.volume ?? '', c.volumeDelta ?? '', c.cvd ?? '', c.pocPrice ?? ''].join(','));
-  return header + rows.join('\n') + '\n';
+function notRun(reason: string): never {
+  console.error(`R8_NOT_RUN: ${reason}`);
+  process.exit(2);
 }
 
-function directionFor(candles: Candle[]): Direction {
-  const lookback = candles.slice(-20);
-  return lookback[lookback.length - 1].close >= lookback[0].close ? 'BULLISH' : 'BEARISH';
-}
-
-function summarize(candles: Candle[], pair: string, timeframe: Timeframe) {
-  const decisions = { evaluated: 0, manualAlerts: 0, noAction: 0, safeHold: 0, inconclusive: 0 };
-  const outcomes = { favorable: 0, unfavorable: 0, neutral: 0 };
-  const gateMarginal = Array(9).fill(0) as number[];
-  const gateCumulative = Array(9).fill(0) as number[];
-  const alertRecords: Array<Record<string, unknown>> = [];
-  for (let index = 24; index < candles.length - 1; index++) {
-    const window = candles.slice(0, index + 1);
-    const direction = directionFor(window);
-    const decision = evaluateStrategyV3({ candles: window, direction, newsEvents: [], newsSourceOnline: true, timestamp: window.at(-1)!.timestamp });
-    decisions.evaluated++;
-    if (decision.finalAction === 'MANUAL_ALERT') {
-      decisions.manualAlerts++;
-      const next = candles[index + 1];
-      const favorable = direction === 'BULLISH' ? next.close > next.open : next.close < next.open;
-      const neutral = next.close === next.open;
-      if (neutral) outcomes.neutral++;
-      else if (favorable) outcomes.favorable++;
-      else outcomes.unfavorable++;
-      alertRecords.push({ timestamp: window.at(-1)!.timestamp, nextTimestamp: next.timestamp, direction, entry: decision.entryPrice, nextOpen: next.open, nextClose: next.close, outcome: neutral ? 'NEUTRAL' : favorable ? 'FAVORABLE' : 'UNFAVORABLE', mfci: decision.mfci.totalMfci, gates: decision.gates.map((gate) => gate.status) });
-    } else if (decision.finalAction === 'SAFE_HOLD') decisions.safeHold++;
-    else decisions.noAction++;
-    if (decision.systemDecision === 'BLOCKED' && decision.stages.some((stage) => stage.telemetry.startsWith('UNAVAILABLE'))) decisions.inconclusive++;
-    decision.gates.forEach((gate, gateIndex) => {
-      if (gate.status === 'PASS') gateMarginal[gateIndex]++;
-      if (gate.status === 'PASS' && decision.gates.slice(0, gateIndex).every((previous) => previous.status === 'PASS')) gateCumulative[gateIndex]++;
-    });
+async function fetchChunked(pair: string, timeframe: Timeframe): Promise<Candle[]> {
+  const chunks: Candle[][] = [];
+  for (const chunk of dateChunks(startDate, endDate, timeframe)) {
+    console.log(`R8_FETCH ${pair} ${timeframe} ${chunk.start}..${chunk.end}`);
+    const feed = await feedManager.fetchHistoricalCandles(pair, timeframe, chunk.start, chunk.end, 'TWELVE_DATA');
+    if (feed.dataProvenance !== 'LIVE_INGESTED') throw new Error('R8 provenance gate failed: candles were not LIVE_INGESTED.');
+    chunks.push(feed.candles);
+    await sleep(requestGapMs);
   }
-  const resolved = alertRecords.map((record) => ({ mfci: Number(record.mfci), favorable: record.outcome === 'FAVORABLE' }));
-  const interval = wilsonInterval(outcomes.favorable, outcomes.favorable + outcomes.unfavorable);
-  return { pair, timeframe, startDate, endDate, candles: candles.length, decisions, outcomes, winRateAmongAlerts: decisions.manualAlerts >= 30 ? outcomes.favorable / decisions.manualAlerts : null, wilson95: interval, breakeven: 1 / (1 + payoutPct / 100), verdict: verdict(outcomes.favorable, outcomes.favorable + outcomes.unfavorable, payoutPct), confidenceByMfci: confidenceByMfci(resolved), gateMarginal, gateCumulative, alerts: alertRecords };
+  return mergeCandles(chunks);
+}
+
+async function loadSeries(pair: string, timeframe: Timeframe, manifest: Array<Record<string, unknown>>): Promise<Candle[]> {
+  const file = `${safe(pair)}-${timeframe}-${startDate}-${endDate}.csv`;
+  if (csvInputDir) {
+    const inputManifest = JSON.parse(await fs.readFile(path.join(csvInputDir, 'manifest.json'), 'utf8'));
+    const entry = inputManifest.exports.find((e: any) => e.file === file);
+    if (!entry) throw new Error(`CSV ${file} is not listed in ${csvInputDir}/manifest.json.`);
+    const csv = await fs.readFile(path.join(csvInputDir, file), 'utf8');
+    if (sha256(csv) !== entry.sha256) throw new Error(`SHA-256 mismatch for ${file}; refusing to use altered history.`);
+    manifest.push({ ...entry, reused: true });
+    return csvToCandles(csv);
+  }
+  const candles = await fetchChunked(pair, timeframe);
+  const csv = candlesToCsv(candles);
+  await fs.mkdir(csvDir, { recursive: true });
+  await fs.writeFile(path.join(csvDir, file), csv, 'utf8');
+  manifest.push({ pair, timeframe, file, sha256: sha256(csv), candles: candles.length, provider: 'TWELVE_DATA', fetchedAt: new Date().toISOString() });
+  return candles;
 }
 
 async function main() {
-  if (!process.env.TWELVE_DATA_API_KEY) {
-    console.error('R8_NOT_RUN: TWELVE_DATA_API_KEY is not configured in this environment. No simulated or replay data will be used.');
-    process.exitCode = 2;
-    return;
-  }
-  const results = [];
+  if (!startDate || !endDate) notRun('R8_START_DATE and R8_END_DATE (YYYY-MM-DD) are required.');
+  if (!Number.isFinite(payoutPct) || payoutPct < 85 || payoutPct > 100) notRun('R8_PAYOUT_PCT must be set to the real payout (85-100).');
+  if (!csvInputDir && !process.env.TWELVE_DATA_API_KEY) notRun('TWELVE_DATA_API_KEY is not configured. No simulated or replay data will be used.');
+  let newsEvents: NewsEvent[] = [];
+  let newsLabel = 'R8_NEWS_CSV';
+  if (process.env.R8_NEWS_CSV) newsEvents = parseNewsCsv(await fs.readFile(process.env.R8_NEWS_CSV, 'utf8'));
+  else if (process.env.R8_ALLOW_NO_NEWS === '1') newsLabel = 'NEWS_GUARD_HISTORY_UNAVAILABLE (results exclude the news guard; label every report accordingly)';
+  else notRun('Historical high-impact news is required (R8_NEWS_CSV=timestamp,impact,currency,title). Set R8_ALLOW_NO_NEWS=1 only to run an explicitly labelled no-news-guard ablation.');
+
+  const manifest: Array<Record<string, unknown>> = [];
+  const reports: Array<Record<string, unknown>> = [];
   try {
-    const exports: Array<Record<string, string | number>> = [];
-    for (const pair of pairs) for (const timeframe of timeframes) {
-      console.log(`R8_FETCH ${pair} ${timeframe} ${startDate}..${endDate}`);
-      const feed = await feedManager.fetchHistoricalCandles(pair, timeframe, startDate, endDate, 'TWELVE_DATA');
-      if (feed.dataProvenance !== 'LIVE_INGESTED') throw new Error('R8 provenance gate failed: historical candles were not LIVE_INGESTED.');
-      const csv = candleCsv(feed.candles);
-      const safePair = pair.replace(/[^A-Za-z0-9]+/g, '_');
-      const csvPath = path.join(csvDir, `${safePair}-${timeframe}-${startDate}-${endDate}.csv`);
-      const sha256 = createHash('sha256').update(csv).digest('hex');
-      await fs.mkdir(csvDir, { recursive: true });
-      await fs.writeFile(csvPath, csv, 'utf8');
-      exports.push({ pair, timeframe, csvPath, sha256, candles: feed.candles.length });
-      const result = summarize(feed.candles, pair, timeframe);
-      results.push({ provider: feed.provider, provenance: feed.dataProvenance, fetchedAt: feed.fetchedAt, creditsUsed: feed.creditsUsed, creditsLeft: feed.creditsLeft, ...result });
-      console.log(`R8_RESULT ${pair} ${timeframe} candles=${result.candles} alerts=${result.decisions.manualAlerts} favorable=${result.outcomes.favorable} unfavorable=${result.outcomes.unfavorable} neutral=${result.outcomes.neutral}`);
+    for (const pair of pairs) {
+      const htf = await loadSeries(pair, '1h', manifest);
+      for (const timeframe of timeframes) {
+        const candles = await loadSeries(pair, timeframe, manifest);
+        const fullCapable = candles.every((c) => typeof c.volume === 'number' && (c.volumeDelta !== undefined || c.cvd !== undefined));
+        for (const mode of ['PRICE_ONLY', 'FULL'] as const) {
+          if (mode === 'FULL' && !fullCapable) { reports.push({ pair, timeframe, mode, status: 'UNAVAILABLE', reason: 'Provider history has no volume/delta; FULL mode cannot be evaluated.' }); continue; }
+          const report = buildR8Report(candles, htf, { pair, timeframe, payoutPct, newsEvents, newsSourceOnline: true, mode });
+          reports.push({ ...report, news: newsLabel });
+          const name = `${safe(pair)}-${timeframe}-${mode}`;
+          await fs.mkdir(outDir, { recursive: true });
+          await fs.writeFile(path.join(outDir, `${name}.json`), JSON.stringify({ ...report, news: newsLabel }, null, 2));
+          const oos = report.outOfSample;
+          console.log(`R8_RESULT ${pair} ${timeframe} ${mode} OOS N=${oos.decisive} wins=${oos.wins} winRate=${oos.winRate?.toFixed(4) ?? 'n/a'} wilson=${oos.wilson95?.map((v) => v.toFixed(4)).join('-') ?? 'n/a'} breakeven=${oos.breakeven.toFixed(4)} verdict=${oos.verdict}`);
+        }
+      }
     }
-    await fs.mkdir(path.dirname(outputPath), { recursive: true });
-    await fs.writeFile(outputPath, JSON.stringify({ generatedAt: new Date().toISOString(), methodology: 'Walk-forward; direction from prior 20 closed candles; next-candle outcome only; no replay fallback.', history: { provider: 'TWELVE_DATA', provenance: 'LIVE_INGESTED', startDate, endDate, csvExports: exports }, results }, null, 2));
-    await fs.writeFile(path.join(csvDir, 'manifest.json'), JSON.stringify({ generatedAt: new Date().toISOString(), provider: 'TWELVE_DATA', startDate, endDate, exports }, null, 2));
-    console.log(`R8_OUTPUT ${outputPath}`);
+    await fs.mkdir(csvDir, { recursive: true });
+    if (!csvInputDir) await fs.writeFile(path.join(csvDir, 'manifest.json'), JSON.stringify({ generatedAt: new Date().toISOString(), provider: 'TWELVE_DATA', startDate, endDate, exports: manifest }, null, 2));
+    await fs.writeFile(path.join(outDir, 'r8-summary.json'), JSON.stringify({ generatedAt: new Date().toISOString(), methodology: 'Causal walk-forward via executeStrategyPipeline; direction from closed 1h HTF bias inside the engine; next-candle outcome (expiry = timeframe); IS = first 2/3, OOS = last 1/3; verdict only when N >= 200.', startDate, endDate, payoutPct, news: newsLabel, manifest, reports: reports.map((r: any) => ({ pair: r.pair, timeframe: r.timeframe, mode: r.mode, status: r.status ?? 'EVALUATED', oos: r.outOfSample ? { n: r.outOfSample.decisive, wins: r.outOfSample.wins, verdict: r.outOfSample.verdict } : undefined })) }, null, 2));
+    console.log(`R8_OUTPUT ${outDir}`);
   } catch (error) {
     const message = error instanceof MarketDataError ? `${error.code}: ${error.message}` : error instanceof Error ? error.message : String(error);
     console.error(`R8_FAILED: ${message}`);
