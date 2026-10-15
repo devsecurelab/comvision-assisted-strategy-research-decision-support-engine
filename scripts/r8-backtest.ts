@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { evaluateStrategyV3 } from '../src/engine/strategyV3Engine';
 import { feedManager, MarketDataError } from '../src/engine/dataProviders';
 import type { Candle, Timeframe } from '../src/engine/types';
@@ -12,6 +13,13 @@ const startDate = process.env.R8_START_DATE || '2025-01-01';
 const endDate = process.env.R8_END_DATE || '2025-03-31';
 const outputPath = process.env.R8_OUTPUT || 'data/r8-backtest-results.json';
 const payoutPct = Number(process.env.R8_PAYOUT_PCT || 85);
+const csvDir = process.env.R8_CSV_DIR || 'data/r8-historical';
+
+function candleCsv(candles: Candle[]): string {
+  const header = 'timestamp,open,high,low,close,volume,volumeDelta,cvd,pocPrice\n';
+  const rows = candles.map((c) => [c.timestamp, c.open, c.high, c.low, c.close, c.volume ?? '', c.volumeDelta ?? '', c.cvd ?? '', c.pocPrice ?? ''].join(','));
+  return header + rows.join('\n') + '\n';
+}
 
 function directionFor(candles: Candle[]): Direction {
   const lookback = candles.slice(-20);
@@ -59,16 +67,25 @@ async function main() {
   }
   const results = [];
   try {
+    const exports: Array<Record<string, string | number>> = [];
     for (const pair of pairs) for (const timeframe of timeframes) {
       console.log(`R8_FETCH ${pair} ${timeframe} ${startDate}..${endDate}`);
       const feed = await feedManager.fetchHistoricalCandles(pair, timeframe, startDate, endDate, 'TWELVE_DATA');
       if (feed.dataProvenance !== 'LIVE_INGESTED') throw new Error('R8 provenance gate failed: historical candles were not LIVE_INGESTED.');
+      const csv = candleCsv(feed.candles);
+      const safePair = pair.replace(/[^A-Za-z0-9]+/g, '_');
+      const csvPath = path.join(csvDir, `${safePair}-${timeframe}-${startDate}-${endDate}.csv`);
+      const sha256 = createHash('sha256').update(csv).digest('hex');
+      await fs.mkdir(csvDir, { recursive: true });
+      await fs.writeFile(csvPath, csv, 'utf8');
+      exports.push({ pair, timeframe, csvPath, sha256, candles: feed.candles.length });
       const result = summarize(feed.candles, pair, timeframe);
       results.push({ provider: feed.provider, provenance: feed.dataProvenance, fetchedAt: feed.fetchedAt, creditsUsed: feed.creditsUsed, creditsLeft: feed.creditsLeft, ...result });
       console.log(`R8_RESULT ${pair} ${timeframe} candles=${result.candles} alerts=${result.decisions.manualAlerts} favorable=${result.outcomes.favorable} unfavorable=${result.outcomes.unfavorable} neutral=${result.outcomes.neutral}`);
     }
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
-    await fs.writeFile(outputPath, JSON.stringify({ generatedAt: new Date().toISOString(), methodology: 'Walk-forward; direction from prior 20 closed candles; next-candle outcome only; no replay fallback.', results }, null, 2));
+    await fs.writeFile(outputPath, JSON.stringify({ generatedAt: new Date().toISOString(), methodology: 'Walk-forward; direction from prior 20 closed candles; next-candle outcome only; no replay fallback.', history: { provider: 'TWELVE_DATA', provenance: 'LIVE_INGESTED', startDate, endDate, csvExports: exports }, results }, null, 2));
+    await fs.writeFile(path.join(csvDir, 'manifest.json'), JSON.stringify({ generatedAt: new Date().toISOString(), provider: 'TWELVE_DATA', startDate, endDate, exports }, null, 2));
     console.log(`R8_OUTPUT ${outputPath}`);
   } catch (error) {
     const message = error instanceof MarketDataError ? `${error.code}: ${error.message}` : error instanceof Error ? error.message : String(error);

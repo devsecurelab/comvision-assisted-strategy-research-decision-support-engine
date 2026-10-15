@@ -2,6 +2,7 @@
 // Replay is retained only as a fail-closed test provenance; normal production selection is live-provider-only.
 
 import { Candle, DataProvenance, Timeframe } from './types';
+import { RateLimitScheduler } from './rateLimitScheduler';
 
 export type MarketDataProvider = 'TWELVE_DATA' | 'ALPHA_VANTAGE';
 
@@ -165,6 +166,7 @@ export class MarketFeedManager {
   private readonly cache = new Map<string, { minute: number; result: MarketDataResult }>();
   private readonly inFlight = new Map<string, Promise<MarketDataResult>>();
   private readonly request: typeof fetch;
+  private readonly scheduler = new RateLimitScheduler();
 
   constructor(twelveDataKey = '', alphaVantageKey = '', requestFn: typeof fetch = fetch) {
     this.twelveDataApiKey = twelveDataKey || process.env.TWELVE_DATA_API_KEY || '';
@@ -271,6 +273,8 @@ export class MarketFeedManager {
 
   private async fetchProviderCandles(pair: string, timeframe: Timeframe, provider: 'TWELVE_DATA' | 'ALPHA_VANTAGE', requireClosed = true, historical?: { startDate: string; endDate: string; outputSize: number }): Promise<MarketDataResult> {
     const startedAt = Date.now();
+    const budget = this.scheduler.consume('ON_DEMAND');
+    if (!budget.allowed) throw new MarketDataError('RATE_LIMITED', `Provider request blocked by scheduler: ${budget.reason}.`, provider);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12_000);
     try {
