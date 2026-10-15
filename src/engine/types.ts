@@ -1,7 +1,8 @@
 // Master Type Definitions for ComVision-Assisted Strategy Research & Decision-Support Engine
 // Strategy v2.0-FROZEN Master Specification
 
-export type DataProvenance = 'LIVE_INGESTED' | 'REPLAY' | 'TEST' | 'SYNTHETIC_OVERRIDE';
+/** NOT_LIVE replaces the misleading REPLAY default (N4). REPLAY is kept only so legacy stored records still type-check. */
+export type DataProvenance = 'LIVE_INGESTED' | 'NOT_LIVE' | 'REPLAY' | 'TEST' | 'SYNTHETIC_OVERRIDE';
 
 export type Timeframe = '1m' | '5m' | '15m' | '30m' | '1h';
 
@@ -180,6 +181,7 @@ export type KillZoneState = 'INSIDE_KILL_ZONE' | 'OUTSIDE_KILL_ZONE' | 'UNKNOWN'
 export interface SessionContext {
   session: MarketSession;
   kill_zone: KillZoneState;
+  kill_zone_name?: 'LONDON' | 'NEW_YORK';
   session_start_utc: string;
   session_end_utc: string;
   kill_zone_start_utc?: string;
@@ -240,10 +242,13 @@ export interface PressureObservation {
 export interface V3DecisionTelemetry {
   version: 'RDP_STRATEGY_V3.0';
   direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  htfBias?: 'BULLISH' | 'BEARISH' | 'UNCLEAR';
   stages: any[];
   gates: any[];
+  operationalGuards?: Array<{ name: string; status: 'PASS' | 'BLOCKED'; reason: string }>;
   engineMode?: 'FULL' | 'PRICE_ONLY';
   excludedStages?: Array<{ stage: number; name: string; reason: string }>;
+  /** Attached only when the engine computed MFCI; fail-closed records carry null MFCI in metadata instead. */
   mfci: { sStructure: number; sOrderFlow: number | null; sLiquidity: number; totalMfci: number; meetsThreshold: boolean };
   systemDecision: 'PASS' | 'HOLD' | 'BLOCKED';
   finalAction: 'MANUAL_ALERT' | 'SAFE_HOLD' | 'NO_ACTION';
@@ -252,7 +257,9 @@ export interface V3DecisionTelemetry {
   status: 'PASS' | 'HOLD' | 'BLOCKED';
   statusReason: string;
   firstFailedGate?: number;
-  entryPrice: number; stopLoss?: number; takeProfit1?: number; takeProfit2?: number; riskRewardRatio?: number;
+  signalCandleOpenTs?: string | null;
+  pocLabel?: 'PROVIDER_VOLUME_POC' | 'UNAVAILABLE';
+  entryPrice: number;
 }
 
 export interface MasterTelemetry {
@@ -273,10 +280,16 @@ export interface MasterTelemetry {
     prev_hash?: string;
     engine_mode?: 'FULL' | 'PRICE_ONLY';
     excluded_stages?: Array<{ stage: number; name: string; reason: string }>;
-    mfci_total?: number;
-    mfci_structure?: number;
+    decision_engine?: 'decision_engine_v3';
+    provider?: 'TWELVE_DATA' | 'ALPHA_VANTAGE' | 'UNAVAILABLE';
+    poc_label?: 'PROVIDER_VOLUME_POC' | 'UNAVAILABLE';
+    signal_candle_open_ts?: string | null;
+    htf_bias?: 'BULLISH' | 'BEARISH' | 'UNCLEAR';
+    data_quality_issues?: string[];
+    mfci_total?: number | null;
+    mfci_structure?: number | null;
     mfci_orderflow?: number | null;
-    mfci_liquidity?: number;
+    mfci_liquidity?: number | null;
     mfci_band?: MfciBand;
     status?: string;
     status_reason?: string;

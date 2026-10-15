@@ -15,14 +15,18 @@ import { authService } from './src/server/auth';
 import { feedManager, MarketDataError, MarketDataProvider, timeframeToMinutes } from './src/engine/dataProviders';
 import { newsGuard } from './src/engine/newsGuard';
 import { experimentTracker } from './src/engine/experimentTracker';
-import { executeStrategyPipeline, detectFractalSwings, evaluateMarketStructure } from './src/engine/pipeline';
+import { executeStrategyPipeline } from './src/engine/pipeline';
 import { STRATEGY_MANIFEST, ACTIVE_EXPERIMENT_ID } from './src/engine/manifest';
-import { Candle, DataProvenance, EngineSettings, Timeframe, UserAccount } from './src/engine/types';
+import { EngineSettings, Timeframe, UserAccount } from './src/engine/types';
 import { durableStorage } from './src/server/storage';
 import { notificationService } from './src/server/notificationService';
 import { analyticsService } from './src/server/analyticsService';
 import { chatService } from './src/server/chatService';
 import { payoutRegistry, normalizePair, displayPair } from './src/server/payoutRegistry';
+import { favoriteRegistry } from './src/server/favoriteRegistry';
+import { SignalLedger } from './src/engine/signalLedger';
+import { ScanLoop, ScanService, SCAN_TIMEFRAMES, type ScanLoopState, type ScanTimeframe } from './src/engine/scanScheduler';
+import { buildLedgerReport, formatLedgerReport } from './src/engine/edgeMonitor';
 
 if (typeof __dirname !== 'undefined' && (__dirname === '.' || !path.isAbsolute(__dirname))) {
   // @ts-ignore
@@ -607,7 +611,7 @@ app.post('/api/notifications/test-telegram', requireApprovedUser, async (req: Au
     details: {
       success: result.success,
       status: result.status,
-      chatId: result.chatId,
+      chatIdPresent: Boolean(result.chatId),
       messageId: result.messageId,
     },
   });
@@ -636,84 +640,57 @@ app.post('/api/chat/query', requireApprovedUser, async (req: AuthenticatedReques
   res.json(response);
 });
 
-// Live Evaluation & Telemetry Dispatch (Invoked by scanner or manual trigger)
+// R9 scan service: one engine path for manual API scans, Telegram /scan and the candle-close auto loop.
+const signalLedger = new SignalLedger();
+const loadScanState = (): ScanLoopState | undefined => durableStorage.loadAppSettings().scanLoopState;
+const saveScanState = (state: ScanLoopState) => durableStorage.saveAppSettings({ ...durableStorage.loadAppSettings(), scanLoopState: state });
+const scanService = new ScanService({
+  fetchCandles: (pair, timeframe, provider, kind) => feedManager.fetchCandles(pair, timeframe, provider, kind),
+  providers: () => ['TWELVE_DATA', 'ALPHA_VANTAGE'],
+  getPayout: (pair) => { const record = payoutRegistry.get(pair); return record ? { pct: record.pct, setAt: record.setAt } : undefined; },
+  favorites: () => favoriteRegistry.all().map((item) => item.pair),
+  newsEvents: () => newsGuard.getEvents(),
+  newsSourceOnline: () => newsGuard.isSourceOnline(),
+  autoBudgetRemaining: () => { const snapshot = feedManager.getSchedulerSnapshot(); return Math.min(snapshot.remainingAuto, snapshot.remainingDay); },
+  now: () => Date.now(),
+  ledger: signalLedger,
+  onScan: async (result) => {
+    if (!result.telemetry) return;
+    const recorded = experimentTracker.recordCandidate(result.telemetry);
+    if (result.status !== 'NO_TRADE') await notificationService.dispatchSignalAlert(recorded, { signalId: result.signal_id, validUntil: result.valid_until });
+  },
+  onResolved: async (signal, outcome) => {
+    await notificationService.sendTelegramText(`RESULT ${signal.signal_id} ${signal.pair} ${signal.timeframe} ${signal.direction}: ${outcome} (open ${signal.entry_price ?? 'UNAVAILABLE'} -> close ${signal.exit_price ?? 'UNAVAILABLE'}). Research record only.`);
+  },
+  onEdgeLost: async (reason) => {
+    await notificationService.sendTelegramText(`EDGE_LOST — এখন ট্রেড নয়। ${reason} Alerts are paused. Send /resume <written reason> to continue.`);
+  },
+  loadState: loadScanState,
+  saveState: saveScanState,
+});
+const scanLoop = new ScanLoop(scanService, { now: () => Date.now(), loadState: loadScanState, saveState: saveScanState }, {
+  timeframe: (SCAN_TIMEFRAMES as string[]).includes(process.env.AUTO_SCAN_TIMEFRAME || '') ? (process.env.AUTO_SCAN_TIMEFRAME as ScanTimeframe) : '15m',
+  enabled: process.env.AUTO_SCAN_ENABLED === 'true',
+});
+notificationService.attachScanService(scanService, scanLoop);
+
+// Manual scan (dashboard). Latest closed candle only; a repeat on the same pair/candle returns the cached result without a credit charge.
 app.post(['/api/engine/evaluate-candidate', '/api/engine/scan-candidate'], requireApprovedUser, async (req: AuthenticatedRequest, res) => {
   const { pair, timeframe } = req.body;
   const selectedPair = pair || 'EUR/USD';
   const payout = payoutRegistry.get(normalizePair(selectedPair));
   if (!payout) return res.status(409).json({ status: 'PAYOUT_UNSET', signal: 'NO_TRADE', pair: displayPair(selectedPair), message: `Set payout first with /payout ${normalizePair(selectedPair)} 87.` });
   if (payout.pct < 85) return res.status(409).json({ status: 'PAYOUT_BELOW_MIN', signal: 'NO_TRADE', pair: displayPair(selectedPair), payout_pct: payout.pct, message: `Payout ${payout.pct}% is below the 85% minimum. Scan not run.` });
-  const resolvedTimeframe = ((timeframe as string) || currentSettings.selectedTimeframe) as Timeframe;
-  const selectedProvider = currentSettings.activeProvider as MarketDataProvider;
-  let baseCandles: Candle[] = [];
-  let dataProvenance: DataProvenance = 'REPLAY';
-  let dataProvider: MarketDataProvider = selectedProvider;
-  let higherTimeframeBias: 'BULLISH' | 'BEARISH' | 'UNCLEAR' = 'UNCLEAR';
-  let marketDataError: { code: string; message: string } | undefined;
-
-  try {
-    const marketData = await feedManager.fetchCandles(selectedPair, resolvedTimeframe, selectedProvider);
-    baseCandles = marketData.candles;
-    dataProvenance = marketData.dataProvenance;
-    dataProvider = marketData.provider;
-    if (resolvedTimeframe !== '1h') {
-      const htf = await feedManager.fetchCandles(selectedPair, '1h', selectedProvider);
-      const htfIndex = htf.candles.length - 1;
-      const htfSwings = detectFractalSwings(htf.candles, htfIndex);
-      higherTimeframeBias = evaluateMarketStructure(htfSwings).bias;
-      if (higherTimeframeBias === 'UNCLEAR') {
-        baseCandles = [];
-        marketDataError = { code: 'HTF_BIAS_UNCLEAR', message: '1h higher-timeframe bias is unclear. No signal was generated.' };
-      }
-    }
-  } catch (error: any) {
-    dataProvenance = 'REPLAY';
-    marketDataError = {
-      code: error instanceof MarketDataError ? error.code : 'MARKET_DATA_UNAVAILABLE',
-      message: error instanceof MarketDataError ? error.message : 'Market data is unavailable. No signal was generated.',
-    };
+  const resolvedTimeframe = ((timeframe as string) || currentSettings.selectedTimeframe) as ScanTimeframe;
+  const result = await scanService.scanPair(selectedPair, resolvedTimeframe, 'MANUAL');
+  let telemetry = result.telemetry;
+  if (!telemetry) {
+    telemetry = executeStrategyPipeline({ decisionEngineVersion: 'V3', candles: [], currentCandleIndex: -1, selectedTimeframe: (SCAN_TIMEFRAMES as string[]).includes(resolvedTimeframe) ? resolvedTimeframe : '15m', newsEvents: [], newsSourceOnline: false, dataProvenance: 'NOT_LIVE', pair: displayPair(selectedPair), asset: displayPair(selectedPair), payoutPct: payout.pct });
+    telemetry.metadata.status_reason = result.reason;
+    telemetry.system_execution.rejection_reason = result.reason;
   }
-
-  const telemetry = executeStrategyPipeline({
-    decisionEngineVersion: 'V3',
-    candles: baseCandles,
-    currentCandleIndex: baseCandles.length - 1,
-    selectedTimeframe: resolvedTimeframe,
-    higherTimeframeBias,
-    newsEvents: newsGuard.getEvents(),
-    newsSourceOnline: newsGuard.isSourceOnline(),
-    dataProvenance,
-    provider: dataProvider,
-    pair: selectedPair,
-    liveTickPressure: {
-      classification: 'ALIGNED',
-      magnitude: 'HIGH',
-      consistency: 'HIGH',
-      speedPxPerSec: 15.6,
-    },
-    customSettings: {
-      maxWickRatio: currentSettings.maxWickRatio,
-      fibEquilibriumLevel: currentSettings.fibEquilibriumLevel,
-    },
-  });
-
-  const nowIso = new Date().toISOString();
-  telemetry.metadata.pair = selectedPair;
-  telemetry.metadata.asset = selectedPair;
-  telemetry.metadata.timestamp_utc = nowIso;
-  telemetry.metadata.signal_timestamp_utc = nowIso;
-  telemetry.metadata.setup_id = experimentTracker.generateNextSetupId();
-  if (marketDataError) telemetry.system_execution.rejection_reason = `${marketDataError.code}: ${marketDataError.message}`;
-
-  const recorded = experimentTracker.recordCandidate(telemetry);
-
-  // If candidate is a VALID SETUP (PASS), dispatch Signal Alert #1 to Telegram & Email
-  let notifResult = null;
-  if (recorded.system_execution.system_decision === 'PASS') {
-    notifResult = await notificationService.dispatchSignalAlert(recorded);
-  }
-
-  res.json({ telemetry: recorded, notifications: notifResult, marketDataError, providerStatus: feedManager.getStatus() });
+  const marketDataError = result.telemetry ? undefined : { code: result.reason.split(':')[0], message: result.reason };
+  res.json({ telemetry, scan: { ...result, telemetry: undefined }, marketDataError, providerStatus: feedManager.getStatus() });
 });
 
 // --- ADMIN-ONLY ROUTES ---
@@ -884,7 +861,7 @@ app.post('/api/admin/telegram/apply-chat-id', requireAdmin, (req: AuthenticatedR
     event_type: 'TELEGRAM_CHAT_ID_APPLIED',
     actor_id: req.user?.id,
     actor_email: req.user?.email,
-    details: { appliedChatId: cleanChatId },
+    details: { chatIdApplied: true },
   });
 
   res.json({
@@ -934,6 +911,24 @@ async function startServer() {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  scanLoop.start();
+  let telegramPollBusy = false;
+  if (process.env.TELEGRAM_COMMAND_POLLING !== 'false') {
+    setInterval(() => {
+      if (telegramPollBusy) return;
+      telegramPollBusy = true;
+      void notificationService.processOwnerTelegramCommands().catch(() => undefined).finally(() => { telegramPollBusy = false; });
+    }, Math.max(3_000, Number(process.env.TELEGRAM_POLL_MS || 10_000)));
+  }
+  setInterval(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const settings = durableStorage.loadAppSettings();
+    if (settings.lastDailyReportDate === today) return;
+    durableStorage.saveAppSettings({ ...settings, lastDailyReportDate: today });
+    const since = Date.parse(`${today}T00:00:00Z`) - 86_400_000;
+    void notificationService.sendTelegramText(formatLedgerReport('DAILY REPORT (previous UTC day)', buildLedgerReport(signalLedger.signals(), since, since + 86_400_000))).catch(() => undefined);
+  }, 60_000);
 
   app.listen(PORT, HOST, () => {
     console.log(`[ComVision Engine] Server running on http://${HOST}:${PORT}`);

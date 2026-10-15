@@ -3,6 +3,7 @@
 
 import { Candle, DataProvenance, Timeframe } from './types';
 import { RateLimitScheduler } from './rateLimitScheduler';
+import { MAX_CLOCK_DRIFT_MS, measureClockDrift } from './dataIntegrity';
 
 export type MarketDataProvider = 'TWELVE_DATA' | 'ALPHA_VANTAGE';
 
@@ -37,6 +38,8 @@ export interface MarketDataResult {
   volumeAvailable?: boolean;
   creditsUsed?: number;
   creditsLeft?: number;
+  clockDriftMs?: number | null;
+  clockStatus?: 'CLOCK_OK' | 'CLOCK_DRIFT' | 'CLOCK_UNAVAILABLE';
 }
 
 export class MarketDataError extends Error {
@@ -163,6 +166,8 @@ export class MarketFeedManager {
   private lastSuccessfulSync = '';
   private lastSuccessfulProvider: MarketDataProvider | undefined;
   private lastFailedProvider: MarketDataProvider | undefined;
+  private lastClockDriftMs: number | null = null;
+  private lastClockStatus: 'CLOCK_OK' | 'CLOCK_DRIFT' | 'CLOCK_UNAVAILABLE' = 'CLOCK_UNAVAILABLE';
   private readonly cache = new Map<string, { minute: number; result: MarketDataResult }>();
   private readonly inFlight = new Map<string, Promise<MarketDataResult>>();
   private readonly request: typeof fetch;
@@ -204,6 +209,14 @@ export class MarketFeedManager {
     else this.alphaVantageRequestsToday += 1;
   }
 
+  public getSchedulerSnapshot() {
+    return this.scheduler.snapshot();
+  }
+
+  public getClockState(): { driftMs: number | null; status: 'CLOCK_OK' | 'CLOCK_DRIFT' | 'CLOCK_UNAVAILABLE'; lastSuccessfulSync: string; lastSuccessfulProvider?: MarketDataProvider; lastFailedProvider?: MarketDataProvider } {
+    return { driftMs: this.lastClockDriftMs, status: this.lastClockStatus, lastSuccessfulSync: this.lastSuccessfulSync, lastSuccessfulProvider: this.lastSuccessfulProvider, lastFailedProvider: this.lastFailedProvider };
+  }
+
   public getStatus(): ProviderStatus {
     this.resetDailyUsageIfNeeded();
     const twelveConfigured = !!this.twelveDataApiKey;
@@ -230,7 +243,7 @@ export class MarketFeedManager {
     };
   }
 
-  public async fetchCandles(pair: string, timeframe: Timeframe = '5m', provider: MarketDataProvider = this.activeProvider): Promise<MarketDataResult> {
+  public async fetchCandles(pair: string, timeframe: Timeframe = '5m', provider: MarketDataProvider = this.activeProvider, kind: 'AUTO' | 'ON_DEMAND' = 'ON_DEMAND'): Promise<MarketDataResult> {
     const normalizedPair = normalizePair(pair);
 
     if (!this.isConfigured(provider)) {
@@ -247,7 +260,7 @@ export class MarketFeedManager {
       return { ...result, candles: cloneCandles(result.candles), cacheHit: true };
     }
 
-    const fetchTask = this.fetchProviderCandles(normalizedPair, timeframe, provider, true).finally(() => this.inFlight.delete(cacheKey));
+    const fetchTask = this.fetchProviderCandles(normalizedPair, timeframe, provider, true, undefined, kind).finally(() => this.inFlight.delete(cacheKey));
     this.inFlight.set(cacheKey, fetchTask);
     const result = await fetchTask;
     this.cache.set(cacheKey, { minute, result: { ...result, candles: cloneCandles(result.candles) } });
@@ -271,9 +284,9 @@ export class MarketFeedManager {
     return this.fetchProviderCandles(normalizePair(pair), timeframe, provider);
   }
 
-  private async fetchProviderCandles(pair: string, timeframe: Timeframe, provider: 'TWELVE_DATA' | 'ALPHA_VANTAGE', requireClosed = true, historical?: { startDate: string; endDate: string; outputSize: number }): Promise<MarketDataResult> {
+  private async fetchProviderCandles(pair: string, timeframe: Timeframe, provider: 'TWELVE_DATA' | 'ALPHA_VANTAGE', requireClosed = true, historical?: { startDate: string; endDate: string; outputSize: number }, kind: 'AUTO' | 'ON_DEMAND' = 'ON_DEMAND'): Promise<MarketDataResult> {
     const startedAt = Date.now();
-    const budget = this.scheduler.consume('ON_DEMAND');
+    const budget = this.scheduler.consume(kind);
     if (!budget.allowed) throw new MarketDataError('RATE_LIMITED', `Provider request blocked by scheduler: ${budget.reason}.`, provider);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12_000);
@@ -283,6 +296,12 @@ export class MarketFeedManager {
         : this.buildAlphaVantageUrl(pair, timeframe);
       this.incrementRequests(provider);
       const response = await this.request(url, { signal: controller.signal, headers: { Accept: 'application/json' } });
+      const clock = measureClockDrift(response.headers.get('date'), startedAt, Date.now());
+      this.lastClockDriftMs = clock.driftMs;
+      this.lastClockStatus = clock.status;
+      if (!clock.ok) {
+        throw new MarketDataError('CLOCK_DRIFT', `Local clock differs from ${provider} by ${clock.driftMs} ms (> ${MAX_CLOCK_DRIFT_MS} ms). DATA_QUALITY_FAIL.`, provider);
+      }
       const creditsUsedHeader = response.headers.get('api-credits-used');
       const creditsLeftHeader = response.headers.get('api-credits-left');
       const creditsUsed = creditsUsedHeader && /^\d+$/.test(creditsUsedHeader) ? Number(creditsUsedHeader) : undefined;
@@ -338,6 +357,8 @@ export class MarketFeedManager {
         lastTickAt: latest.timestamp,
         latencyMs: Date.now() - startedAt,
         cacheHit: false,
+        clockDriftMs: this.lastClockDriftMs,
+        clockStatus: this.lastClockStatus,
         volumeAvailable,
         creditsUsed,
         creditsLeft,

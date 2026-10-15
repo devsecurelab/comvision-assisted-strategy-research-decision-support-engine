@@ -1,7 +1,7 @@
 import { durableStorage } from '../server/storage';
 
-export interface SchedulerConfig { perMinute?: number; perDay?: number; autoDailyBudget?: number; }
-export interface ConsumeResult { allowed: boolean; reason: 'OK' | 'MINUTE_LIMIT' | 'DAY_LIMIT' | 'AUTO_BUDGET_LIMIT'; minuteUsed: number; dayUsed: number; }
+export interface SchedulerConfig { perMinute?: number; perDay?: number; autoDailyBudget?: number; hardStopDaily?: number; }
+export interface ConsumeResult { allowed: boolean; reason: 'OK' | 'MINUTE_LIMIT' | 'DAY_LIMIT' | 'DAY_HARD_STOP' | 'AUTO_BUDGET_LIMIT'; minuteUsed: number; dayUsed: number; }
 
 interface State { dayUtc: string; minuteStartedAt: number; minuteUsed: number; dayUsed: number; autoUsed: number; }
 
@@ -9,11 +9,14 @@ export class RateLimitScheduler {
   private readonly perMinute: number;
   private readonly perDay: number;
   private readonly autoDailyBudget: number;
+  /** Hard stop at 80% of daily capacity; auto-scans may use at most 70%. */
+  private readonly hardStopDaily: number;
   private readonly key = 'rateLimitScheduler';
   constructor(config: SchedulerConfig = {}) {
     this.perMinute = config.perMinute ?? Number(process.env.TD_PER_MIN || 8);
     this.perDay = config.perDay ?? Number(process.env.TD_PER_DAY || 800);
     this.autoDailyBudget = config.autoDailyBudget ?? Math.floor(this.perDay * 0.7);
+    this.hardStopDaily = config.hardStopDaily ?? Math.floor(this.perDay * 0.8);
   }
   private state(): State {
     const saved = durableStorage.loadAppSettings()[this.key] as State | undefined;
@@ -28,8 +31,9 @@ export class RateLimitScheduler {
     const result = (allowed: boolean, reason: ConsumeResult['reason']): ConsumeResult => ({ allowed, reason, minuteUsed: s.minuteUsed, dayUsed: s.dayUsed });
     if (s.minuteUsed >= this.perMinute) return result(false, 'MINUTE_LIMIT');
     if (s.dayUsed >= this.perDay) return result(false, 'DAY_LIMIT');
+    if (s.dayUsed >= this.hardStopDaily) return result(false, 'DAY_HARD_STOP');
     if (kind === 'AUTO' && s.autoUsed >= this.autoDailyBudget) return result(false, 'AUTO_BUDGET_LIMIT');
     s.minuteUsed++; s.dayUsed++; if (kind === 'AUTO') s.autoUsed++; this.save(s); return result(true, 'OK');
   }
-  public snapshot() { const s = this.state(); return { ...s, perMinute: this.perMinute, perDay: this.perDay, autoDailyBudget: this.autoDailyBudget, remainingDay: Math.max(0, this.perDay - s.dayUsed), remainingAuto: Math.max(0, this.autoDailyBudget - s.autoUsed) }; }
+  public snapshot() { const s = this.state(); return { ...s, perMinute: this.perMinute, perDay: this.perDay, autoDailyBudget: this.autoDailyBudget, hardStopDaily: this.hardStopDaily, remainingDay: Math.max(0, this.hardStopDaily - s.dayUsed), remainingAuto: Math.max(0, this.autoDailyBudget - s.autoUsed) }; }
 }

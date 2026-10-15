@@ -19,8 +19,8 @@ import { analyticsService } from '../src/server/analyticsService';
 import { chatService } from '../src/server/chatService';
 import { formatSignalTime } from '../src/utils/timeFormat';
 
-// Archived V2 fixture suite is explicit and never represents the live engine.
-process.env.LEGACY_V2_FIXTURES = '1';
+// Archived V2 fixture suite: runs only via `npm run test:legacy` (LEGACY_V2_FIXTURES=1 set by the script, never in-file).
+if (process.env.LEGACY_V2_FIXTURES !== '1') { console.error('strategy_pipeline.test.ts is the archived V2 suite; run it with npm run test:legacy.'); process.exit(1); }
 
 // Isolate test storage directory to prevent interference with runtime state
 const testStorageDir = path.join(process.cwd(), 'data_test');
@@ -1083,14 +1083,14 @@ runTest('Test 47: Notification Payload - Message #1 Valid Signal Alert format co
   telemetry.metadata.setup_id = 'EXP-2026-001-SIGNAL47';
 
   const text = notificationService.formatSignalAlert(telemetry);
-  assert(text.includes('VALID SIGNAL DETECTED'));
+  // V3 alert format (P0/W3): binary research alert, no SL/TP, explicit research-only statement.
+  assert(text.includes('COMVISION RESEARCH ALERT'));
   assert(text.includes('EXP-2026-001-SIGNAL47'));
-  assert(text.includes('BULLISH'));
   assert(text.includes('5m'));
   assert(text.includes('UTC'));
   assert(text.includes('BDT'));
-  assert(text.includes('STAGE RESULTS'));
-  assert(text.includes('MANUAL RESEARCH ALERT ONLY'));
+  assert(text.includes('Research alert only'));
+  assert(!/Stop Loss|Take Profit|stopLoss|takeProfit/.test(text));
 });
 
 // 48. Notification Payload: Message #2 Next-Candle Result Alert format contains all required fields

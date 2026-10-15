@@ -1,104 +1,105 @@
 import assert from 'node:assert/strict';
-import { evaluateStrategyV3 } from '../src/engine/strategyV3Engine';
+import { evaluateStrategyV3, type V3Decision } from '../src/engine/strategyV3Engine';
 import type { Candle, Timeframe } from '../src/engine/types';
-import { idealFullSetup, idealPriceOnlySetup } from './fixtures/v3Reachability';
+import { idealFullSetup, idealPriceOnlySetup, unitFor } from './fixtures/v3Reachability';
 
+/**
+ * P3 reachability (non-circular). The engine is never told the answer:
+ *  (a) ideal setups for every mode x timeframe x scale x direction must alert;
+ *  (b) the setup's OWN candles are mutated (all candles, incl. the signal candle) with seeded
+ *      noise at 0.5/1/2/3 pip plus large-body shocks, >= 10,000 windows -> alerts must survive;
+ *  (c) honest random-walk windows report marginal and cumulative gate funnels; any gate with a
+ *      0% marginal pass rate fails the suite unless it is listed in APPROVED_ZERO with a reason.
+ */
+const started = Date.now();
 const timeframes: Timeframe[] = ['5m', '15m', '30m'];
 const scales = [{ name: 'EUR/USD', base: 1.085 }, { name: 'USD/JPY', base: 150 }];
+const modes = ['PRICE_ONLY', 'FULL'] as const;
+const directions = ['BULLISH', 'BEARISH'] as const;
+const APPROVED_ZERO: Record<string, string> = {};
 
-type Mode = 'PRICE_ONLY' | 'FULL';
+function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+const evaluate = (candles: Candle[], d: 'BULLISH' | 'BEARISH', tf: Timeframe, full: boolean) => evaluateStrategyV3({ candles, htfBias: d, newsEvents: [], newsSourceOnline: true, timeframe: tf, fullModeEnabled: full });
 
-function rng(seed: number): () => number {
-  let state = seed >>> 0;
-  return () => {
-    state = (state * 1664525 + 1013904223) >>> 0;
-    return state / 4294967296;
-  };
-}
-
-function mirrored(candles: Candle[], base: number): Candle[] {
-  return candles.map((c) => ({ ...c, open: 2 * base - c.open, high: 2 * base - c.low, low: 2 * base - c.high, close: 2 * base - c.close }));
-}
-
-function mutateStableWindow(source: Candle[], random: () => number, base: number): Candle[] {
-  const scale = base > 20 ? 0.01 : 0.0001;
-  return source.map((c, index) => {
-    if (index > 8) return { ...c };
-    const delta = (random() - 0.5) * scale * 0.20;
-    const open = c.open + delta;
-    const close = c.close + delta;
-    return { ...c, open, close, high: Math.max(c.high + delta, open, close), low: Math.min(c.low + delta, open, close) };
+function noisy(source: Candle[], random: () => number, pip: number, magnitude: number, largeBody: boolean): Candle[] {
+  return source.map((c) => {
+    const j = () => (random() * 2 - 1) * magnitude * pip;
+    let open = c.open + j(); let close = c.close + j();
+    if (largeBody && random() < 0.08) { const mid = (open + close) / 2; const half = (close - open) * (2 + random()); open = mid - half / 2; close = mid + half / 2; }
+    const high = Math.max(c.high + j(), open, close); const low = Math.min(c.low + j(), open, close);
+    return { ...c, open, high, low, close };
   });
 }
 
-function evaluateIdeal(base: number, timeframe: Timeframe, direction: 'BULLISH' | 'BEARISH', mode: Mode) {
-  return evaluateStrategyV3({
-    candles: mode === 'FULL' ? idealFullSetup(base, timeframe, direction) : idealPriceOnlySetup(base, timeframe, direction),
-    direction,
-    newsEvents: [],
-    newsSourceOnline: true,
-  });
-}
-
-function runMatrix(): void {
-  let totalWindows = 0;
-  let totalAlerts = 0;
-  for (const mode of ['PRICE_ONLY', 'FULL'] as const) {
-    for (const timeframe of timeframes) {
-      for (const { name, base } of scales) {
-        for (const direction of ['BULLISH', 'BEARISH'] as const) {
-          const ideal = mode === 'FULL' ? idealFullSetup(base, timeframe, direction) : idealPriceOnlySetup(base, timeframe, direction);
-          const decision = evaluateIdeal(base, timeframe, direction, mode);
-          assert.equal(decision.engineMode, mode);
-          assert.equal(decision.finalAction, 'MANUAL_ALERT', `${mode}/${timeframe}/${name}/${direction} ideal fixture must be reachable`);
-          assert.ok(decision.mfci.totalMfci >= 0.85, `${mode}/${timeframe}/${name}/${direction} MFCI must clear threshold`);
-          const applicable = decision.gates.filter((gate) => gate.status !== 'UNAVAILABLE');
-          assert.ok(applicable.length > 0 && applicable.every((gate) => gate.status === 'PASS'), `${mode}/${timeframe}/${name}/${direction} all applicable gates must pass`);
-          if (mode === 'PRICE_ONLY') {
-            assert.equal(decision.gates[3].status, 'UNAVAILABLE');
-            assert.ok(decision.excludedStages.some((stage) => stage.reason === 'GATE4_NEEDS_VOLUME_POC'));
-            assert.equal(decision.stages[2].available, false);
-            assert.equal(decision.stages[4].available, false);
-            assert.equal(decision.stages[7].available, false);
-          } else {
-            assert.ok(decision.gates.every((gate) => gate.status !== 'UNAVAILABLE'));
-            assert.ok(decision.stages.filter((stage) => !stage.available).length === 0);
-          }
-
-          const random = rng(0xC0FFEE + (mode === 'FULL' ? 7000 : 0) + timeframes.indexOf(timeframe) * 1000 + (base > 20 ? 500 : 0) + (direction === 'BEARISH' ? 250 : 0));
-          const marginal = Array(9).fill(0);
-          const cumulative = Array(9).fill(0);
-          let alerts = 0;
-          const windows = 5000;
-          for (let i = 0; i < windows; i++) {
-            const mutated = mutateStableWindow(ideal, random, base);
-            const result = evaluateStrategyV3({ candles: mutated, direction, newsEvents: [], newsSourceOnline: true });
-            result.gates.forEach((gate, gateIndex) => {
-              if (gate.status === 'PASS') marginal[gateIndex]++;
-              if (gate.status === 'PASS' && result.gates.slice(0, gateIndex).filter((previous) => previous.status !== 'UNAVAILABLE').every((previous) => previous.status === 'PASS')) cumulative[gateIndex]++;
-            });
-            if (result.finalAction === 'MANUAL_ALERT') alerts++;
-          }
-          totalWindows += windows;
-          totalAlerts += alerts;
-          console.log(`[REACHABILITY] ${mode} ${timeframe} ${name} ${direction}: windows=${windows} MANUAL_ALERT=${alerts}/${windows}`);
-          console.log(`[FUNNEL] ${mode} ${timeframe} ${name} ${direction} marginal=${marginal.map((n) => `${((n / windows) * 100).toFixed(1)}%`).join(',')} cumulative=${cumulative.map((n) => `${((n / windows) * 100).toFixed(1)}%`).join(',')}`);
-          assert.ok(alerts > 0, `${mode}/${timeframe}/${name}/${direction} brute-force must produce at least one MANUAL_ALERT`);
-          const applicableGateIndexes = mode === 'PRICE_ONLY' ? [0, 1, 2, 4, 5, 6, 7, 8] : Array.from({ length: 9 }, (_, index) => index);
-          assert.ok(applicableGateIndexes.every((index) => marginal[index] > 0), `${mode}/${timeframe}/${name}/${direction} every applicable gate must be reachable`);
-        }
-      }
-    }
+class Funnel {
+  marginal = Array(9).fill(0); cumulative = Array(9).fill(0); alerts = 0; n = 0;
+  add(r: V3Decision) {
+    this.n++; if (r.binarySignal !== 'NO_TRADE') this.alerts++;
+    if (r.gates.length !== 9) return;
+    let all = true;
+    r.gates.forEach((g, i) => { if (g.status === 'PASS') this.marginal[i]++; all = all && g.status === 'PASS'; if (all) this.cumulative[i]++; });
   }
-  assert.equal(totalWindows, 120000);
-  assert.ok(totalAlerts > 0);
-  console.log(`[REACHABILITY] matrix complete: ${totalAlerts}/${totalWindows} MANUAL_ALERT windows across PRICE_ONLY/FULL, 5m/15m/30m and EUR/USD/USD/JPY scales`);
+  text() { const f = (xs: number[]) => xs.map((x) => `${((x / Math.max(1, this.n)) * 100).toFixed(1)}%`).join(','); return `marginal=${f(this.marginal)} cumulative=${f(this.cumulative)} alerts=${this.alerts}/${this.n}`; }
 }
 
-runMatrix();
+// (a) ideal matrix
+for (const mode of modes) for (const tf of timeframes) for (const { name, base } of scales) for (const d of directions) {
+  const candles = mode === 'FULL' ? idealFullSetup(base, tf, d) : idealPriceOnlySetup(base, tf, d);
+  const r = evaluate(candles, d, tf, mode === 'FULL');
+  assert.equal(r.engineMode, mode);
+  assert.equal(r.binarySignal, d === 'BULLISH' ? 'CALL' : 'PUT', `${mode}/${tf}/${name}/${d} ideal must alert`);
+  assert.ok((r.mfci.totalMfci as number) >= 0.85);
+  assert.ok(r.gates.every((g) => g.status === 'PASS'));
+}
+console.log('[REACHABILITY] ideal matrix: 24/24 combinations alert (PRICE_ONLY/FULL x 5m/15m/30m x EUR/JPY scale x BULLISH/BEARISH)');
 
-const source = idealPriceOnlySetup(1.085, '15m', 'BULLISH');
-const copy = source.map((c) => ({ ...c }));
-assert.deepEqual(source, copy);
-assert.equal(mirrored(source, 1.085)[29].close, 2 * 1.085 - source[29].close);
-console.log('=== V3 REACHABILITY SUITE: PRICE_ONLY/FULL matrix and funnel assertions passed ===');
+// (b) mutation of the setup's own candles
+let mutationWindows = 0; let mutationAlerts = 0;
+const magnitudes = [0.5, 1, 2, 3];
+for (const mode of modes) for (const tf of timeframes) for (const { name, base } of scales) for (const d of directions) {
+  const ideal = mode === 'FULL' ? idealFullSetup(base, tf, d) : idealPriceOnlySetup(base, tf, d);
+  const pip = unitFor(base);
+  const parts: string[] = [];
+  for (const mag of magnitudes) {
+    const random = rng(0xC0FFEE ^ (mag * 1000) ^ (timeframes.indexOf(tf) << 8) ^ (base > 20 ? 1 << 12 : 0) ^ (d === 'BEARISH' ? 1 << 13 : 0) ^ (mode === 'FULL' ? 1 << 14 : 0));
+    const funnel = new Funnel();
+    for (let i = 0; i < 110; i++) funnel.add(evaluate(noisy(ideal, random, pip, mag, i % 2 === 1), d, tf, mode === 'FULL'));
+    mutationWindows += funnel.n; mutationAlerts += funnel.alerts;
+    parts.push(`${mag}pip ${funnel.alerts}/${funnel.n}`);
+    if (mag <= 1) assert.ok(funnel.alerts > 0, `${mode}/${tf}/${name}/${d} must survive ${mag}-pip noise`);
+  }
+  console.log(`[ROBUSTNESS] ${mode} ${tf} ${name} ${d}: ${parts.join(' | ')}`);
+}
+assert.ok(mutationWindows >= 10_000, `mutation windows ${mutationWindows}`);
+assert.ok(mutationAlerts > 0);
+console.log(`[ROBUSTNESS] total ${mutationAlerts}/${mutationWindows} alerts across seeded noise 0.5/1/2/3 pip with large-body shocks`);
+
+// (c) honest random-walk windows (both modes, both directions)
+function randomWindow(random: () => number, base: number, tf: Timeframe, full: boolean): Candle[] {
+  const pip = unitFor(base); const step = { '1m': 1, '5m': 5, '15m': 15, '30m': 30, '1h': 60 }[tf] * 60_000;
+  const end = Date.parse('2026-01-14T08:30:00.000Z') + Math.floor(random() * 10) * 3_600_000 / 2;
+  const endAligned = Math.floor(end / step) * step;
+  const vol = (2 + random() * 12) * pip; let price = base; const out: Candle[] = [];
+  for (let i = 0; i < 60; i++) {
+    const drift = (random() - 0.5) * vol * 2.2 + (random() < 0.06 ? (random() - 0.5) * vol * 8 : 0);
+    const open = price; const close = price + drift;
+    const high = Math.max(open, close) + random() * vol; const low = Math.min(open, close) - random() * vol;
+    out.push({ timestamp: new Date(endAligned - (59 - i) * step).toISOString(), open, high, low, close, volume: full ? Math.round(50 + random() * 200) : null, ...(full ? { volumeDelta: Math.round((random() - 0.5) * 200), cvd: Math.round((random() - 0.5) * 1000), pocPrice: low + (high - low) * random() } : {}) });
+    price = close;
+  }
+  return out;
+}
+for (const mode of modes) for (const d of directions) {
+  const funnel = new Funnel(); const random = rng(0xBADA55 ^ (mode === 'FULL' ? 1 : 0) ^ (d === 'BEARISH' ? 2 : 0));
+  for (let i = 0; i < 6000; i++) {
+    const tf = timeframes[i % 3]; const base = scales[i % 2].base;
+    funnel.add(evaluate(randomWindow(random, base, tf, mode === 'FULL'), d, tf, mode === 'FULL'));
+  }
+  console.log(`[FUNNEL] random ${mode} ${d}: ${funnel.text()}`);
+  funnel.marginal.forEach((m, i) => { if (m === 0) assert.ok(APPROVED_ZERO[`G${i + 1}`], `${mode}/${d} Gate ${i + 1} is structurally zero-pass on random windows`); });
+}
+
+const seconds = (Date.now() - started) / 1000;
+console.log(`[REACHABILITY] runtime ${seconds.toFixed(1)}s`);
+assert.ok(seconds <= 180, 'reachability suite must finish within ~180 s');
+console.log('=== V3 REACHABILITY SUITE (P3): ideal matrix, own-candle mutation >= 10k windows, honest random-window funnels passed ===');
