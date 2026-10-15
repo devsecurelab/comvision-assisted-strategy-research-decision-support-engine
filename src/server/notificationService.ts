@@ -6,6 +6,7 @@ import nodemailer from 'nodemailer';
 import { MasterTelemetry } from '../engine/types';
 import { durableStorage, NotificationRecord, SignalOutcomeRecord } from './storage';
 import { formatSignalTime } from '../utils/timeFormat';
+import { displayPair, isSupportedPair, payoutRegistry } from './payoutRegistry';
 
 export interface NotificationConfig {
   telegramEnabled: boolean;
@@ -273,6 +274,55 @@ export class NotificationService {
         error: sanitize(err?.message || 'Failed to connect to Telegram API.'),
       };
     }
+  }
+
+  /** Processes owner-only payout commands with a durable Telegram update offset. */
+  public async processOwnerTelegramCommands(): Promise<{ configured: boolean; processed: number; rejected: number; responses: string[]; error?: string }> {
+    const botToken = this.config.telegramBotToken;
+    const ownerChatId = this.config.telegramChatId;
+    if (!botToken || !ownerChatId) return { configured: false, processed: 0, rejected: 0, responses: [], error: 'TELEGRAM_NOT_CONFIGURED' };
+    const settings = durableStorage.loadAppSettings();
+    const offset = Number(settings.telegramUpdateOffset || 0);
+    try {
+      const url = `https://api.telegram.org/bot${botToken}/getUpdates?offset=${offset}&limit=25&timeout=0&allowed_updates=["message"]`;
+      const response = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!response.ok) return { configured: true, processed: 0, rejected: 0, responses: [], error: `TELEGRAM_HTTP_${response.status}` };
+      const payload = await response.json();
+      if (!payload.ok || !Array.isArray(payload.result)) return { configured: true, processed: 0, rejected: 0, responses: [], error: 'TELEGRAM_INVALID_RESPONSE' };
+      let processed = 0; let rejected = 0; const responses: string[] = []; let nextOffset = offset;
+      for (const update of payload.result) {
+        nextOffset = Math.max(nextOffset, Number(update.update_id || 0) + 1);
+        const message = update.message;
+        if (!message?.chat || typeof message.text !== 'string') continue;
+        if (String(message.chat.id) !== ownerChatId) { rejected++; durableStorage.recordAuditEvent({ event_type: 'TELEGRAM_COMMAND_REJECTED', details: { reason: 'OWNER_CHAT_MISMATCH' } }); continue; }
+        const result = this.handleOwnerCommand(message.text);
+        if (!result) continue;
+        processed++; responses.push(result); await this.sendTelegramText(result);
+        durableStorage.recordAuditEvent({ event_type: 'TELEGRAM_PAYOUT_COMMAND', details: { command: message.text.split(/\s+/)[0], outcome: result.startsWith('ERROR') ? 'REJECTED' : 'APPLIED' } });
+      }
+      durableStorage.saveAppSettings({ ...settings, telegramUpdateOffset: nextOffset });
+      return { configured: true, processed, rejected, responses };
+    } catch { return { configured: true, processed: 0, rejected: 0, responses: [], error: 'TELEGRAM_REQUEST_FAILED' }; }
+  }
+
+  private handleOwnerCommand(text: string): string | null {
+    const tokens = text.trim().split(/\s+/); const command = (tokens[0] || '').toLowerCase();
+    if (command === '/payout') {
+      const pair = tokens[1] || ''; if (!isSupportedPair(pair)) return 'ERROR UNSUPPORTED_SYMBOL: use a six-letter FX pair such as EURUSD.';
+      if ((tokens[2] || '').toLowerCase() === 'clear') { payoutRegistry.clear(pair); return `Payout cleared for ${displayPair(pair)}. Status: PAYOUT_UNSET.`; }
+      const pct = Number(tokens[2]); if (!Number.isFinite(pct) || pct < 1 || pct > 100) return 'ERROR INVALID_PAYOUT: use a number from 1 to 100.';
+      const saved = payoutRegistry.set(pair, pct); return `Payout set for ${displayPair(pair)}: ${saved.pct}%. Status: ${saved.pct >= 85 ? 'ELIGIBLE' : 'PAYOUT_BELOW_MIN'}.`;
+    }
+    if (command === '/payouts') {
+      const entries = Object.entries(payoutRegistry.all()); return entries.length ? entries.map(([pair, value]) => `${displayPair(pair)} ${value.pct}% (${value.setAt})`).join('\n') : 'No owner-set payouts. Use /payout EURUSD 87.';
+    }
+    return null;
+  }
+
+  private async sendTelegramText(text: string): Promise<void> {
+    if (!this.config.telegramBotToken || !this.config.telegramChatId) return;
+    const url = `https://api.telegram.org/bot${this.config.telegramBotToken}/sendMessage`;
+    await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: this.config.telegramChatId, text }) });
   }
 
   /**

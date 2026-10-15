@@ -1,0 +1,24 @@
+import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs';
+import { durableStorage } from '../src/server/storage';
+import { PayoutRegistry, displayPair, isSupportedPair } from '../src/server/payoutRegistry';
+
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'comvision-payout-'));
+durableStorage.setDataDir(dir);
+const registry = new PayoutRegistry();
+assert.equal(isSupportedPair('eur/usd'), true);
+assert.equal(displayPair('eurusd'), 'EUR/USD');
+assert.equal(registry.status('EURUSD'), 'PAYOUT_UNSET');
+registry.set('eur/usd', 84.9);
+assert.equal(registry.status('EURUSD'), 'PAYOUT_BELOW_MIN');
+registry.set('EURUSD', 85);
+assert.equal(registry.status('EUR/USD'), 'ELIGIBLE');
+const persisted = new PayoutRegistry();
+assert.equal(persisted.get('EUR/USD')?.pct, 85);
+assert.throws(() => registry.set('NOTPAIR', 90), /UNSUPPORTED_SYMBOL/);
+assert.throws(() => registry.set('GBPUSD', 0), /INVALID_PAYOUT/);
+assert.equal(registry.clear('EURUSD'), true);
+assert.equal(registry.status('EURUSD'), 'PAYOUT_UNSET');
+console.log('=== PAYOUT GATE: unset, 84.9, 85, normalization, persistence and validation passed ===');

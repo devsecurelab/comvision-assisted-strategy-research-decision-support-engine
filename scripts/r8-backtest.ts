@@ -3,6 +3,7 @@ import path from 'node:path';
 import { evaluateStrategyV3 } from '../src/engine/strategyV3Engine';
 import { feedManager, MarketDataError } from '../src/engine/dataProviders';
 import type { Candle, Timeframe } from '../src/engine/types';
+import { confidenceByMfci, verdict, wilsonInterval } from '../src/engine/backtestStats';
 
 type Direction = 'BULLISH' | 'BEARISH';
 const pairs = (process.env.R8_PAIRS || 'EUR/USD').split(',').map((value) => value.trim()).filter(Boolean);
@@ -10,6 +11,7 @@ const timeframes = (process.env.R8_TIMEFRAMES || '5m').split(',').map((value) =>
 const startDate = process.env.R8_START_DATE || '2025-01-01';
 const endDate = process.env.R8_END_DATE || '2025-03-31';
 const outputPath = process.env.R8_OUTPUT || 'data/r8-backtest-results.json';
+const payoutPct = Number(process.env.R8_PAYOUT_PCT || 85);
 
 function directionFor(candles: Candle[]): Direction {
   const lookback = candles.slice(-20);
@@ -44,7 +46,9 @@ function summarize(candles: Candle[], pair: string, timeframe: Timeframe) {
       if (gate.status === 'PASS' && decision.gates.slice(0, gateIndex).every((previous) => previous.status === 'PASS')) gateCumulative[gateIndex]++;
     });
   }
-  return { pair, timeframe, startDate, endDate, candles: candles.length, decisions, outcomes, winRateAmongAlerts: decisions.manualAlerts ? outcomes.favorable / decisions.manualAlerts : null, gateMarginal, gateCumulative, alerts: alertRecords };
+  const resolved = alertRecords.map((record) => ({ mfci: Number(record.mfci), favorable: record.outcome === 'FAVORABLE' }));
+  const interval = wilsonInterval(outcomes.favorable, outcomes.favorable + outcomes.unfavorable);
+  return { pair, timeframe, startDate, endDate, candles: candles.length, decisions, outcomes, winRateAmongAlerts: decisions.manualAlerts >= 30 ? outcomes.favorable / decisions.manualAlerts : null, wilson95: interval, breakeven: 1 / (1 + payoutPct / 100), verdict: verdict(outcomes.favorable, outcomes.favorable + outcomes.unfavorable, payoutPct), confidenceByMfci: confidenceByMfci(resolved), gateMarginal, gateCumulative, alerts: alertRecords };
 }
 
 async function main() {

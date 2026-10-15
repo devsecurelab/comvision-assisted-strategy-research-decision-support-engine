@@ -22,6 +22,7 @@ import { durableStorage } from './src/server/storage';
 import { notificationService } from './src/server/notificationService';
 import { analyticsService } from './src/server/analyticsService';
 import { chatService } from './src/server/chatService';
+import { payoutRegistry, normalizePair, displayPair } from './src/server/payoutRegistry';
 
 if (typeof __dirname !== 'undefined' && (__dirname === '.' || !path.isAbsolute(__dirname))) {
   // @ts-ignore
@@ -639,6 +640,9 @@ app.post('/api/chat/query', requireApprovedUser, async (req: AuthenticatedReques
 app.post(['/api/engine/evaluate-candidate', '/api/engine/scan-candidate'], requireApprovedUser, async (req: AuthenticatedRequest, res) => {
   const { pair, timeframe } = req.body;
   const selectedPair = pair || 'EUR/USD';
+  const payout = payoutRegistry.get(normalizePair(selectedPair));
+  if (!payout) return res.status(409).json({ status: 'PAYOUT_UNSET', signal: 'NO_TRADE', pair: displayPair(selectedPair), message: `Set payout first with /payout ${normalizePair(selectedPair)} 87.` });
+  if (payout.pct < 85) return res.status(409).json({ status: 'PAYOUT_BELOW_MIN', signal: 'NO_TRADE', pair: displayPair(selectedPair), payout_pct: payout.pct, message: `Payout ${payout.pct}% is below the 85% minimum. Scan not run.` });
   const resolvedTimeframe = ((timeframe as string) || currentSettings.selectedTimeframe) as Timeframe;
   const selectedProvider = currentSettings.activeProvider as MarketDataProvider;
   let baseCandles: Candle[] = [];
@@ -854,6 +858,12 @@ app.get('/api/admin/telegram/latest-update', requireAdmin, async (req: Authentic
     },
   });
 
+  res.json(result);
+});
+
+app.post('/api/admin/telegram/process-commands', requireAdmin, async (req: AuthenticatedRequest, res) => {
+  const result = await notificationService.processOwnerTelegramCommands();
+  durableStorage.recordAuditEvent({ event_type: 'TELEGRAM_COMMAND_POLL', actor_id: req.user?.id, actor_email: req.user?.email, details: { processed: result.processed, rejected: result.rejected, configured: result.configured, error: result.error } });
   res.json(result);
 });
 
