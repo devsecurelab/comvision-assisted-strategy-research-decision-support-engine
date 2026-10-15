@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs';
+import { durableStorage } from '../src/server/storage';
+import { FavoriteRegistry } from '../src/server/favoriteRegistry';
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'comvision-favs-')); durableStorage.setDataDir(dir);
+const first = new FavoriteRegistry(); assert.equal(first.all().length, 9); assert.equal(first.add('gbpjpy'), true); assert.equal(first.has('GBP/JPY'), true); assert.equal(first.remove('GBPJPY'), true);
+const second = new FavoriteRegistry(); assert.equal(second.all().length, 9); assert.equal(second.has('GBPJPY'), false); assert.throws(() => second.add('NOTPAIR'), /UNSUPPORTED_SYMBOL/);
+console.log('=== FAVORITES: seed, add/remove normalization and restart persistence passed ===');

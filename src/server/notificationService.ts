@@ -7,6 +7,11 @@ import { MasterTelemetry } from '../engine/types';
 import { durableStorage, NotificationRecord, SignalOutcomeRecord } from './storage';
 import { formatSignalTime } from '../utils/timeFormat';
 import { displayPair, isSupportedPair, payoutRegistry } from './payoutRegistry';
+import { favoriteRegistry } from './favoriteRegistry';
+import { feedManager } from '../engine/dataProviders';
+import { detectFractalSwings, evaluateMarketStructure, executeStrategyPipeline } from '../engine/pipeline';
+import { experimentTracker } from '../engine/experimentTracker';
+import { newsGuard } from '../engine/newsGuard';
 
 export interface NotificationConfig {
   telegramEnabled: boolean;
@@ -295,7 +300,7 @@ export class NotificationService {
         const message = update.message;
         if (!message?.chat || typeof message.text !== 'string') continue;
         if (String(message.chat.id) !== ownerChatId) { rejected++; durableStorage.recordAuditEvent({ event_type: 'TELEGRAM_COMMAND_REJECTED', details: { reason: 'OWNER_CHAT_MISMATCH' } }); continue; }
-        const result = this.handleOwnerCommand(message.text);
+        const result = await this.handleOwnerCommand(message.text);
         if (!result) continue;
         processed++; responses.push(result); await this.sendTelegramText(result);
         durableStorage.recordAuditEvent({ event_type: 'TELEGRAM_PAYOUT_COMMAND', details: { command: message.text.split(/\s+/)[0], outcome: result.startsWith('ERROR') ? 'REJECTED' : 'APPLIED' } });
@@ -305,7 +310,7 @@ export class NotificationService {
     } catch { return { configured: true, processed: 0, rejected: 0, responses: [], error: 'TELEGRAM_REQUEST_FAILED' }; }
   }
 
-  private handleOwnerCommand(text: string): string | null {
+  private async handleOwnerCommand(text: string): Promise<string | null> {
     const tokens = text.trim().split(/\s+/); const command = (tokens[0] || '').toLowerCase();
     if (command === '/payout') {
       const pair = tokens[1] || ''; if (!isSupportedPair(pair)) return 'ERROR UNSUPPORTED_SYMBOL: use a six-letter FX pair such as EURUSD.';
@@ -315,6 +320,33 @@ export class NotificationService {
     }
     if (command === '/payouts') {
       const entries = Object.entries(payoutRegistry.all()); return entries.length ? entries.map(([pair, value]) => `${displayPair(pair)} ${value.pct}% (${value.setAt})`).join('\n') : 'No owner-set payouts. Use /payout EURUSD 87.';
+    }
+    if (command === '/favs') {
+      return favoriteRegistry.all().map((item) => `${item.pair} — payout: ${item.payout === undefined ? 'UNSET' : `${item.payout}%`} — ${item.status}`).join('\n');
+    }
+    if (command === '/fav') {
+      const action = (tokens[1] || '').toLowerCase(); const pair = tokens[2] || '';
+      if (action !== 'add' && action !== 'remove') return 'ERROR INVALID_FAVORITE_COMMAND: use /fav add EURUSD or /fav remove EURUSD.';
+      if (!isSupportedPair(pair)) return 'ERROR UNSUPPORTED_SYMBOL: use a six-letter FX pair.';
+      const changed = action === 'add' ? favoriteRegistry.add(pair) : favoriteRegistry.remove(pair);
+      return `${changed ? 'Favorite updated' : 'Favorite unchanged'}: ${displayPair(pair)} (${action}).`;
+    }
+    if (command === '/scan') {
+      const pair = tokens[1] || ''; if (!isSupportedPair(pair)) return 'ERROR UNSUPPORTED_SYMBOL: use EURUSD or EUR/USD.';
+      const payout = payoutRegistry.get(pair); if (!payout) return `PAYOUT_UNSET: set /payout ${pair.replace('/', '')} 87 first.`;
+      if (payout.pct < 85) return `PAYOUT_BELOW_MIN: ${payout.pct}% is below 85%; scan not run.`;
+      const timeframe = (process.env.TELEGRAM_SCAN_TIMEFRAME || '15m') as any;
+      try {
+        const primary = await feedManager.fetchCandles(displayPair(pair), timeframe, 'TWELVE_DATA');
+        const candles = primary.candles;
+        const htf = await feedManager.fetchCandles(displayPair(pair), '1h', 'TWELVE_DATA');
+        const htfBias = evaluateMarketStructure(detectFractalSwings(htf.candles, htf.candles.length - 1)).bias;
+        if (htfBias === 'UNCLEAR') return `NO_TRADE ${displayPair(pair)} ${timeframe}: HTF_BIAS_UNCLEAR.`;
+        const telemetry = executeStrategyPipeline({ decisionEngineVersion: 'V3', candles, currentCandleIndex: candles.length - 1, selectedTimeframe: timeframe, higherTimeframeBias: htfBias, newsEvents: newsGuard.getEvents(), newsSourceOnline: newsGuard.isSourceOnline(), dataProvenance: primary.dataProvenance, provider: primary.provider, pair: displayPair(pair) });
+        const recorded = experimentTracker.recordCandidate(telemetry);
+        const v3 = recorded.decision_engine_v3;
+        return `${v3?.binarySignal || 'NO_TRADE'} ${displayPair(pair)} ${timeframe} | MFCI ${v3?.mfci.totalMfci.toFixed(3) || 'UNAVAILABLE'} | ${v3?.statusReason || recorded.system_execution.rejection_reason || 'No qualifying setup.'} | BDT ${formatSignalTime(recorded.metadata.signal_timestamp_utc || recorded.metadata.timestamp_utc).bdtTime} | Research alert only.`;
+      } catch (error) { return `NO_TRADE ${displayPair(pair)}: PROVIDER_ERROR — ${error instanceof Error ? error.message : 'market data unavailable'}.`; }
     }
     return null;
   }
