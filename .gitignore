@@ -22,6 +22,9 @@ coverage/
 
 # Runtime data & persistence storage
 data/*.json
+data/*.jsonl
+data/**/*.csv
+data/r8/
 data/.admin_bootstrap_secret
 !data/.gitkeep
 data_test/
