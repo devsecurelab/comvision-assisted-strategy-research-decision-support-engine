@@ -58,7 +58,7 @@ const misaligned = ideal.map((c, i) => (i === 5 ? { ...c, timestamp: new Date(Da
 assert.ok(validateCandleSeries(misaligned, { timeframe: tf }).issues.some((i) => i.code === 'MISALIGNED_TIMESTAMP'));
 const weekend: Candle[] = [
   { timestamp: '2026-01-09T21:45:00.000Z', open: 1, high: 1.1, low: 0.9, close: 1, volume: null },
-  { timestamp: '2026-01-11T22:00:00.000Z', open: 1, high: 1.1, low: 0.9, close: 1, volume: null },
+  { timestamp: '2026-01-11T21:00:00.000Z', open: 1, high: 1.1, low: 0.9, close: 1, volume: null },
 ];
 assert.equal(validateCandleSeries(weekend, { timeframe: tf }).ok, true, 'weekend closure is not a gap');
 assert.equal(measureClockDrift(new Date(1_000_000).toUTCString(), 1_000_000 + 4_000, 1_000_000 + 4_100).status, 'CLOCK_DRIFT');

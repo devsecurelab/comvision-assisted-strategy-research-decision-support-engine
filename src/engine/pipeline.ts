@@ -35,6 +35,7 @@ import { evaluateStrategyV3 } from './strategyV3Engine';
 import { classifySessionAndKillZone } from './session';
 import { deriveHtfBias, MIN_ENGINE_CANDLES } from './strategyV3Engine';
 import { timeframeMs, validateCandleSeries } from './dataIntegrity';
+import { isFxMarketClosed } from './marketHours';
 
 export interface PipelineInput {
   /** V3 is authoritative; V2 is retained only for explicit historical fixtures. */
@@ -1090,6 +1091,10 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
   const candles = decisionEngineVersion === 'V3' && Array.isArray(inputCandles) ? inputCandles.slice(0, Math.max(0, currentCandleIndex + 1)) : inputCandles;
   const dataProvenance: DataProvenance = input.dataProvenance ?? 'NOT_LIVE';
   const failContext = { dataProvenance, provider: input.provider, payoutPct: input.payoutPct, signalCandleOpenTs: candles?.[currentCandleIndex]?.timestamp ?? null };
+  const decisionCandle = candles?.[currentCandleIndex];
+  if (decisionCandle && (isFxMarketClosed(decisionCandle.timestamp) || isFxMarketClosed(Date.parse(decisionCandle.timestamp) + timeframeMs(selectedTimeframe)))) {
+    return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'DEGRADED', 'MARKET_CLOSED', decisionCandle.timestamp, failContext);
+  }
   if (dataProvenance !== 'LIVE_INGESTED') {
     return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'DEGRADED', `NOT_LIVE_DATA: ${dataProvenance} is not verified live provider data. NO_TRADE.`, new Date().toISOString(), failContext);
   }

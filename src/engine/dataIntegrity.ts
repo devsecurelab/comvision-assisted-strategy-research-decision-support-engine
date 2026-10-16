@@ -22,17 +22,17 @@ export function timeframeMs(timeframe: Timeframe): number {
   return TIMEFRAME_MINUTES[timeframe] * 60_000;
 }
 
-/** Spot FX is closed from Friday 21:00 UTC to Sunday 21:00 UTC (widened by one hour for DST) and on 25 Dec / 1 Jan. */
+/** Spot FX closure for this engine: Friday 21:00 UTC through Sunday 21:00 UTC, plus Dec 25 and Jan 1. */
 export function isScheduledMarketClosure(ms: number): boolean {
   const date = new Date(ms);
   const day = date.getUTCDay();
-  const hour = date.getUTCHours();
-  if (day === 6) return true;
-  if (day === 5 && hour >= 20) return true;
-  if (day === 0 && hour < 23) return true;
+  const minuteOfDay = date.getUTCHours() * 60 + date.getUTCMinutes();
   const month = date.getUTCMonth();
   const dom = date.getUTCDate();
-  return (month === 11 && dom === 25) || (month === 0 && dom === 1);
+  if ((month === 11 && dom === 25) || (month === 0 && dom === 1)) return true;
+  if (day === 6) return true;
+  if (day === 5 && minuteOfDay >= 21 * 60) return true;
+  return day === 0 && minuteOfDay < 21 * 60;
 }
 
 /**
