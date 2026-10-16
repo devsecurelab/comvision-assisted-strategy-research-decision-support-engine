@@ -33,7 +33,9 @@ assert.equal(fs.existsSync(path.join(root, 'src/components/LiveVisionStream.tsx'
 assert.equal(fs.existsSync(path.join(root, 'src/components/views/VisionView.tsx')), false);
 assert.match(read('src/engine/dataProviders.ts'), /private activeProvider: ManuallySelectableProvider = 'TWELVE_DATA'/);
 assert.doesNotMatch(read('src/engine/newsGuard.ts'), /seedDefaultEvents|triggerSimulatedRedFolderEvent/);
-assert.match(read('server.ts'), /Valid providers are TWELVE_DATA and ALPHA_VANTAGE/);
+assert.match(read('server.ts'), /Valid provider is TWELVE_DATA/);
+assert.doesNotMatch(read('src/engine/providers/contracts.ts'), /FINNHUB|ALPHA_VANTAGE/);
+assert.doesNotMatch(read('src/engine/dataProviders.ts'), /FINNHUB|ALPHA_VANTAGE|finnhub|alphaVantage/i);
 assert.doesNotMatch(read('src/engine/types.ts'), /CVEvidenceSource|sVisionAi|vision_verification|cv_confidence/);
 assert.doesNotMatch(read('src/server/notificationService.ts'), /Vision Verification/);
 assert.doesNotMatch(read('src/components/docs/DocsView.tsx'), /Live Vision|computer vision|vision stream|simulation controls|Alpha Vantage, Replay/);

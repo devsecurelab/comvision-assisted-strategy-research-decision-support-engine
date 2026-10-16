@@ -1,5 +1,5 @@
 import type { Candle, Timeframe } from './types';
-import { isScheduledMarketClosure, timeframeMs } from './dataIntegrity';
+import { isScheduledMarketBarClosed, isScheduledMarketClosure, timeframeMs } from './dataIntegrity';
 
 /** Whether an instant is inside the FX weekly or fixed-date UTC holiday closure. */
 export function isFxMarketClosed(value: string | number | Date): boolean {
@@ -12,14 +12,12 @@ export function isFxMarketClosed(value: string | number | Date): boolean {
 export function isFxBarClosed(timestamp: string, timeframe: Timeframe): boolean {
   const openMs = Date.parse(timestamp);
   if (!Number.isFinite(openMs)) return false; // Preserve malformed timestamps for the data-quality validator.
-  const closeMs = openMs + timeframeMs(timeframe);
-  return isFxMarketClosed(openMs) || isFxMarketClosed(closeMs);
+  return isScheduledMarketBarClosed(openMs, timeframeMs(timeframe));
 }
 
-/** Filter rows whose candle-open timestamps are closed; callers retain the original provider CSV unchanged. */
+/** Filter rows whose candle interval touches a scheduled closure; callers retain the original provider CSV unchanged. */
 export function filterFxOpenMarketCandles(candles: Candle[], timeframe: Timeframe): Candle[] {
-  void timeframe; // The row's timestamp is the R8 market-hours boundary; timeframe is retained for API symmetry/audit clarity.
-  return candles.filter((candle) => !isFxMarketClosed(candle.timestamp));
+  return candles.filter((candle) => !isFxBarClosed(candle.timestamp, timeframe));
 }
 
 /** Number of candles excluded from analysis, useful for audit reports. */

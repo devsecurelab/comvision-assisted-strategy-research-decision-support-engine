@@ -20,6 +20,7 @@ import { STRATEGY_MANIFEST, ACTIVE_EXPERIMENT_ID } from './src/engine/manifest';
 import { EngineSettings, Timeframe, UserAccount } from './src/engine/types';
 import { durableStorage } from './src/server/storage';
 import { notificationService } from './src/server/notificationService';
+import { formatProviderSwitchWarning } from './src/server/providerSwitchFormatter';
 import { analyticsService } from './src/server/analyticsService';
 import { chatService } from './src/server/chatService';
 import { payoutRegistry, normalizePair, displayPair } from './src/server/payoutRegistry';
@@ -92,13 +93,8 @@ const currentSettings: EngineSettings = {
   maxWickRatio: 0.50,
   fibEquilibriumLevel: 0.50,
   selectedTimeframe: '15m',
-  activeProvider: (process.env.TWELVE_DATA_API_KEY || process.env.TWELVEDATA_API_KEY)
-    ? 'TWELVE_DATA'
-    : (process.env.ALPHA_VANTAGE_API_KEY || process.env.ALPHAVANTAGE_API_KEY)
-      ? 'ALPHA_VANTAGE'
-      : 'TWELVE_DATA',
+  activeProvider: 'TWELVE_DATA',
   twelveDataApiKeyConfigured: !!(process.env.TWELVE_DATA_API_KEY || process.env.TWELVEDATA_API_KEY),
-  alphaVantageApiKeyConfigured: !!(process.env.ALPHA_VANTAGE_API_KEY || process.env.ALPHAVANTAGE_API_KEY),
   experimentLocked: experimentTracker.isExperimentLocked(),
   scannerActive: experimentTracker.isScannerActive(),
   alertsMuted: experimentTracker.isAlertsMuted(),
@@ -265,8 +261,8 @@ app.post('/api/engine/toggle-scanner', requireApprovedUser, (req, res) => {
 
 app.post('/api/engine/select-provider', requireApprovedUser, (req: AuthenticatedRequest, res) => {
   const { provider } = req.body;
-  if (provider === 'TWELVE_DATA' || provider === 'ALPHA_VANTAGE') {
-    const resolvedProvider: 'TWELVE_DATA' | 'ALPHA_VANTAGE' = provider;
+  if (provider === 'TWELVE_DATA') {
+    const resolvedProvider: 'TWELVE_DATA' = provider;
     currentSettings.activeProvider = resolvedProvider;
     const status = feedManager.selectProvider(resolvedProvider);
     durableStorage.recordAuditEvent({
@@ -277,13 +273,12 @@ app.post('/api/engine/select-provider', requireApprovedUser, (req: Authenticated
     });
     return res.json({ success: true, providerStatus: status });
   }
-  res.status(400).json({ error: 'INVALID_PROVIDER', message: 'Valid providers are TWELVE_DATA and ALPHA_VANTAGE' });
+  res.status(400).json({ error: 'INVALID_PROVIDER', message: 'Valid provider is TWELVE_DATA' });
 });
 
 app.post('/api/admin/provider-credentials', requireAdmin, (req: AuthenticatedRequest, res) => {
   const fields: Array<[string, MarketDataProvider]> = [
     ['twelveDataKey', 'TWELVE_DATA'], ['oandaPracticeToken', 'OANDA'], ['tiingoApiKey', 'TIINGO'],
-    ['finnhubApiKey', 'FINNHUB'], ['alphaVantageKey', 'ALPHA_VANTAGE'],
   ];
   const keys: Partial<Record<MarketDataProvider, string>> = {};
   const changed: MarketDataProvider[] = [];
@@ -302,7 +297,6 @@ app.post('/api/admin/provider-credentials', requireAdmin, (req: AuthenticatedReq
   feedManager.setProviderKeys(keys);
   const status = feedManager.getStatus();
   currentSettings.twelveDataApiKeyConfigured = status.quota.twelveData.configured;
-  currentSettings.alphaVantageApiKeyConfigured = status.quota.alphaVantage.configured;
   durableStorage.recordAuditEvent({
     event_type: 'MARKET_DATA_CREDENTIALS_UPDATED', actor_id: req.user?.id, actor_email: req.user?.email,
     details: { providers: changed, storage: 'SERVER_MEMORY_ONLY' },
@@ -505,7 +499,7 @@ app.get('/api/market/feed', requireApprovedUser, async (req, res) => {
 // Never returns request URLs, API keys, raw provider error text, or authentication tokens.
 app.get('/api/engine/provider-health', requireAdmin, async (req, res) => {
   const providerInput = typeof req.query.provider === 'string' ? req.query.provider : '';
-  const provider = ['TWELVE_DATA', 'OANDA', 'TIINGO', 'FINNHUB', 'ALPHA_VANTAGE'].includes(providerInput) ? providerInput as MarketDataProvider : null;
+  const provider = ['TWELVE_DATA', 'OANDA', 'TIINGO'].includes(providerInput) ? providerInput as MarketDataProvider : null;
   const symbol = typeof req.query.symbol === 'string' ? req.query.symbol.trim().toUpperCase() : '';
   const timeframeInput = typeof req.query.timeframe === 'string' ? req.query.timeframe : '';
   const timeframe = timeframeInput === '15m' || timeframeInput === '1h' ? timeframeInput : null;
@@ -514,7 +508,7 @@ app.get('/api/engine/provider-health', requireAdmin, async (req, res) => {
   if (!provider || !allowedSymbols.has(symbol) || !timeframe) {
     return res.status(400).json({
       error: 'INVALID_PROBE_PARAMETERS',
-      required: { provider: ['TWELVE_DATA', 'OANDA', 'TIINGO', 'FINNHUB', 'ALPHA_VANTAGE'], symbol: [...allowedSymbols], timeframe: ['15m', '1h'] },
+      required: { provider: ['TWELVE_DATA', 'OANDA', 'TIINGO'], symbol: [...allowedSymbols], timeframe: ['15m', '1h'] },
     });
   }
 
@@ -689,6 +683,10 @@ const scanService = new ScanService({
     const recorded = experimentTracker.recordCandidate(result.telemetry);
     if (result.status !== 'NO_TRADE') await notificationService.dispatchSignalAlert(recorded, { signalId: result.signal_id, validUntil: result.valid_until });
   },
+  onProviderSwitches: async (notice) => {
+    const safeText = formatProviderSwitchWarning(notice, feedManager.getStatus().circuits);
+    await notificationService.sendTelegramText(safeText);
+  },
   onResolved: async (signal, outcome) => {
     await notificationService.sendTelegramText(`RESULT ${signal.signal_id} ${signal.pair} ${signal.timeframe} ${signal.direction}: ${outcome} (open ${signal.entry_price ?? 'UNAVAILABLE'} -> close ${signal.exit_price ?? 'UNAVAILABLE'}). Research record only.`);
   },
@@ -781,7 +779,7 @@ app.get('/api/admin/settings', requireAdmin, (_req, res) => {
 app.post('/api/admin/settings', requireAdmin, (req: AuthenticatedRequest, res) => {
   const mutations = req.body;
   const auditMutations = { ...mutations };
-  for (const secretField of ['twelveDataKey', 'oandaPracticeToken', 'tiingoApiKey', 'finnhubApiKey', 'alphaVantageKey']) {
+  for (const secretField of ['twelveDataKey', 'oandaPracticeToken', 'tiingoApiKey']) {
     if (secretField in auditMutations) auditMutations[secretField] = '[REDACTED]';
   }
 
@@ -809,7 +807,6 @@ app.post('/api/admin/settings', requireAdmin, (req: AuthenticatedRequest, res) =
   const {
     activeProvider,
     twelveDataKey,
-    alphaVantageKey,
     experimentLocked,
     selectedTimeframe,
   } = req.body;
@@ -824,16 +821,15 @@ app.post('/api/admin/settings', requireAdmin, (req: AuthenticatedRequest, res) =
   }
 
   if (activeProvider) {
-    if (activeProvider === 'TWELVE_DATA' || activeProvider === 'ALPHA_VANTAGE') {
-      currentSettings.activeProvider = activeProvider;
-      feedManager.selectProvider(activeProvider);
+    if (activeProvider === 'TWELVE_DATA') {
+      currentSettings.activeProvider = 'TWELVE_DATA';
+      feedManager.selectProvider('TWELVE_DATA');
     }
   }
 
-  if (twelveDataKey !== undefined || alphaVantageKey !== undefined) {
-    feedManager.setKeys(twelveDataKey || '', alphaVantageKey || '');
+  if (twelveDataKey !== undefined) {
+    feedManager.setProviderKeys({ TWELVE_DATA: twelveDataKey || '' });
     currentSettings.twelveDataApiKeyConfigured = !!twelveDataKey;
-    currentSettings.alphaVantageApiKeyConfigured = !!alphaVantageKey;
   }
 
   durableStorage.recordAuditEvent({

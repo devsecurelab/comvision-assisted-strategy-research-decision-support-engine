@@ -6,7 +6,8 @@ import type { Candle, MasterTelemetry, NewsEvent, Timeframe } from './types';
 import { timeframeMs } from './dataIntegrity';
 import { breakevenFor, EdgeMonitor } from './edgeMonitor';
 import { SignalLedger, signalIdFor, type SignalOutcome, type SignalView } from './signalLedger';
-import { isFxBarClosed, isFxMarketClosed } from './marketHours';
+import { filterFxOpenMarketCandles, isFxBarClosed, isFxMarketClosed } from './marketHours';
+import { classifySessionAndKillZone } from './session';
 
 export type ScanTimeframe = '5m' | '15m' | '30m';
 export type ScanTrigger = 'MANUAL' | 'AUTO';
@@ -28,10 +29,22 @@ export interface ScanResult {
   signal_id?: string;
   valid_until?: string;
   provider?: MarketDataProvider;
+  htf_provider?: MarketDataProvider;
   failover_reason?: string;
+  provider_changes?: ProviderSwitchNotice;
   cached: boolean;
   telemetry?: MasterTelemetry;
 }
+
+export interface ProviderSwitchStep { fromProvider: MarketDataProvider; toProvider: MarketDataProvider; reason: string }
+export interface ProviderSwitchNotice {
+  pair: string;
+  timeframe: ScanTimeframe;
+  changedAt: string;
+  changes: Array<ProviderSwitchStep & { series: Array<'LTF' | 'HTF'> }>;
+}
+
+type FetchedMarketData = MarketDataResult & { failoverReason?: string; providerSwitches: ProviderSwitchStep[] };
 
 export interface ScanDeps {
   fetchCandles(pair: string, timeframe: Timeframe, provider: MarketDataProvider, kind: 'AUTO' | 'ON_DEMAND'): Promise<MarketDataResult>;
@@ -48,6 +61,7 @@ export interface ScanDeps {
   onEdgeLost?(reason: string): Promise<void> | void;
   loadState?(): ScanLoopState | undefined;
   saveState?(state: ScanLoopState): void;
+  onProviderSwitches?(notice: ProviderSwitchNotice): Promise<void> | void;
 }
 
 export interface ScanLoopState { enabled: boolean; timeframe: ScanTimeframe; lastCycleCandleOpen?: string; lastRunAt?: string; lastSummary?: string; lastError?: string }
@@ -68,7 +82,7 @@ export function nextCandleCloseMs(nowMs: number, timeframe: Timeframe): number {
 
 export class ScanService {
   private readonly cache = new Map<string, ScanResult>();
-  private readonly htfCache = new Map<string, { hourOpen: number; candles: Candle[] }>();
+  private readonly htfCache = new Map<string, { hourOpen: number; result: FetchedMarketData }>();
   private cycleProvider: { cycle: string; provider: MarketDataProvider; reason?: string } | undefined;
   public readonly edge: EdgeMonitor;
 
@@ -81,16 +95,17 @@ export class ScanService {
   }
 
   /** One provider per scan window; a failover is sticky for the window and its reason is preserved. */
-  private async fetchWithFailover(pair: string, timeframe: Timeframe, kind: 'AUTO' | 'ON_DEMAND', windowKey: string): Promise<MarketDataResult & { failoverReason?: string }> {
+  private async fetchWithFailover(pair: string, timeframe: Timeframe, kind: 'AUTO' | 'ON_DEMAND', windowKey: string): Promise<FetchedMarketData> {
     let lastError: unknown;
     let failedProvider: MarketDataProvider | undefined;
     const attempted = new Set<MarketDataProvider>();
+    const providerSwitches: ProviderSwitchStep[] = [];
     if (this.cycleProvider?.cycle === windowKey) {
       const sticky = this.cycleProvider;
       attempted.add(sticky.provider);
       try {
         const res = await this.deps.fetchCandles(pair, timeframe, sticky.provider, kind);
-        return { ...res, failoverReason: sticky.reason };
+        return { ...res, failoverReason: sticky.reason, providerSwitches };
       } catch (error) {
         lastError = error;
         failedProvider = sticky.provider;
@@ -99,11 +114,15 @@ export class ScanService {
     }
     const providers = this.deps.providers().filter((provider) => !attempted.has(provider));
     for (const provider of providers) {
+      if (lastError && failedProvider) {
+        const reason = lastError instanceof MarketDataError ? lastError.code : 'PROVIDER_ERROR';
+        providerSwitches.push({ fromProvider: failedProvider, toProvider: provider, reason });
+      }
       try {
         const res = await this.deps.fetchCandles(pair, timeframe, provider, kind);
-        const reason = lastError instanceof MarketDataError ? `${failedProvider || 'PRIOR_PROVIDER'} ${lastError.code}` : undefined;
+        const reason = providerSwitches.length ? providerSwitches.map((step) => `${step.fromProvider} ${step.reason} → ${step.toProvider}`).join('; ') : undefined;
         this.cycleProvider = { cycle: windowKey, provider, reason };
-        return { ...res, failoverReason: reason };
+        return { ...res, failoverReason: reason, providerSwitches };
       } catch (error) {
         lastError = error;
         failedProvider = error instanceof MarketDataError ? error.provider : provider;
@@ -112,13 +131,28 @@ export class ScanService {
     throw lastError ?? new MarketDataError('PROVIDER_NOT_CONFIGURED', 'No market-data provider configured.', 'TWELVE_DATA');
   }
 
-  private async htfCandles(pair: string, nowMs: number, kind: 'AUTO' | 'ON_DEMAND', windowKey: string): Promise<Candle[]> {
+  private async htfCandles(pair: string, nowMs: number, kind: 'AUTO' | 'ON_DEMAND', windowKey: string): Promise<FetchedMarketData> {
     const hourOpen = latestClosedCandleOpenMs(nowMs, '1h');
     const cached = this.htfCache.get(pair);
-    if (cached && cached.hourOpen === hourOpen) return cached.candles;
+    if (cached && cached.hourOpen === hourOpen) return { ...cached.result, candles: cached.result.candles.map((candle) => ({ ...candle })), providerSwitches: [] };
     const res = await this.fetchWithFailover(pair, '1h', kind, windowKey);
-    this.htfCache.set(pair, { hourOpen, candles: res.candles });
-    return res.candles;
+    const filtered = { ...res, candles: filterFxOpenMarketCandles(res.candles, '1h') };
+    this.htfCache.set(pair, { hourOpen, result: filtered });
+    return filtered;
+  }
+
+  private async notifyProviderSwitches(pair: string, timeframe: ScanTimeframe, rows: Array<{ series: 'LTF' | 'HTF'; step: ProviderSwitchStep }>): Promise<ProviderSwitchNotice | undefined> {
+    if (rows.length === 0) return undefined;
+    const grouped = new Map<string, ProviderSwitchNotice['changes'][number]>();
+    for (const { series, step } of rows) {
+      const key = `${step.fromProvider}|${step.toProvider}|${step.reason}`;
+      const existing = grouped.get(key);
+      if (existing) { if (!existing.series.includes(series)) existing.series.push(series); }
+      else grouped.set(key, { ...step, series: [series] });
+    }
+    const notice: ProviderSwitchNotice = { pair, timeframe, changedAt: new Date(this.deps.now()).toISOString(), changes: [...grouped.values()] };
+    try { await this.deps.onProviderSwitches?.(notice); } catch { /* Notifications must not change scan decisions. */ }
+    return notice;
   }
 
   public async scanPair(pairInput: string, timeframe: ScanTimeframe, trigger: ScanTrigger = 'MANUAL'): Promise<ScanResult> {
@@ -128,6 +162,7 @@ export class ScanService {
     const nowMs = this.deps.now();
     const expectedOpen = latestClosedCandleOpenMs(nowMs, timeframe);
     if (isFxMarketClosed(nowMs) || isFxBarClosed(new Date(expectedOpen).toISOString(), timeframe)) return this.noTrade(pair, timeframe, trigger, 'MARKET_CLOSED');
+    if (classifySessionAndKillZone(new Date(expectedOpen).toISOString()).kill_zone !== 'INSIDE_KILL_ZONE') return this.noTrade(pair, timeframe, trigger, 'OUTSIDE_KILL_ZONE');
     const payout = this.deps.getPayout(pair);
     if (!payout) return this.noTrade(pair, timeframe, trigger, 'PAYOUT_UNSET');
     if (payout.pct < MIN_PAYOUT_PCT) return this.noTrade(pair, timeframe, trigger, `PAYOUT_BELOW_MIN (${payout.pct}%)`);
@@ -141,25 +176,31 @@ export class ScanService {
 
     const kind = trigger === 'AUTO' ? 'AUTO' : 'ON_DEMAND';
     const windowKey = `${timeframe}|${expectedIso}`;
-    let primary: MarketDataResult & { failoverReason?: string };
-    let htf: Candle[];
+    let primary: FetchedMarketData | undefined;
+    let htf: FetchedMarketData | undefined;
     try {
       primary = await this.fetchWithFailover(displayScanPair(pair), timeframe, kind, windowKey);
       htf = await this.htfCandles(displayScanPair(pair), nowMs, kind, windowKey);
     } catch (error) {
+      const providerChanges = primary ? await this.notifyProviderSwitches(displayScanPair(pair), timeframe, primary.providerSwitches.map((step) => ({ series: 'LTF' as const, step }))) : undefined;
       const code = error instanceof MarketDataError ? error.code : 'PROVIDER_ERROR';
       const reason = code === 'RATE_LIMITED' ? `BUDGET_LIMIT: ${error instanceof Error ? error.message : ''}` : `${code}: ${error instanceof Error ? error.message : 'market data unavailable'}`;
-      return this.noTrade(pair, timeframe, trigger, reason);
+      return this.noTrade(pair, timeframe, trigger, reason, { provider: primary?.provider, provider_changes: providerChanges });
     }
-    const candles = primary.candles;
+    const providerChanges = await this.notifyProviderSwitches(displayScanPair(pair), timeframe, [
+      ...primary.providerSwitches.map((step) => ({ series: 'LTF' as const, step })),
+      ...htf.providerSwitches.map((step) => ({ series: 'HTF' as const, step })),
+    ]);
+    const candles = filterFxOpenMarketCandles(primary.candles, timeframe);
+    const htfCandles = htf.candles;
     const latest = candles.at(-1);
     if (!latest || Date.parse(latest.timestamp) !== expectedOpen) {
-      return this.noTrade(pair, timeframe, trigger, `DATA_QUALITY_FAIL: LATEST_CLOSED_CANDLE_MISSING (expected ${expectedIso}, got ${latest?.timestamp ?? 'none'})`, { provider: primary.provider, failover_reason: primary.failoverReason });
+      return this.noTrade(pair, timeframe, trigger, `DATA_QUALITY_FAIL: LATEST_CLOSED_CANDLE_MISSING (expected ${expectedIso}, got ${latest?.timestamp ?? 'none'})`, { provider: primary.provider, htf_provider: htf.provider, failover_reason: primary.failoverReason, provider_changes: providerChanges });
     }
 
     const telemetry = executeStrategyPipeline({
       decisionEngineVersion: 'V3', candles, currentCandleIndex: candles.length - 1, selectedTimeframe: timeframe,
-      htfCandles: htf, newsEvents: this.deps.newsEvents(), newsSourceOnline: this.deps.newsSourceOnline(),
+      htfCandles, newsEvents: this.deps.newsEvents(), newsSourceOnline: this.deps.newsSourceOnline(),
       dataProvenance: primary.dataProvenance, provider: primary.provider, pair: displayScanPair(pair), asset: displayScanPair(pair),
       payoutPct: payout.pct, payoutSetAt: payout.setAt, nowMs,
     });
@@ -168,7 +209,8 @@ export class ScanService {
     let result: ScanResult = {
       pair: displayScanPair(pair), timeframe, trigger, status: signal,
       reason: v3?.statusReason ?? telemetry.metadata.status_reason ?? telemetry.system_execution.rejection_reason ?? 'NO_QUALIFYING_SETUP',
-      signal_candle_open_ts: latest.timestamp, provider: primary.provider, failover_reason: primary.failoverReason, cached: false, telemetry,
+      signal_candle_open_ts: latest.timestamp, provider: primary.provider, htf_provider: htf.provider,
+      failover_reason: [primary.failoverReason, htf.failoverReason].filter(Boolean).join('; ') || undefined, provider_changes: providerChanges, cached: false, telemetry,
     };
     if (signal !== 'NO_TRADE' && v3) {
       const entryMs = expectedOpen + timeframeMs(timeframe);
@@ -182,6 +224,7 @@ export class ScanService {
           signal_candle_open_ts: latest.timestamp, entry_ts: new Date(entryMs).toISOString(), expiry_ts: new Date(entryMs + timeframeMs(timeframe)).toISOString(),
           valid_until: new Date(validUntil).toISOString(), payout_pct: payout.pct, breakeven: breakevenFor(payout.pct),
           mfci_total: v3.mfci.totalMfci, mfci_band: v3.mfciBand, engine_mode: v3.engineMode ?? 'PRICE_ONLY', provider: primary.provider,
+          ltf_provider: primary.provider, htf_provider: htf.provider,
           setup_id: telemetry.metadata.setup_id, experiment_id: ACTIVE_EXPERIMENT_ID, session: telemetry.market_context.session, kill_zone: telemetry.market_context.kill_zone,
         });
         result = { ...result, signal_id: signalId, valid_until: new Date(validUntil).toISOString() };
@@ -198,6 +241,7 @@ export class ScanService {
     const nowMs = this.deps.now();
     const expectedOpen = latestClosedCandleOpenMs(nowMs, timeframe);
     if (isFxMarketClosed(nowMs) || isFxBarClosed(new Date(expectedOpen).toISOString(), timeframe)) return this.deps.favorites().map((fav) => this.noTrade(normalizeScanPair(fav), timeframe, 'AUTO', 'MARKET_CLOSED'));
+    if (classifySessionAndKillZone(new Date(expectedOpen).toISOString()).kill_zone !== 'INSIDE_KILL_ZONE') return this.deps.favorites().map((fav) => this.noTrade(normalizeScanPair(fav), timeframe, 'AUTO', 'OUTSIDE_KILL_ZONE'));
     const results: ScanResult[] = [];
     let scanned = 0;
     for (const fav of this.deps.favorites()) {

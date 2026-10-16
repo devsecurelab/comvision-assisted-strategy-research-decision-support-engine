@@ -69,7 +69,7 @@ const mockHistoricalRequest = (async (input: RequestInfo | URL) => {
   values.push({ datetime: new Date(chunkEndExclusive).toISOString(), open: '1.1000', high: '1.1010', low: '1.0990', close: '1.1005' });
   return new Response(JSON.stringify({ status: 'ok', values }), { status: 200, headers: { 'Content-Type': 'application/json', Date: new Date().toUTCString() } });
 }) as typeof fetch;
-const historicalManager = new MarketFeedManager('mock-only-key', '', mockHistoricalRequest);
+const historicalManager = new MarketFeedManager('mock-only-key', mockHistoricalRequest);
 const fetchedChunks: MarketDataResult[] = [];
 for (const chunk of fetchChunks) {
   fetchedChunks.push(await historicalManager.fetchHistoricalCandles('EUR/USD', '5m', chunk.start, chunk.end));

@@ -11,9 +11,6 @@ import { normalizeCandles } from './providers/normalize';
 import { TwelveDataAdapter } from './providers/twelveDataAdapter';
 import { OandaAdapter } from './providers/oandaAdapter';
 import { TiingoAdapter } from './providers/tiingoAdapter';
-import { FinnhubAdapter } from './providers/finnhubAdapter';
-import { FinnhubWebSocketClient } from './providers/finnhubWebSocket';
-import { AlphaVantageAdapter } from './providers/alphaVantageAdapter';
 
 export type { MarketDataProvider } from './providers/contracts';
 export type ManualMarketDataProvider = ManuallySelectableProvider;
@@ -39,8 +36,6 @@ export interface ProviderStatus {
     twelveData: ProviderQuotaInfo;
     oanda: ProviderQuotaInfo;
     tiingo: ProviderQuotaInfo;
-    finnhub: ProviderQuotaInfo;
-    alphaVantage: ProviderQuotaInfo;
   };
   circuits: ProviderCircuitSnapshot[];
 }
@@ -91,10 +86,10 @@ function normalizePair(pair: string): string {
 }
 
 const LABEL: Record<MarketDataProvider, string> = {
-  TWELVE_DATA: 'Twelve Data', OANDA: 'OANDA v20 Practice', TIINGO: 'Tiingo FX', FINNHUB: 'Finnhub', ALPHA_VANTAGE: 'Alpha Vantage',
+  TWELVE_DATA: 'Twelve Data', OANDA: 'OANDA v20 Practice', TIINGO: 'Tiingo FX',
 };
 const QUOTA_KEY: Record<MarketDataProvider, keyof ProviderStatus['quota']> = {
-  TWELVE_DATA: 'twelveData', OANDA: 'oanda', TIINGO: 'tiingo', FINNHUB: 'finnhub', ALPHA_VANTAGE: 'alphaVantage',
+  TWELVE_DATA: 'twelveData', OANDA: 'oanda', TIINGO: 'tiingo',
 };
 export type ProviderKeys = Partial<Record<MarketDataProvider, string>>;
 
@@ -103,8 +98,6 @@ export function createProviderSchedulers(): Map<MarketDataProvider, RateLimitSch
     ['TWELVE_DATA', new RateLimitScheduler({ perMinute: Number(process.env.TD_PER_MINUTE || 8), perDay: Number(process.env.TD_PER_DAY || 800), autoDailyBudget: Number(process.env.TD_AUTO_DAILY_BUDGET || 560), hardStopDaily: Number(process.env.TD_HARD_STOP_DAILY || 640), minimumIntervalMs: 8_000, storageKey: 'rateLimitScheduler' })],
     ['OANDA', new RateLimitScheduler({ perMinute: 60, perDay: 20_000, autoDailyBudget: 14_000, hardStopDaily: 16_000, minimumIntervalMs: 1_000, storageKey: 'providerQuota.OANDA' })],
     ['TIINGO', new RateLimitScheduler({ perMinute: 50, perHour: 50, perDay: 1_000, autoDailyBudget: 700, hardStopDaily: 1_000, storageKey: 'providerQuota.TIINGO' })],
-    ['FINNHUB', new RateLimitScheduler({ perMinute: 60, perDay: 1_440, autoDailyBudget: 1_008, hardStopDaily: 1_440, storageKey: 'providerQuota.FINNHUB' })],
-    ['ALPHA_VANTAGE', new RateLimitScheduler({ perMinute: 5, perDay: 25, autoDailyBudget: 17, hardStopDaily: 25, storageKey: 'providerQuota.ALPHA_VANTAGE' })],
   ]);
 }
 
@@ -117,7 +110,7 @@ export class MarketFeedManager {
   private readonly fallbackManager: FallbackManager;
   private readonly cache = new Map<string, { minute: number; result: MarketDataResult }>();
   private readonly inFlight = new Map<string, Promise<MarketDataResult>>();
-  private readonly requestsToday: Record<MarketDataProvider, number> = { TWELVE_DATA: 0, OANDA: 0, TIINGO: 0, FINNHUB: 0, ALPHA_VANTAGE: 0 };
+  private readonly requestsToday: Record<MarketDataProvider, number> = { TWELVE_DATA: 0, OANDA: 0, TIINGO: 0 };
   private lastSuccessfulSync = '';
   private lastSuccessfulProvider: MarketDataProvider | undefined;
   private lastFailedProvider: MarketDataProvider | undefined;
@@ -126,35 +119,18 @@ export class MarketFeedManager {
   private readonly twelveDataAdapter: TwelveDataAdapter;
   private readonly oandaAdapter: OandaAdapter;
   private readonly tiingoAdapter: TiingoAdapter;
-  private readonly finnhubAdapter: FinnhubAdapter;
-  private readonly alphaVantageAdapter: AlphaVantageAdapter;
-  private finnhubStream?: FinnhubWebSocketClient;
 
-  constructor(twelveDataKey = '', alphaVantageKey = '', requestFn: typeof fetch = fetch, providerKeys: ProviderKeys = {}) {
+  constructor(twelveDataKey = '', requestFn: typeof fetch = fetch, providerKeys: ProviderKeys = {}) {
     this.request = requestFn;
     this.twelveDataAdapter = new TwelveDataAdapter(requestFn, twelveDataKey || providerKeys.TWELVE_DATA || process.env.TWELVE_DATA_API_KEY || process.env.TWELVEDATA_API_KEY || '');
-    this.alphaVantageAdapter = new AlphaVantageAdapter(requestFn, alphaVantageKey || providerKeys.ALPHA_VANTAGE || process.env.ALPHA_VANTAGE_API_KEY || process.env.ALPHAVANTAGE_API_KEY || '');
     const oandaToken = providerKeys.OANDA ?? process.env.OANDA_PRACTICE_TOKEN;
     const tiingoKey = providerKeys.TIINGO ?? process.env.TIINGO_API_KEY;
-    const finnhubKey = providerKeys.FINNHUB ?? process.env.FINNHUB_API_KEY;
-    if (finnhubKey) this.finnhubStream = new FinnhubWebSocketClient(finnhubKey);
     this.oandaAdapter = new OandaAdapter(requestFn, oandaToken, providerKeys.OANDA ? process.env.OANDA_ACCOUNT_ID || '' : undefined);
     this.tiingoAdapter = new TiingoAdapter(requestFn, tiingoKey);
-    this.finnhubAdapter = new FinnhubAdapter(requestFn, finnhubKey, this.finnhubStream);
-    const adapters: IForexDataProvider[] = [
-      this.twelveDataAdapter,
-      this.oandaAdapter,
-      this.tiingoAdapter,
-      this.finnhubAdapter,
-      this.alphaVantageAdapter,
-    ];
+    const adapters: IForexDataProvider[] = [this.twelveDataAdapter, this.oandaAdapter, this.tiingoAdapter];
     for (const adapter of adapters) this.adapters.set(adapter.id, adapter);
     this.fallbackManager = new FallbackManager(adapters);
-    this.activeProvider = this.twelveDataAdapter.isConfigured() ? 'TWELVE_DATA' : this.alphaVantageAdapter.isConfigured() ? 'ALPHA_VANTAGE' : 'TWELVE_DATA';
-  }
-
-  public setKeys(twelveKey: string, avKey: string): void {
-    this.setProviderKeys({ TWELVE_DATA: twelveKey, ALPHA_VANTAGE: avKey });
+    this.activeProvider = 'TWELVE_DATA';
   }
 
   /** Runtime dashboard credentials are held only in memory; .env is the persistent configuration path. */
@@ -162,15 +138,7 @@ export class MarketFeedManager {
     if (keys.TWELVE_DATA !== undefined) { this.twelveDataAdapter.setApiKey(keys.TWELVE_DATA); this.fallbackManager.reset('TWELVE_DATA'); }
     if (keys.OANDA !== undefined) { this.oandaAdapter.setApiKey(keys.OANDA); this.fallbackManager.reset('OANDA'); }
     if (keys.TIINGO !== undefined) { this.tiingoAdapter.setApiKey(keys.TIINGO); this.fallbackManager.reset('TIINGO'); }
-    if (keys.FINNHUB !== undefined) {
-      this.finnhubStream?.stop();
-      this.finnhubStream = keys.FINNHUB ? new FinnhubWebSocketClient(keys.FINNHUB) : undefined;
-      this.finnhubAdapter.setCredentials(keys.FINNHUB, this.finnhubStream);
-      this.fallbackManager.reset('FINNHUB');
-    }
-    if (keys.ALPHA_VANTAGE !== undefined) { this.alphaVantageAdapter.setApiKey(keys.ALPHA_VANTAGE); this.fallbackManager.reset('ALPHA_VANTAGE'); }
     this.cache.clear();
-    if (!this.isConfigured(this.activeProvider)) this.activeProvider = this.twelveDataAdapter.isConfigured() ? 'TWELVE_DATA' : this.alphaVantageAdapter.isConfigured() ? 'ALPHA_VANTAGE' : 'TWELVE_DATA';
   }
 
   public selectProvider(provider: ManuallySelectableProvider): ProviderStatus {

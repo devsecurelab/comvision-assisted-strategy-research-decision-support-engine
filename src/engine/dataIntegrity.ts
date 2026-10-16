@@ -17,22 +17,32 @@ export interface DataQualityReport { ok: boolean; status: 'DATA_QUALITY_OK' | 'D
 
 export const MAX_CLOCK_DRIFT_MS = 2_000;
 const TIMEFRAME_MINUTES: Record<Timeframe, number> = { '1m': 1, '5m': 5, '15m': 15, '30m': 30, '1h': 60 };
+const NEW_YORK_WEEK_PARTS = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+});
 
 export function timeframeMs(timeframe: Timeframe): number {
   return TIMEFRAME_MINUTES[timeframe] * 60_000;
 }
 
-/** Spot FX closure for this engine: Friday 21:00 UTC through Sunday 21:00 UTC, plus Dec 25 and Jan 1. */
+/** Spot FX closure: Friday 17:00 through Sunday 17:00 America/New_York, plus UTC Dec 25 and Jan 1. */
 export function isScheduledMarketClosure(ms: number): boolean {
   const date = new Date(ms);
-  const day = date.getUTCDay();
-  const minuteOfDay = date.getUTCHours() * 60 + date.getUTCMinutes();
   const month = date.getUTCMonth();
   const dom = date.getUTCDate();
   if ((month === 11 && dom === 25) || (month === 0 && dom === 1)) return true;
-  if (day === 6) return true;
-  if (day === 5 && minuteOfDay >= 21 * 60) return true;
-  return day === 0 && minuteOfDay < 21 * 60;
+  const parts = NEW_YORK_WEEK_PARTS.formatToParts(date);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value;
+  const weekday = get('weekday');
+  const minuteOfDay = Number(get('hour')) * 60 + Number(get('minute'));
+  if (weekday === 'Sat') return true;
+  if (weekday === 'Fri') return minuteOfDay >= 17 * 60;
+  return weekday === 'Sun' && minuteOfDay < 17 * 60;
+}
+
+/** A bar is unavailable when either its open or close boundary falls inside a scheduled closure. */
+export function isScheduledMarketBarClosed(openMs: number, durationMs: number): boolean {
+  return isScheduledMarketClosure(openMs) || isScheduledMarketClosure(openMs + durationMs);
 }
 
 /**
@@ -71,7 +81,7 @@ export function validateCandleSeries(
       else if (ms < previousMs) issues.push({ code: 'NON_MONOTONIC', index, detail: 'Candles must be strictly ascending in time.' });
       else if (interval && ms - previousMs > interval) {
         for (let slot = previousMs + interval; slot < ms; slot += interval) {
-          if (!isScheduledMarketClosure(slot)) {
+          if (!isScheduledMarketBarClosed(slot, interval)) {
             issues.push({ code: 'CANDLE_GAP', index, detail: `Missing ${options.timeframe} candle at ${new Date(slot).toISOString()}.` });
             break;
           }

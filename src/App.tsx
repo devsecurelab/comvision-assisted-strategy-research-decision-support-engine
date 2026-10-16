@@ -113,9 +113,7 @@ export default function App() {
     'CLEAR' | 'ACTIVE' | 'NEWS_DATA_UNAVAILABLE'
   >('CLEAR');
   const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('5m');
-  const [selectedProvider, setSelectedProvider] = useState<
-    'TWELVE_DATA' | 'ALPHA_VANTAGE'
-  >('TWELVE_DATA');
+  const [selectedProvider, setSelectedProvider] = useState<'TWELVE_DATA'>('TWELVE_DATA');
 
   // Modals state
   const [inspectTelemetry, setInspectTelemetry] = useState<MasterTelemetry | null>(
@@ -175,7 +173,7 @@ export default function App() {
         }
         if (data.providerStatus) {
           setProviderStatus(data.providerStatus);
-          if (data.providerStatus.provider === 'TWELVE_DATA' || data.providerStatus.provider === 'ALPHA_VANTAGE') setSelectedProvider(data.providerStatus.provider);
+          if (data.providerStatus.provider === 'TWELVE_DATA') setSelectedProvider('TWELVE_DATA');
         }
         setScannerActive(data.settings?.scannerActive ?? true);
         if (data.newsStatus) {
@@ -385,7 +383,7 @@ export default function App() {
     }
   };
 
-  const handleSelectProvider = async (provider: 'TWELVE_DATA' | 'ALPHA_VANTAGE') => {
+  const handleSelectProvider = async (provider: 'TWELVE_DATA') => {
     setSelectedProvider(provider);
     if (!authToken) return;
     try {

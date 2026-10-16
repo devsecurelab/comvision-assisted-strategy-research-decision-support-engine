@@ -1,45 +1,34 @@
-# Provider contract notes for rotating FX adapters
+# Provider Adapter Contracts (active scope)
 
-Research conducted against each provider's official documentation pages (opened/read directly) on 2026-10-16. These are adapter constraints, not guarantees of any account's entitlement. Real credentials were not used in this research.
+Research on the retained providers' official documentation was recorded on 2026-10-16. These notes describe adapter constraints, not any account's entitlement. No real credentials were used in research or tests.
+
+## Active provider order
+
+Automatic fallback is Twelve Data → OANDA v20 Practice → Tiingo FX, skipping providers that are not configured or whose circuit is unavailable. Credentials remain server-side. Dashboard-entered credentials are held in memory only; `.env` values persist locally and must not be committed. Historical R8 retrieval requires Twelve Data; offline CSV replay does not require an API key.
 
 ## Twelve Data
 
-- FX candles: `GET https://api.twelvedata.com/time_series`; recommended server-side header `Authorization: apikey <key>`; pair uses `EUR/USD`; requested interval strings include `1min`, `5min`, `15min`, `30min`, `1h`; timestamps are candle-open and normalized via `timezone=UTC`; values rows expose string OHLC and possibly volume, but FX volume is not promised/defined as centralized volume. Default history is 30 rows; max 5,000. `time_series` is 1 API credit per symbol.
-- Published quota is account-tier dependent and current pricing page displays inconsistent tier figures; Basic states 8 credits/minute and 800/day, paid plan rates differ. `api_usage` account `plan_limit` is authoritative. Code defaults retain 8/min and 800/day conservatively, but these may not match a key's subscription. Runtime scheduling also enforces an 8-second minimum between requests (including across concurrent scan paths) to avoid bursts against the Basic-tier ceiling.
+- FX candles: `GET https://api.twelvedata.com/time_series`; server-side header `Authorization: apikey <key>`; pair format `EUR/USD`; supported intervals include 1m, 5m, 15m, 30m, and 1h. Candle-open timestamps are normalized to UTC. OHLC rows may include volume, but FX volume is not centralized traded volume.
+- `time_series` costs one credit per symbol. Public quota depends on account tier; the Basic tier documents 8 credits/minute and 800/day. Runtime defaults use 8/min and 800/day and enforce an 8-second minimum between requests, including concurrent requests. Verify the account's actual plan limits before operation.
 - Official sources: [time series](https://twelvedata.com/docs/llms/market-data/time-series.md), [quickstart/auth](https://twelvedata.com/docs/quickstart), [API usage](https://twelvedata.com/docs/llms/advanced/api-usage.md), [pricing](https://twelvedata.com/pricing), [credits](https://support.twelvedata.com/en/articles/5615854-credits), [history](https://support.twelvedata.com/en/articles/5214728-getting-historical-data).
 
 ## OANDA v20 Practice
 
-- Generic instrument candles: `GET https://api-fxpractice.oanda.com/v3/instruments/{instrument}/candles`, `EUR_USD`; bearer token in `Authorization`; `granularity` M1/M5/M15/M30/H1, `count` max 5,000, `price=M` yields mid OHLC; response `time` is UTC bar start, `complete` indicates finality.
-- OANDA `volume` is number of provider-created prices in interval, not traded units/central FX volume; adapter sets volume null so it cannot satisfy volume-dependent gates. Account ID is not required for generic instrument candles (it is relevant to account endpoints).
-- Official limit sources conflict: development guide says 120 REST req/s per IP; best practices recommends at most 100 req/s on persistent connections and 2 new connections/s; API comparison separately lists “30” with unclear units. Adapter enforces a conservative minimum 1s spacing instead of relying on the high published ceilings.
+- Instrument candles use `GET https://api-fxpractice.oanda.com/v3/instruments/{instrument}/candles`, e.g. `EUR_USD`; bearer token stays in the `Authorization` header. Supported granularities include M1/M5/M15/M30/H1; `complete` identifies closed candles; UTC candle-start timestamps are used.
+- OANDA's `volume` is the number of provider-created prices in an interval, not traded units or consolidated FX volume. The adapter sets candle volume to `null`, preventing this field from satisfying volume-dependent gates.
+- Published REST limits differ across OANDA documentation. The adapter enforces a conservative one-second minimum interval instead of relying on the largest stated ceiling.
 - Official sources: [development guide](https://developer.oanda.com/rest-live-v20/development-guide/), [candles endpoint](https://developer.oanda.com/rest-live-v20/instrument-ep/), [definitions](https://developer.oanda.com/rest-live-v20/instrument-df/), [auth](https://developer.oanda.com/rest-live-v20/authentication/), [best practices](https://developer.oanda.com/rest-live-v20/best-practices/), [API comparison](https://developer.oanda.com/rest-live-v20/api-comparison/).
 
 ## Tiingo FX
 
-- Historical FX endpoint: `GET https://api.tiingo.com/tiingo/fx/{ticker}/prices`; `EUR/USD` maps to `EURUSD`; auth header `Authorization: Token <key>`; official example uses `resampleFreq=5min` and `startDate=YYYY-MM-DD`.
-- FX REST is labeled beta. Docs show price row fields `date`, `ticker`, `open`, `high`, `low`, `close`; product overview also calls last field `Last`. Docs omit timezone semantics, complete supported resampling values (only 5min/1day examples), and endDate contract. The adapter rejects timezone-less returned dates rather than guessing UTC; 1m/15m/30m/60m map to common strings but the three unlisted resample intervals require account-level contract validation. No volume field is documented.
-- Published FX product plan quotas: Free 50/hour and 1,000/day; Power 10,000/hour and 100,000/day; Commercial 20,000/hour and 150,000/day. Daily reset is midnight EST; account/custom plan can differ. The implementation uses the Free tier cap as a conservative default; app scanner calls at candle-close cadence, not continuous polling.
+- Historical FX endpoint: `GET https://api.tiingo.com/tiingo/fx/{ticker}/prices`; `EUR/USD` maps to `EURUSD`; server-side `Authorization: Token <key>`; official examples use `resampleFreq=5min` and `startDate=YYYY-MM-DD`.
+- FX REST is labeled beta. Documentation does not fully specify timezone semantics, all supported resampling values, or `endDate`; the adapter rejects timezone-less timestamps rather than assuming UTC. No volume field is documented, so volume is set unavailable.
+- The Free product tier documents 50 requests/hour and 1,000/day; runtime defaults are capped at that tier. Confirm the account's actual plan and resampling behavior before operational use.
 - Official sources: [FX docs](https://www.tiingo.com/documentation/forex), [connection/auth](https://www.tiingo.com/documentation/general/connecting), [overview](https://www.tiingo.com/documentation/general/overview), [symbology](https://www.tiingo.com/documentation/appendix/symbology), [FX product quotas](https://www.tiingo.com/products/forex-api).
 
-## Finnhub
+## Operational safeguards
 
-- REST FX candle endpoint: `GET https://finnhub.io/api/v1/forex/candle`; API key may be sent with `X-Finnhub-Token`; resolution values `1,5,15,30,60`; `from`/`to` UNIX seconds. Candle endpoint is explicitly Premium Access Required. Example symbol is `OANDA:EUR_USD`; actual exchange symbol mapping should be validated per available symbols. Candle timestamp unit is epoch seconds, but open/close boundary semantics and aggregation timezone are not stated. `v` has no documented FX unit; adapter discards it for volume gates.
-- Limits: docs state a 30 req/s technical ceiling and HTTP 429; pricing shows 60/min Free and 900/min paid, but this Forex Candles endpoint's Premium entitlement/quota per tier is not mapped publicly. Do not treat the plan figures as access guarantee.
-- WebSocket: `wss://ws.finnhub.io?token=...`; send `{"type":"subscribe","symbol":"OANDA:EUR_USD"}`. Trade messages contain `data[]` objects with `s` symbol, `p` price, `t` UNIX milliseconds, `v` volume, and optional conditions. Docs explicitly say one API key may open only one connection and FXCM, Forex.com, and FHFX do not support streaming; use Forex Candles or All Rates there. The official docs do not publish a 50-symbol limit or reconnect algorithm; implementation follows the task specification's 50-symbol cap conservatively and manages reconnect backoff locally.
-- WebSocket tick streaming is used only as a rolling in-memory OHLC source after a sufficient set of complete contiguous bars exists; REST candle history remains the startup/warm-up fallback. Tick updates do not establish consolidated FX volume or a full exchange tape. No orders or trading actions are implemented.
-- Official sources: [Forex candles](https://finnhub.io/docs/api/forex-candles), [Forex symbols](https://finnhub.io/docs/api/forex-symbols), [WebSocket trades](https://finnhub.io/docs/api/websocket-trades), [auth](https://finnhub.io/docs/api/authentication), [rate limits](https://finnhub.io/docs/api/rate-limit), [pricing](https://finnhub.io/pricing).
-
-## Alpha Vantage
-
-- `GET https://www.alphavantage.co/query`, `function=FX_INTRADAY`, `from_symbol`, `to_symbol`, intervals `1min`, `5min`, `15min`, `30min`, `60min`, query `apikey`; response OHLC strings with `Meta Data` timezone UTC, no volume. FX_INTRADAY is marked premium; a general free 25 requests/day statement is not a guarantee of free FX_INTRADAY entitlement. Premium published tiers are 75/150/300/600/1200 req/min; paid tiers have no daily caps.
-- The implementation supports legacy `ALPHA_VANTAGE_API_KEY` and requested `ALPHAVANTAGE_API_KEY`; provider volume fields are discarded and free/premium entitlement errors fall through to the next configured provider.
-- Official sources: [API docs](https://www.alphavantage.co/documentation/), [official FX demo response](https://www.alphavantage.co/query?function=FX_INTRADAY&from_symbol=EUR&to_symbol=USD&interval=5min&apikey=demo), [support limits](https://www.alphavantage.co/support/), [premium plans](https://www.alphavantage.co/premium/).
-
-## Cross-provider safeguards
-
-- The runtime order remains Twelve Data → OANDA Practice → Tiingo → Finnhub → Alpha Vantage. Provider-specific auth stays server-side; no secret is written to source, docs, or Git.
-- On transport timeout (3s), HTTP 429, or HTTP 5xx, that provider is circuit-opened for a configurable five-minute default and skipped; after cooldown a single half-open probe is permitted. A successful provider resets its circuit. Other providers are attempted immediately in sequence.
-- Admins can enter keys through a protected dashboard route. Dashboard-entered keys are memory-only for the running server process and are neither echoed nor audit-logged; use `.env` for restart-persistent configuration. Supported names include `TWELVE_DATA_API_KEY`/`TWELVEDATA_API_KEY`, `OANDA_PRACTICE_TOKEN` (+ optional `OANDA_ACCOUNT_ID`), `TIINGO_API_KEY`, `FINNHUB_API_KEY`, and `ALPHA_VANTAGE_API_KEY`/`ALPHAVANTAGE_API_KEY`.
-- Finnhub WS bars are non-synthetic, in-memory OHLC aggregates. They are served only after at least 25 closed contiguous bars pass the engine's candle-quality validator; otherwise Finnhub REST is attempted for warm-up. REST quotas are not consumed when a validated buffered candle series serves the request. WS behavior remains subject to the one-connection-per-key restriction.
-- The implementation is decision-support only; no broker order placement exists. Provider endpoint/unit tests use mocked HTTP and WebSocket payloads. Live provider endpoint contracts and plan entitlements still require validation against each configured user's account before operational use.
+- Provider tokens are not included in public status, health responses, test messages, or provider-switch notifications.
+- Circuit-breaker status and provider provenance are visible in `/health`; scan/ledger records distinguish LTF and HTF source providers.
+- Provider adapter contract tests use mocked HTTP responses only. Account-specific connectivity, data entitlements, and live quotas still require owner-side validation.
+- This engine is decision-support only. It does not place broker orders.

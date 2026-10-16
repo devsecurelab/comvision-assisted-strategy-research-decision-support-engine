@@ -121,7 +121,7 @@ export const PrivacyView: React.FC = () => {
             <strong>We do NOT sell, rent, monetize, or disclose operator data to any third-party advertisers, brokers, or data brokers.</strong>
           </p>
           <p>
-            <strong>External Data Feed Providers:</strong> If an operator configures credentials for Twelve Data, OANDA Practice, Tiingo FX, Finnhub, or Alpha Vantage, the platform communicates with those services solely to retrieve market-data candles or Finnhub price updates. No operator identity, account handle, or personal information is sent to market-data providers; provider tokens remain server-side.
+            <strong>External Data Feed Providers:</strong> If an operator configures credentials for Twelve Data, OANDA Practice, or Tiingo FX, the platform communicates with those services solely to retrieve market-data candles. No operator identity, account handle, or personal information is sent to market-data providers; provider tokens remain server-side.
           </p>
         </div>
       </section>

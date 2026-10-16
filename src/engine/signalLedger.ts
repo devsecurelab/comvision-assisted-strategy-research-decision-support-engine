@@ -27,6 +27,8 @@ export interface SignalPayload {
   mfci_band: string;
   engine_mode: 'FULL' | 'PRICE_ONLY';
   provider: string;
+  ltf_provider?: string;
+  htf_provider?: string;
   setup_id: string;
   experiment_id: string;
   session?: string;
