@@ -25,6 +25,8 @@ data/*.json
 data/*.jsonl
 data/**/*.csv
 data/r8/
+data/r8-smoke/
+data/r8-smoke-rerun/
 data/.admin_bootstrap_secret
 !data/.gitkeep
 data_test/
