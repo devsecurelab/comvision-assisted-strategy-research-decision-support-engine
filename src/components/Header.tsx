@@ -14,6 +14,10 @@ import {
 import { ProviderStatus } from '../engine/dataProviders';
 import { PWAInstallButton } from './PWAInstallButton';
 
+const PROVIDER_LABELS: Record<string, string> = {
+  TWELVE_DATA: 'Twelve Data', OANDA: 'OANDA Practice', TIINGO: 'Tiingo FX', FINNHUB: 'Finnhub', ALPHA_VANTAGE: 'Alpha Vantage',
+};
+
 interface HeaderProps {
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
@@ -109,10 +113,8 @@ export const Header: React.FC<HeaderProps> = ({
             <strong className={
               providerStatus?.status === 'ONLINE' ? 'text-emerald-300' : 'text-rose-300'
             }>
-              {providerStatus?.provider === 'TWELVE_DATA'
-                ? `Twelve Data${providerStatus?.status === 'ONLINE' ? ' • VERIFIED' : ' • NOT VERIFIED'}`
-                : providerStatus?.provider === 'ALPHA_VANTAGE'
-                ? `Alpha Vantage${providerStatus?.status === 'ONLINE' ? ' • VERIFIED' : ' • NOT VERIFIED'}`
+              {providerStatus?.provider
+                ? `${PROVIDER_LABELS[providerStatus.provider] || providerStatus.provider}${providerStatus.status === 'ONLINE' ? ' • VERIFIED' : ' • NOT VERIFIED'}`
                 : 'Live provider not selected'}
             </strong>
           </span>

@@ -63,7 +63,7 @@ export class NotificationService {
       `Auto-scan: ${loopState ? `${loopState.enabled ? 'ON' : 'OFF'} ${loopState.timeframe}` : 'NOT_WIRED'} | last run ${loopState?.lastRunAt ?? 'never'}${loopState?.lastError ? ` | last error ${loopState.lastError}` : ''}`,
       `Last cycle: ${loopState?.lastSummary || 'none'}`,
       `Provider: last OK ${clock.lastSuccessfulProvider ?? 'none'} at ${clock.lastSuccessfulSync || 'never'}${clock.lastFailedProvider ? ` | last failed ${clock.lastFailedProvider}` : ''}`,
-      `Credits today: ${scheduler.dayUsed}/${scheduler.perDay} (hard stop ${scheduler.hardStopDaily}, auto ${scheduler.autoUsed}/${scheduler.autoDailyBudget}) | minute ${scheduler.minuteUsed}/${scheduler.perMinute}`,
+      `Provider requests today (combined): ${scheduler.dayUsed}/${scheduler.perDay} (internal hard stop ${scheduler.hardStopDaily}, auto ${scheduler.autoUsed}/${scheduler.autoDailyBudget}) | minute ${scheduler.minuteUsed}/${scheduler.perMinute}`,
       `Clock drift: ${clock.driftMs === null ? 'UNAVAILABLE' : `${clock.driftMs} ms`} (${clock.status})`,
       `News source: ${newsGuard.isSourceOnline() ? 'ONLINE' : 'OFFLINE (fail-closed)'}`,
       `Ledger: ${ledgerCheck ? (ledgerCheck.ok ? `OK (${ledgerCheck.entries} entries)` : `TAMPERED ${ledgerCheck.reason} at ${ledgerCheck.brokenAt}`) : 'NOT_WIRED'}`,

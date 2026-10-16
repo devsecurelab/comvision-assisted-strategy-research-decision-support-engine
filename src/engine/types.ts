@@ -281,7 +281,7 @@ export interface MasterTelemetry {
     engine_mode?: 'FULL' | 'PRICE_ONLY';
     excluded_stages?: Array<{ stage: number; name: string; reason: string }>;
     decision_engine?: 'decision_engine_v3';
-    provider?: 'TWELVE_DATA' | 'ALPHA_VANTAGE' | 'UNAVAILABLE';
+    provider?: 'TWELVE_DATA' | 'OANDA' | 'TIINGO' | 'FINNHUB' | 'ALPHA_VANTAGE' | 'UNAVAILABLE';
     poc_label?: 'PROVIDER_VOLUME_POC' | 'UNAVAILABLE';
     signal_candle_open_ts?: string | null;
     htf_bias?: 'BULLISH' | 'BEARISH' | 'UNCLEAR';
@@ -390,7 +390,7 @@ export interface MasterTelemetry {
     details?: string;
   };
   provider_provenance?: {
-    provider?: 'TWELVE_DATA' | 'ALPHA_VANTAGE';
+    provider?: 'TWELVE_DATA' | 'OANDA' | 'TIINGO' | 'FINNHUB' | 'ALPHA_VANTAGE';
     provider_state?: string;
     rate_limit_usage?: string;
     timestamp_ingested: string;

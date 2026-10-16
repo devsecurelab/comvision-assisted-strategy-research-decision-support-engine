@@ -82,21 +82,31 @@ export class ScanService {
 
   /** One provider per scan window; a failover is sticky for the window and its reason is preserved. */
   private async fetchWithFailover(pair: string, timeframe: Timeframe, kind: 'AUTO' | 'ON_DEMAND', windowKey: string): Promise<MarketDataResult & { failoverReason?: string }> {
-    const providers = this.deps.providers();
-    if (this.cycleProvider?.cycle === windowKey) {
-      const res = await this.deps.fetchCandles(pair, timeframe, this.cycleProvider.provider, kind);
-      return { ...res, failoverReason: this.cycleProvider.reason };
-    }
     let lastError: unknown;
-    for (let i = 0; i < providers.length; i++) {
+    let failedProvider: MarketDataProvider | undefined;
+    const attempted = new Set<MarketDataProvider>();
+    if (this.cycleProvider?.cycle === windowKey) {
+      const sticky = this.cycleProvider;
+      attempted.add(sticky.provider);
       try {
-        const res = await this.deps.fetchCandles(pair, timeframe, providers[i], kind);
-        const reason = i > 0 && lastError instanceof MarketDataError ? `${providers[0]} ${lastError.code}` : undefined;
-        this.cycleProvider = { cycle: windowKey, provider: providers[i], reason };
+        const res = await this.deps.fetchCandles(pair, timeframe, sticky.provider, kind);
+        return { ...res, failoverReason: sticky.reason };
+      } catch (error) {
+        lastError = error;
+        failedProvider = sticky.provider;
+        this.cycleProvider = undefined;
+      }
+    }
+    const providers = this.deps.providers().filter((provider) => !attempted.has(provider));
+    for (const provider of providers) {
+      try {
+        const res = await this.deps.fetchCandles(pair, timeframe, provider, kind);
+        const reason = lastError instanceof MarketDataError ? `${failedProvider || 'PRIOR_PROVIDER'} ${lastError.code}` : undefined;
+        this.cycleProvider = { cycle: windowKey, provider, reason };
         return { ...res, failoverReason: reason };
       } catch (error) {
         lastError = error;
-        if (error instanceof MarketDataError && error.code === 'RATE_LIMITED') throw error;
+        failedProvider = error instanceof MarketDataError ? error.provider : provider;
       }
     }
     throw lastError ?? new MarketDataError('PROVIDER_NOT_CONFIGURED', 'No market-data provider configured.', 'TWELVE_DATA');

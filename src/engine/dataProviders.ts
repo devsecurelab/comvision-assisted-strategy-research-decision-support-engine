@@ -1,17 +1,31 @@
-// Market data adapters. Live provenance is assigned only after a successful provider HTTP response.
-// Replay is retained only as a fail-closed test provenance; normal production selection is live-provider-only.
+// Market data adapters. Live provenance is assigned only after validated provider data.
+// All provider credentials remain server-side; replay is never used as a live fallback.
 
-import { Candle, DataProvenance, Timeframe } from './types';
+import type { Candle, DataProvenance, Timeframe } from './types';
 import { RateLimitScheduler } from './rateLimitScheduler';
 import { MAX_CLOCK_DRIFT_MS, measureClockDrift } from './dataIntegrity';
+import { PROVIDER_ORDER, type IForexDataProvider, type MarketDataProvider, type ManuallySelectableProvider, type ProviderCircuitSnapshot } from './providers/contracts';
+import { FallbackManager } from './providers/fallbackManager';
+import { ProviderAdapterError } from './providers/http';
+import { normalizeCandles } from './providers/normalize';
+import { TwelveDataAdapter } from './providers/twelveDataAdapter';
+import { OandaAdapter } from './providers/oandaAdapter';
+import { TiingoAdapter } from './providers/tiingoAdapter';
+import { FinnhubAdapter } from './providers/finnhubAdapter';
+import { FinnhubWebSocketClient } from './providers/finnhubWebSocket';
+import { AlphaVantageAdapter } from './providers/alphaVantageAdapter';
 
-export type MarketDataProvider = 'TWELVE_DATA' | 'ALPHA_VANTAGE';
+export type { MarketDataProvider } from './providers/contracts';
+export type ManualMarketDataProvider = ManuallySelectableProvider;
 
 export interface ProviderQuotaInfo {
   used: number;
   limit: number;
+  hourlyUsed?: number;
+  hourlyLimit?: number;
+  perMinute: number;
   configured: boolean;
-  status: 'ONLINE' | 'STANDBY' | 'FALLBACK_LIVE' | 'RATE_LIMITED' | 'UNCONFIGURED';
+  status: 'ONLINE' | 'STANDBY' | 'OPEN' | 'HALF_OPEN' | 'RATE_LIMITED' | 'UNCONFIGURED';
 }
 
 export interface ProviderStatus {
@@ -23,8 +37,12 @@ export interface ProviderStatus {
   provenanceDetails: string;
   quota: {
     twelveData: ProviderQuotaInfo;
+    oanda: ProviderQuotaInfo;
+    tiingo: ProviderQuotaInfo;
+    finnhub: ProviderQuotaInfo;
     alphaVantage: ProviderQuotaInfo;
   };
+  circuits: ProviderCircuitSnapshot[];
 }
 
 export interface MarketDataResult {
@@ -65,152 +83,120 @@ export function timeframeToMinutes(tf: Timeframe = '5m'): number {
   }
 }
 
-const timeframeToTwelveDataInterval: Record<Timeframe, string> = {
-  '1m': '1min',
-  '5m': '5min',
-  '15m': '15min',
-  '30m': '30min',
-  '1h': '1h',
-};
-
-const timeframeToAlphaVantageInterval: Record<Timeframe, string> = {
-  '1m': '1min',
-  '5m': '5min',
-  '15m': '15min',
-  '30m': '30min',
-  '1h': '60min',
-};
-
-function cloneCandles(candles: Candle[]): Candle[] {
-  return candles.map((candle) => ({ ...candle }));
-}
-
+function cloneCandles(candles: Candle[]): Candle[] { return candles.map((candle) => ({ ...candle })); }
 function normalizePair(pair: string): string {
   const normalized = pair.trim().toUpperCase().replace(/\s+/g, '');
-  if (!/^[A-Z0-9._-]+\/[A-Z0-9._-]+$/.test(normalized)) {
-    throw new Error('Pair must use BASE/QUOTE format, for example EUR/USD.');
-  }
+  if (!/^[A-Z0-9._-]+\/[A-Z0-9._-]+$/.test(normalized)) throw new Error('Pair must use BASE/QUOTE format, for example EUR/USD.');
   return normalized;
 }
 
-function parseProviderTimestamp(value: unknown, timezone = 'UTC'): string {
-  if (typeof value !== 'string' || !value.trim()) throw new Error('Provider returned an invalid candle timestamp.');
-  const raw = value.trim();
-  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw);
-  let timestamp: Date;
-  if (hasTimezone) {
-    timestamp = new Date(raw);
-  } else {
-    const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
-    if (!match) throw new Error('Provider returned an unparsable candle timestamp.');
-    const targetUtc = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6]));
-    let candidateUtc = targetUtc;
-    const formatter = new Intl.DateTimeFormat('en-CA', {
-      timeZone: timezone,
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-    });
-    for (let i = 0; i < 3; i++) {
-      const parts = Object.fromEntries(formatter.formatToParts(new Date(candidateUtc)).map((part) => [part.type, part.value]));
-      const representedUtc = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute), Number(parts.second));
-      const correction = targetUtc - representedUtc;
-      candidateUtc += correction;
-      if (!correction) break;
-    }
-    timestamp = new Date(candidateUtc);
-  }
-  if (!Number.isFinite(timestamp.getTime())) throw new Error('Provider returned an unparsable candle timestamp.');
-  return timestamp.toISOString();
-}
+const LABEL: Record<MarketDataProvider, string> = {
+  TWELVE_DATA: 'Twelve Data', OANDA: 'OANDA v20 Practice', TIINGO: 'Tiingo FX', FINNHUB: 'Finnhub', ALPHA_VANTAGE: 'Alpha Vantage',
+};
+const QUOTA_KEY: Record<MarketDataProvider, keyof ProviderStatus['quota']> = {
+  TWELVE_DATA: 'twelveData', OANDA: 'oanda', TIINGO: 'tiingo', FINNHUB: 'finnhub', ALPHA_VANTAGE: 'alphaVantage',
+};
+export type ProviderKeys = Partial<Record<MarketDataProvider, string>>;
 
-function parseCandleRows(rows: unknown, provider: MarketDataProvider, timeframe: Timeframe, timezone = 'UTC', requireClosed = true): Candle[] {
-  if (!Array.isArray(rows)) throw new MarketDataError('INVALID_PROVIDER_RESPONSE', 'Provider response did not contain a candle array.', provider);
-  const candles: Candle[] = rows.map((row: any) => {
-    const open = Number(row?.open ?? row?.['1. open']);
-    const high = Number(row?.high ?? row?.['2. high']);
-    const low = Number(row?.low ?? row?.['3. low']);
-    const close = Number(row?.close ?? row?.['4. close']);
-    const volumeValue = row?.volume ?? row?.['5. volume'];
-    const volume = volumeValue === undefined || volumeValue === null || volumeValue === '' ? null : Number(volumeValue);
-    if (![open, high, low, close].every(Number.isFinite) || (volume !== null && (!Number.isFinite(volume) || volume < 0)) || open <= 0 || high <= 0 || low <= 0 || close <= 0 || high < Math.max(open, close, low) || low > Math.min(open, close, high)) {
-      throw new MarketDataError('INVALID_PROVIDER_RESPONSE', 'Provider returned malformed OHLC values.', provider);
-    }
-    return {
-      timestamp: parseProviderTimestamp(row.datetime ?? row.timestamp, timezone),
-      open,
-      high,
-      low,
-      close,
-      volume,
-    };
-  });
-
-  candles.sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
-  const intervalMs = timeframeToMinutes(timeframe) * 60_000;
-  const nowMs = Date.now();
-  const closed = requireClosed ? candles.filter((candle) => Date.parse(candle.timestamp) + intervalMs <= nowMs) : candles;
-  const deduplicated = closed.filter((candle, index) => index === 0 || candle.timestamp !== closed[index - 1].timestamp);
-  if (deduplicated.length < 25) {
-    throw new MarketDataError('INSUFFICIENT_HISTORY', `Provider returned ${deduplicated.length} candles; at least 25 are required.`, provider);
-  }
-  return deduplicated;
+export function createProviderSchedulers(): Map<MarketDataProvider, RateLimitScheduler> {
+  return new Map([
+    ['TWELVE_DATA', new RateLimitScheduler({ perMinute: Number(process.env.TD_PER_MINUTE || 8), perDay: Number(process.env.TD_PER_DAY || 800), autoDailyBudget: Number(process.env.TD_AUTO_DAILY_BUDGET || 560), hardStopDaily: Number(process.env.TD_HARD_STOP_DAILY || 640), minimumIntervalMs: 8_000, storageKey: 'rateLimitScheduler' })],
+    ['OANDA', new RateLimitScheduler({ perMinute: 60, perDay: 20_000, autoDailyBudget: 14_000, hardStopDaily: 16_000, minimumIntervalMs: 1_000, storageKey: 'providerQuota.OANDA' })],
+    ['TIINGO', new RateLimitScheduler({ perMinute: 50, perHour: 50, perDay: 1_000, autoDailyBudget: 700, hardStopDaily: 1_000, storageKey: 'providerQuota.TIINGO' })],
+    ['FINNHUB', new RateLimitScheduler({ perMinute: 60, perDay: 1_440, autoDailyBudget: 1_008, hardStopDaily: 1_440, storageKey: 'providerQuota.FINNHUB' })],
+    ['ALPHA_VANTAGE', new RateLimitScheduler({ perMinute: 5, perDay: 25, autoDailyBudget: 17, hardStopDaily: 25, storageKey: 'providerQuota.ALPHA_VANTAGE' })],
+  ]);
 }
 
 export class MarketFeedManager {
-  private twelveDataApiKey: string;
-  private alphaVantageApiKey: string;
-  private twelveDataRequestsToday = 0;
-  private alphaVantageRequestsToday = 0;
-  private activeProvider: MarketDataProvider = 'TWELVE_DATA';
+  private activeProvider: ManuallySelectableProvider = 'TWELVE_DATA';
   private usageDay = new Date().toISOString().slice(0, 10);
+  private readonly request: typeof fetch;
+  private readonly adapters = new Map<MarketDataProvider, IForexDataProvider>();
+  private readonly schedulers = createProviderSchedulers();
+  private readonly fallbackManager: FallbackManager;
+  private readonly cache = new Map<string, { minute: number; result: MarketDataResult }>();
+  private readonly inFlight = new Map<string, Promise<MarketDataResult>>();
+  private readonly requestsToday: Record<MarketDataProvider, number> = { TWELVE_DATA: 0, OANDA: 0, TIINGO: 0, FINNHUB: 0, ALPHA_VANTAGE: 0 };
   private lastSuccessfulSync = '';
   private lastSuccessfulProvider: MarketDataProvider | undefined;
   private lastFailedProvider: MarketDataProvider | undefined;
   private lastClockDriftMs: number | null = null;
   private lastClockStatus: 'CLOCK_OK' | 'CLOCK_DRIFT' | 'CLOCK_UNAVAILABLE' = 'CLOCK_UNAVAILABLE';
-  private readonly cache = new Map<string, { minute: number; result: MarketDataResult }>();
-  private readonly inFlight = new Map<string, Promise<MarketDataResult>>();
-  private readonly request: typeof fetch;
-  private readonly scheduler = new RateLimitScheduler();
+  private readonly twelveDataAdapter: TwelveDataAdapter;
+  private readonly oandaAdapter: OandaAdapter;
+  private readonly tiingoAdapter: TiingoAdapter;
+  private readonly finnhubAdapter: FinnhubAdapter;
+  private readonly alphaVantageAdapter: AlphaVantageAdapter;
+  private finnhubStream?: FinnhubWebSocketClient;
 
-  constructor(twelveDataKey = '', alphaVantageKey = '', requestFn: typeof fetch = fetch) {
-    this.twelveDataApiKey = twelveDataKey || process.env.TWELVE_DATA_API_KEY || '';
-    this.alphaVantageApiKey = alphaVantageKey || process.env.ALPHA_VANTAGE_API_KEY || '';
+  constructor(twelveDataKey = '', alphaVantageKey = '', requestFn: typeof fetch = fetch, providerKeys: ProviderKeys = {}) {
     this.request = requestFn;
-    this.activeProvider = this.twelveDataApiKey
-      ? 'TWELVE_DATA'
-      : this.alphaVantageApiKey
-        ? 'ALPHA_VANTAGE'
-        : 'TWELVE_DATA';
+    this.twelveDataAdapter = new TwelveDataAdapter(requestFn, twelveDataKey || providerKeys.TWELVE_DATA || process.env.TWELVE_DATA_API_KEY || process.env.TWELVEDATA_API_KEY || '');
+    this.alphaVantageAdapter = new AlphaVantageAdapter(requestFn, alphaVantageKey || providerKeys.ALPHA_VANTAGE || process.env.ALPHA_VANTAGE_API_KEY || process.env.ALPHAVANTAGE_API_KEY || '');
+    const oandaToken = providerKeys.OANDA ?? process.env.OANDA_PRACTICE_TOKEN;
+    const tiingoKey = providerKeys.TIINGO ?? process.env.TIINGO_API_KEY;
+    const finnhubKey = providerKeys.FINNHUB ?? process.env.FINNHUB_API_KEY;
+    if (finnhubKey) this.finnhubStream = new FinnhubWebSocketClient(finnhubKey);
+    this.oandaAdapter = new OandaAdapter(requestFn, oandaToken, providerKeys.OANDA ? process.env.OANDA_ACCOUNT_ID || '' : undefined);
+    this.tiingoAdapter = new TiingoAdapter(requestFn, tiingoKey);
+    this.finnhubAdapter = new FinnhubAdapter(requestFn, finnhubKey, this.finnhubStream);
+    const adapters: IForexDataProvider[] = [
+      this.twelveDataAdapter,
+      this.oandaAdapter,
+      this.tiingoAdapter,
+      this.finnhubAdapter,
+      this.alphaVantageAdapter,
+    ];
+    for (const adapter of adapters) this.adapters.set(adapter.id, adapter);
+    this.fallbackManager = new FallbackManager(adapters);
+    this.activeProvider = this.twelveDataAdapter.isConfigured() ? 'TWELVE_DATA' : this.alphaVantageAdapter.isConfigured() ? 'ALPHA_VANTAGE' : 'TWELVE_DATA';
   }
 
-  public setKeys(twelveKey: string, avKey: string) {
-    this.twelveDataApiKey = twelveKey;
-    this.alphaVantageApiKey = avKey;
-    this.cache.clear();
-    if (!this.isConfigured(this.activeProvider)) {
-      this.activeProvider = this.twelveDataApiKey
-        ? 'TWELVE_DATA'
-        : this.alphaVantageApiKey
-          ? 'ALPHA_VANTAGE'
-          : 'TWELVE_DATA';
+  public setKeys(twelveKey: string, avKey: string): void {
+    this.setProviderKeys({ TWELVE_DATA: twelveKey, ALPHA_VANTAGE: avKey });
+  }
+
+  /** Runtime dashboard credentials are held only in memory; .env is the persistent configuration path. */
+  public setProviderKeys(keys: ProviderKeys): void {
+    if (keys.TWELVE_DATA !== undefined) { this.twelveDataAdapter.setApiKey(keys.TWELVE_DATA); this.fallbackManager.reset('TWELVE_DATA'); }
+    if (keys.OANDA !== undefined) { this.oandaAdapter.setApiKey(keys.OANDA); this.fallbackManager.reset('OANDA'); }
+    if (keys.TIINGO !== undefined) { this.tiingoAdapter.setApiKey(keys.TIINGO); this.fallbackManager.reset('TIINGO'); }
+    if (keys.FINNHUB !== undefined) {
+      this.finnhubStream?.stop();
+      this.finnhubStream = keys.FINNHUB ? new FinnhubWebSocketClient(keys.FINNHUB) : undefined;
+      this.finnhubAdapter.setCredentials(keys.FINNHUB, this.finnhubStream);
+      this.fallbackManager.reset('FINNHUB');
     }
+    if (keys.ALPHA_VANTAGE !== undefined) { this.alphaVantageAdapter.setApiKey(keys.ALPHA_VANTAGE); this.fallbackManager.reset('ALPHA_VANTAGE'); }
+    this.cache.clear();
+    if (!this.isConfigured(this.activeProvider)) this.activeProvider = this.twelveDataAdapter.isConfigured() ? 'TWELVE_DATA' : this.alphaVantageAdapter.isConfigured() ? 'ALPHA_VANTAGE' : 'TWELVE_DATA';
   }
 
-  public selectProvider(provider: MarketDataProvider): ProviderStatus {
+  public selectProvider(provider: ManuallySelectableProvider): ProviderStatus {
     this.activeProvider = provider;
     return this.getStatus();
   }
 
-  public incrementRequests(target?: 'TWELVE_DATA' | 'ALPHA_VANTAGE') {
+  public incrementRequests(target: MarketDataProvider = this.activeProvider): void {
     this.resetDailyUsageIfNeeded();
-    const provider = target || (this.activeProvider === 'ALPHA_VANTAGE' ? 'ALPHA_VANTAGE' : 'TWELVE_DATA');
-    if (provider === 'TWELVE_DATA') this.twelveDataRequestsToday += 1;
-    else this.alphaVantageRequestsToday += 1;
+    this.requestsToday[target] += 1;
   }
 
-  public getSchedulerSnapshot() {
-    return this.scheduler.snapshot();
+  public getFallbackProviders(): MarketDataProvider[] { return this.fallbackManager.configuredProviders(); }
+  public getCircuitStatuses(): ProviderCircuitSnapshot[] { return this.fallbackManager.snapshots(); }
+
+  public getSchedulerSnapshot(provider?: MarketDataProvider) {
+    if (provider) return this.schedulers.get(provider)!.snapshot();
+    const snapshots = PROVIDER_ORDER.map((id) => ({ provider: id, ...this.schedulers.get(id)!.snapshot() }));
+    const configured = snapshots.filter((item) => this.isConfigured(item.provider));
+    const sum = (key: 'dayUsed' | 'autoUsed' | 'hardStopDaily' | 'autoDailyBudget' | 'remainingDay' | 'remainingAuto' | 'minuteUsed' | 'perMinute') => configured.reduce((total, item) => total + Number(item[key] || 0), 0);
+    return {
+      dayUtc: new Date().toISOString().slice(0, 10), dayUsed: sum('dayUsed'), autoUsed: sum('autoUsed'),
+      perDay: configured.reduce((total, item) => total + item.perDay, 0), hardStopDaily: sum('hardStopDaily'),
+      autoDailyBudget: sum('autoDailyBudget'), remainingDay: sum('remainingDay'), remainingAuto: sum('remainingAuto'),
+      minuteUsed: sum('minuteUsed'), perMinute: sum('perMinute'), byProvider: snapshots,
+    };
   }
 
   public getClockState(): { driftMs: number | null; status: 'CLOCK_OK' | 'CLOCK_DRIFT' | 'CLOCK_UNAVAILABLE'; lastSuccessfulSync: string; lastSuccessfulProvider?: MarketDataProvider; lastFailedProvider?: MarketDataProvider } {
@@ -219,37 +205,38 @@ export class MarketFeedManager {
 
   public getStatus(): ProviderStatus {
     this.resetDailyUsageIfNeeded();
-    const twelveConfigured = !!this.twelveDataApiKey;
-    const alphaConfigured = !!this.alphaVantageApiKey;
-    const selectedConfigured = this.isConfigured(this.activeProvider);
-    const selectedHasLiveResponse = this.lastSuccessfulProvider === this.activeProvider && this.lastFailedProvider !== this.activeProvider;
-    const warning = !selectedConfigured
-        ? `${this.activeProvider} is selected but its API key is not configured.`
-        : undefined;
-
+    const provider = this.lastSuccessfulProvider || this.activeProvider;
+    const status: ProviderStatus['status'] = this.lastSuccessfulProvider && this.lastSuccessfulSync ? 'ONLINE' : 'OFFLINE';
+    const warning = this.fallbackManager.availableProviders().length === 0 ? 'No configured provider is currently eligible for a scan.' : undefined;
+    const circuits = this.fallbackManager.snapshots();
+    const quota = {} as ProviderStatus['quota'];
+    for (const id of PROVIDER_ORDER) {
+      const snapshot = this.schedulers.get(id)!.snapshot();
+      const circuit = circuits.find((item) => item.provider === id)!;
+      const circuitState = circuit.state;
+      const configured = this.isConfigured(id);
+      const value: ProviderQuotaInfo = {
+        used: snapshot.dayUsed, limit: snapshot.perDay, hourlyUsed: snapshot.hourUsed, hourlyLimit: snapshot.perHour,
+        perMinute: snapshot.perMinute, configured,
+        status: !configured ? 'UNCONFIGURED' : circuitState === 'OPEN' ? 'OPEN' : circuitState === 'HALF_OPEN' ? 'HALF_OPEN' : this.lastSuccessfulProvider === id ? 'ONLINE' : 'STANDBY',
+      };
+      (quota as any)[QUOTA_KEY[id]] = value;
+    }
     return {
-      provider: this.activeProvider,
-      status: selectedConfigured && selectedHasLiveResponse ? 'ONLINE' : 'OFFLINE',
+      provider,
+      status,
       lastSync: this.lastSuccessfulSync,
-      requestsUsedToday: this.activeProvider === 'ALPHA_VANTAGE' ? this.alphaVantageRequestsToday : this.twelveDataRequestsToday,
+      requestsUsedToday: this.requestsToday[provider],
       rateLimitWarning: warning,
-      provenanceDetails: this.activeProvider === 'TWELVE_DATA'
-          ? 'Twelve Data time_series REST API'
-          : 'Alpha Vantage FX_INTRADAY REST API',
-      quota: {
-        twelveData: { used: this.twelveDataRequestsToday, limit: 0, configured: twelveConfigured, status: twelveConfigured ? (this.lastSuccessfulProvider === 'TWELVE_DATA' && this.lastFailedProvider !== 'TWELVE_DATA' ? 'ONLINE' : 'STANDBY') : 'UNCONFIGURED' },
-        alphaVantage: { used: this.alphaVantageRequestsToday, limit: 0, configured: alphaConfigured, status: alphaConfigured ? (this.lastSuccessfulProvider === 'ALPHA_VANTAGE' && this.lastFailedProvider !== 'ALPHA_VANTAGE' ? 'ONLINE' : 'STANDBY') : 'UNCONFIGURED' },
-      },
+      provenanceDetails: `${LABEL[provider]} market-data adapter`,
+      quota,
+      circuits,
     };
   }
 
   public async fetchCandles(pair: string, timeframe: Timeframe = '5m', provider: MarketDataProvider = this.activeProvider, kind: 'AUTO' | 'ON_DEMAND' = 'ON_DEMAND'): Promise<MarketDataResult> {
     const normalizedPair = normalizePair(pair);
-
-    if (!this.isConfigured(provider)) {
-      throw new MarketDataError('PROVIDER_NOT_CONFIGURED', `${provider} is selected but its API key is missing. Configure a live provider key.`, provider);
-    }
-
+    if (!this.isConfigured(provider)) throw new MarketDataError('PROVIDER_NOT_CONFIGURED', `${LABEL[provider]} credentials are not configured. Configure a live provider key.`, provider);
     const minute = Math.floor(Date.now() / 60_000);
     const cacheKey = `${provider}:${normalizedPair}:${timeframe}`;
     const cached = this.cache.get(cacheKey);
@@ -259,7 +246,6 @@ export class MarketFeedManager {
       const result = await pending;
       return { ...result, candles: cloneCandles(result.candles), cacheHit: true };
     }
-
     const fetchTask = this.fetchProviderCandles(normalizedPair, timeframe, provider, true, undefined, kind).finally(() => this.inFlight.delete(cacheKey));
     this.inFlight.set(cacheKey, fetchTask);
     const result = await fetchTask;
@@ -269,165 +255,98 @@ export class MarketFeedManager {
 
   public async fetchHistoricalCandles(pair: string, timeframe: Timeframe, startDate: string, endDate: string, provider: 'TWELVE_DATA' = 'TWELVE_DATA'): Promise<MarketDataResult> {
     const normalizedPair = normalizePair(pair);
-    if (provider !== 'TWELVE_DATA' || !this.twelveDataApiKey) throw new MarketDataError('PROVIDER_NOT_CONFIGURED', 'R8 requires TWELVE_DATA_API_KEY; no replay or simulated fallback is permitted.', provider);
+    if (provider !== 'TWELVE_DATA' || !this.twelveDataAdapter.isConfigured()) throw new MarketDataError('PROVIDER_NOT_CONFIGURED', 'R8 requires a Twelve Data key; no replay or simulated fallback is permitted.', provider);
     const start = new Date(`${startDate}T00:00:00.000Z`);
     const end = new Date(`${endDate}T00:00:00.000Z`);
     const validDate = (value: string, date: Date) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
-    if (!validDate(startDate, start) || !validDate(endDate, end) || start.getTime() > end.getTime()) {
-      throw new MarketDataError('INVALID_BACKTEST_RANGE', 'R8 start/end dates must be valid UTC dates with start on or before end.', provider);
-    }
+    if (!validDate(startDate, start) || !validDate(endDate, end) || start.getTime() > end.getTime()) throw new MarketDataError('INVALID_BACKTEST_RANGE', 'R8 start/end dates must be valid UTC dates with start on or before end.', provider);
+    const fetched = await this.fetchProviderCandles(normalizedPair, timeframe, provider, false, { startDate, endDate: `${endDate} 23:59:59` }, 'ON_DEMAND');
     const startMs = start.getTime();
     const endExclusiveMs = end.getTime() + 86_400_000;
-    const fetched = await this.fetchProviderCandles(normalizedPair, timeframe, provider, false, { startDate, endDate: `${endDate} 23:59:59`, outputSize: 5000 });
     const candles = fetched.candles.filter((candle) => {
       const timestamp = Date.parse(candle.timestamp);
       return timestamp >= startMs && timestamp < endExclusiveMs;
     });
-    if (candles.length < 25) {
-      throw new MarketDataError('INSUFFICIENT_HISTORY', `Provider returned ${candles.length} candles inside the requested UTC range; at least 25 are required.`, provider);
-    }
+    if (candles.length < 25) throw new MarketDataError('INSUFFICIENT_HISTORY', `Provider returned ${candles.length} candles inside the requested UTC range; at least 25 are required.`, provider);
     return { ...fetched, candles, lastTickAt: candles[candles.length - 1].timestamp, volumeAvailable: candles.some((candle) => typeof candle.volume === 'number') };
   }
 
-  /** Forces one real-provider request for the protected Step 0 health probe; never uses replay or cache. */
-  public async probeProvider(pair: string, timeframe: Timeframe, provider: 'TWELVE_DATA' | 'ALPHA_VANTAGE'): Promise<MarketDataResult> {
-    if (!this.isConfigured(provider)) {
-      throw new MarketDataError('PROVIDER_NOT_CONFIGURED', `${provider} API key is not configured.`, provider);
-    }
+  /** Forces a fresh request against one named provider for protected diagnostics. */
+  public async probeProvider(pair: string, timeframe: Timeframe, provider: MarketDataProvider): Promise<MarketDataResult> {
+    if (!this.isConfigured(provider)) throw new MarketDataError('PROVIDER_NOT_CONFIGURED', `${LABEL[provider]} credentials are not configured.`, provider);
     return this.fetchProviderCandles(normalizePair(pair), timeframe, provider);
   }
 
-  private async fetchProviderCandles(pair: string, timeframe: Timeframe, provider: 'TWELVE_DATA' | 'ALPHA_VANTAGE', requireClosed = true, historical?: { startDate: string; endDate: string; outputSize: number }, kind: 'AUTO' | 'ON_DEMAND' = 'ON_DEMAND'): Promise<MarketDataResult> {
+  private async fetchProviderCandles(pair: string, timeframe: Timeframe, provider: MarketDataProvider, requireClosed = true, historical?: { startDate: string; endDate: string }, kind: 'AUTO' | 'ON_DEMAND' = 'ON_DEMAND'): Promise<MarketDataResult> {
     const startedAt = Date.now();
-    const budget = this.scheduler.consume(kind);
-    if (!budget.allowed) throw new MarketDataError('RATE_LIMITED', `Provider request blocked by scheduler: ${budget.reason}.`, provider);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12_000);
-    try {
-      const url = provider === 'TWELVE_DATA'
-        ? this.buildTwelveDataUrl(pair, timeframe, historical)
-        : this.buildAlphaVantageUrl(pair, timeframe);
+    const adapter = this.adapters.get(provider);
+    if (!adapter) throw new MarketDataError('PROVIDER_NOT_CONFIGURED', `${provider} adapter is unavailable.`, provider);
+    const streamReady = !historical && !!adapter.canServeFromStream?.(pair, timeframe);
+    if (!streamReady && this.fallbackManager.circuitIsOpen(provider)) throw new MarketDataError('CIRCUIT_OPEN', `${LABEL[provider]} circuit is cooling down.`, provider);
+    if (!streamReady) {
+      const budget = await this.schedulers.get(provider)!.consumeWhenAvailable(kind);
+      if (!budget.allowed) {
+        this.lastFailedProvider = provider;
+        throw new MarketDataError('RATE_LIMITED', `Provider request blocked by scheduler: ${budget.reason}.`, provider);
+      }
       this.incrementRequests(provider);
-      const response = await this.request(url, { signal: controller.signal, headers: { Accept: 'application/json' } });
-      const clock = measureClockDrift(response.headers.get('date'), startedAt, Date.now());
-      this.lastClockDriftMs = clock.driftMs;
-      this.lastClockStatus = clock.status;
-      if (!clock.ok) {
-        throw new MarketDataError('CLOCK_DRIFT', `Local clock differs from ${provider} by ${clock.driftMs} ms (> ${MAX_CLOCK_DRIFT_MS} ms). DATA_QUALITY_FAIL.`, provider);
-      }
-      const creditsUsedHeader = response.headers.get('api-credits-used');
-      const creditsLeftHeader = response.headers.get('api-credits-left');
-      const creditsUsed = creditsUsedHeader && /^\d+$/.test(creditsUsedHeader) ? Number(creditsUsedHeader) : undefined;
-      const creditsLeft = creditsLeftHeader && /^\d+$/.test(creditsLeftHeader) ? Number(creditsLeftHeader) : undefined;
-      const payload: any = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new MarketDataError('PROVIDER_HTTP_ERROR', `${provider} returned HTTP ${response.status}.`, provider);
-      }
-      if (provider === 'TWELVE_DATA' && payload?.status === 'error') {
-        throw new MarketDataError('PROVIDER_API_ERROR', String(payload.message || 'Twelve Data returned an API error.'), provider);
-      }
-      if (provider === 'ALPHA_VANTAGE' && (payload?.['Error Message'] || payload?.Note || payload?.Information)) {
-        const alphaMessage = String(payload['Error Message'] || payload.Note || payload.Information);
-        const entitlementRequired = /premium endpoint|premium membership|premium plan|subscribe to premium/i.test(alphaMessage);
-        throw new MarketDataError(
-          entitlementRequired ? 'UNSUPPORTED_ON_FREE_KEY' : 'PROVIDER_API_ERROR',
-          entitlementRequired ? 'Alpha Vantage indicates FX_INTRADAY requires a premium entitlement.' : 'Alpha Vantage rejected the request.',
-          provider,
-        );
-      }
-      const alphaSeries = provider === 'ALPHA_VANTAGE'
-        ? payload?.['Time Series FX (1min)'] || payload?.['Time Series FX (5min)'] || payload?.['Time Series FX (15min)'] || payload?.['Time Series FX (30min)'] || payload?.['Time Series FX (60min)']
-        : undefined;
-      const rows = provider === 'TWELVE_DATA'
-        ? payload?.values
-        : alphaSeries && typeof alphaSeries === 'object'
-          ? Object.entries(alphaSeries).map(([datetime, fields]) => ({ datetime, ...(fields as object) }))
-          : undefined;
-      const volumeAvailable = Array.isArray(rows) && rows.some((row: any) => {
-        const value = row?.volume ?? row?.['5. volume'];
-        return value !== undefined && value !== null && value !== '' && Number.isFinite(Number(value));
-      });
-      const sourceTimezone = provider === 'ALPHA_VANTAGE'
-        ? payload?.['Meta Data']?.['6. Time Zone'] || 'US/Eastern'
-        : 'UTC';
-      const candles = parseCandleRows(rows, provider, timeframe, sourceTimezone, requireClosed);
-      const latest = candles[candles.length - 1];
-      if (requireClosed) {
-        const ageMs = Date.now() - Date.parse(latest.timestamp);
-        const freshnessLimitMs = timeframeToMinutes(timeframe) * 60_000 * 2 + 60_000;
-        if (ageMs < -60_000 || ageMs > freshnessLimitMs) {
-          throw new MarketDataError('STALE_MARKET_DATA', `Latest ${provider} candle is stale (${Math.round(ageMs / 1000)} seconds old).`, provider);
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3_000);
+    try {
+      const operation = async (): Promise<MarketDataResult> => {
+        try {
+          const raw = historical
+            ? adapter.fetchHistoricalCandles
+              ? await adapter.fetchHistoricalCandles(pair, timeframe, historical.startDate, historical.endDate, controller.signal)
+              : (() => { throw new ProviderAdapterError(provider, 'HISTORICAL_UNSUPPORTED', `${LABEL[provider]} does not support this historical range.`); })()
+            : await adapter.fetchCandles(pair, timeframe, controller.signal);
+          const clock = measureClockDrift(raw.serverDate, startedAt, Date.now());
+          this.lastClockDriftMs = clock.driftMs;
+          this.lastClockStatus = clock.status;
+          if (!clock.ok) throw new ProviderAdapterError(provider, 'CLOCK_DRIFT', `Local clock differs from ${LABEL[provider]} by ${clock.driftMs} ms (> ${MAX_CLOCK_DRIFT_MS} ms). DATA_QUALITY_FAIL.`);
+          const normalized = normalizeCandles(raw, provider, timeframe, requireClosed);
+          const latest = normalized.candles[normalized.candles.length - 1];
+          if (requireClosed) {
+            const ageMs = Date.now() - Date.parse(latest.timestamp);
+            const freshnessLimitMs = timeframeToMinutes(timeframe) * 60_000 * 2 + 60_000;
+            if (ageMs < -60_000 || ageMs > freshnessLimitMs) throw new ProviderAdapterError(provider, 'STALE_MARKET_DATA', `Latest ${LABEL[provider]} candle is stale (${Math.round(ageMs / 1000)} seconds old).`);
+          }
+          this.lastSuccessfulSync = new Date().toISOString();
+          this.lastSuccessfulProvider = provider;
+          this.lastFailedProvider = undefined;
+          return {
+            candles: normalized.candles, provider, dataProvenance: 'LIVE_INGESTED', fetchedAt: this.lastSuccessfulSync,
+            lastTickAt: latest.timestamp, latencyMs: Date.now() - startedAt, cacheHit: false,
+            clockDriftMs: this.lastClockDriftMs, clockStatus: this.lastClockStatus,
+            volumeAvailable: normalized.volumeAvailable, creditsUsed: raw.creditsUsed, creditsLeft: raw.creditsLeft,
+          };
+        } catch (error) {
+          if (error instanceof ProviderAdapterError) throw new MarketDataError(error.code, error.message, provider);
+          if (error instanceof MarketDataError) throw error;
+          throw new MarketDataError('PROVIDER_UNAVAILABLE', `${LABEL[provider]} market-data request failed.`, provider);
         }
-      }
-      this.lastSuccessfulSync = new Date().toISOString();
-      this.lastSuccessfulProvider = provider;
-      this.lastFailedProvider = undefined;
-      return {
-        candles,
-        provider,
-        dataProvenance: 'LIVE_INGESTED',
-        fetchedAt: this.lastSuccessfulSync,
-        lastTickAt: latest.timestamp,
-        latencyMs: Date.now() - startedAt,
-        cacheHit: false,
-        clockDriftMs: this.lastClockDriftMs,
-        clockStatus: this.lastClockStatus,
-        volumeAvailable,
-        creditsUsed,
-        creditsLeft,
       };
-    } catch (error: any) {
+      return await (streamReady ? operation() : this.fallbackManager.execute(provider, operation));
+    } catch (error) {
       this.lastFailedProvider = provider;
       if (error instanceof MarketDataError) throw error;
-      const code = error?.name === 'AbortError' ? 'PROVIDER_TIMEOUT' : 'PROVIDER_UNAVAILABLE';
-      throw new MarketDataError(code, error?.name === 'AbortError' ? `${provider} request timed out.` : `${provider} market-data request failed.`, provider);
+      if (error instanceof ProviderAdapterError) throw new MarketDataError(error.code, error.message, provider);
+      throw new MarketDataError('PROVIDER_UNAVAILABLE', `${LABEL[provider]} market-data request failed.`, provider);
     } finally {
       clearTimeout(timeout);
     }
   }
 
-  private buildTwelveDataUrl(pair: string, timeframe: Timeframe, historical?: { startDate: string; endDate: string; outputSize: number }): string {
-    const url = new URL('https://api.twelvedata.com/time_series');
-    url.searchParams.set('symbol', pair);
-    url.searchParams.set('interval', timeframeToTwelveDataInterval[timeframe]);
-    url.searchParams.set('outputsize', String(historical?.outputSize ?? 100));
-    url.searchParams.set('timezone', 'UTC');
-    if (historical) {
-      url.searchParams.set('start_date', historical.startDate);
-      url.searchParams.set('end_date', historical.endDate);
-    }
-    url.searchParams.set('apikey', this.twelveDataApiKey);
-    return url.toString();
-  }
+  private isConfigured(provider: MarketDataProvider): boolean { return this.fallbackManager.isConfigured(provider); }
 
-  private buildAlphaVantageUrl(pair: string, timeframe: Timeframe): string {
-    const [fromSymbol, toSymbol] = pair.split('/');
-    const url = new URL('https://www.alphavantage.co/query');
-    url.searchParams.set('function', 'FX_INTRADAY');
-    url.searchParams.set('from_symbol', fromSymbol);
-    url.searchParams.set('to_symbol', toSymbol);
-    url.searchParams.set('interval', timeframeToAlphaVantageInterval[timeframe]);
-    url.searchParams.set('outputsize', 'compact');
-    url.searchParams.set('datatype', 'json');
-    url.searchParams.set('apikey', this.alphaVantageApiKey);
-    return url.toString();
-  }
-
-  private isConfigured(provider: MarketDataProvider): boolean {
-    if (provider === 'TWELVE_DATA') return !!this.twelveDataApiKey;
-    if (provider === 'ALPHA_VANTAGE') return !!this.alphaVantageApiKey;
-    return true;
-  }
-
-  private resetDailyUsageIfNeeded() {
+  private resetDailyUsageIfNeeded(): void {
     const today = new Date().toISOString().slice(0, 10);
     if (today !== this.usageDay) {
       this.usageDay = today;
-      this.twelveDataRequestsToday = 0;
-      this.alphaVantageRequestsToday = 0;
+      for (const provider of PROVIDER_ORDER) this.requestsToday[provider] = 0;
     }
   }
-
 }
 
 export const feedManager = new MarketFeedManager();

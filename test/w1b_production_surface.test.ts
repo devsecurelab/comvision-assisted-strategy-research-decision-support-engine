@@ -31,7 +31,7 @@ for (const file of productionFiles) {
 
 assert.equal(fs.existsSync(path.join(root, 'src/components/LiveVisionStream.tsx')), false);
 assert.equal(fs.existsSync(path.join(root, 'src/components/views/VisionView.tsx')), false);
-assert.match(read('src/engine/dataProviders.ts'), /private activeProvider: MarketDataProvider = 'TWELVE_DATA'/);
+assert.match(read('src/engine/dataProviders.ts'), /private activeProvider: ManuallySelectableProvider = 'TWELVE_DATA'/);
 assert.doesNotMatch(read('src/engine/newsGuard.ts'), /seedDefaultEvents|triggerSimulatedRedFolderEvent/);
 assert.match(read('server.ts'), /Valid providers are TWELVE_DATA and ALPHA_VANTAGE/);
 assert.doesNotMatch(read('src/engine/types.ts'), /CVEvidenceSource|sVisionAi|vision_verification|cv_confidence/);

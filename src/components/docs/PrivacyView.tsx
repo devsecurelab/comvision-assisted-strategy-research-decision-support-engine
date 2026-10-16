@@ -89,7 +89,7 @@ export const PrivacyView: React.FC = () => {
         </div>
 
         <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-slate-500">
-          <strong>Explicit Negative Declaration:</strong> We do NOT collect bank account numbers, credit cards, brokerage credentials, social security numbers, location GPS tracking, or private trade order tickets.
+          <strong>Explicit Negative Declaration:</strong> We do NOT collect bank account numbers, payment cards, Social Security numbers, GPS location, or private trade order tickets. Admin-configured market-data provider API keys/tokens (including the OANDA Practice token) are sensitive server-side credentials and are handled separately; the application does not place broker orders.
         </div>
       </section>
 
@@ -121,7 +121,7 @@ export const PrivacyView: React.FC = () => {
             <strong>We do NOT sell, rent, monetize, or disclose operator data to any third-party advertisers, brokers, or data brokers.</strong>
           </p>
           <p>
-            <strong>External Data Feed Providers:</strong> If an operator configures an API key for Twelve Data or Alpha Vantage, the platform communicates with these external APIs solely to retrieve public OHLCV candle feeds. No operator identity, account handle, or personal information is transmitted to market feed providers.
+            <strong>External Data Feed Providers:</strong> If an operator configures credentials for Twelve Data, OANDA Practice, Tiingo FX, Finnhub, or Alpha Vantage, the platform communicates with those services solely to retrieve market-data candles or Finnhub price updates. No operator identity, account handle, or personal information is sent to market-data providers; provider tokens remain server-side.
           </p>
         </div>
       </section>
@@ -137,7 +137,7 @@ export const PrivacyView: React.FC = () => {
             <strong>Storage &amp; Session Tokens:</strong> The client application stores the authenticated operator's bearer token in browser <code>localStorage</code> for session continuity. Logging out invalidates the server session and immediately clears local browser storage.
           </p>
           <p>
-            <strong>Security Controls:</strong> All communications occur over encrypted TLS/HTTPS. Passwords are salted and hashed with <code>scrypt</code>. Protected API routes strictly enforce bearer token authorization.
+            <strong>Security Controls:</strong> All communications occur over encrypted TLS/HTTPS. Passwords are salted and hashed with <code>scrypt</code>. Protected API routes strictly enforce bearer token authorization. Dashboard-entered provider keys remain in server memory for the process lifetime and are not returned or audit-logged; environment-configured values remain in the operator-controlled local <code>.env</code> file.
           </p>
           <p>
             <strong>Retention Periods:</strong> Operator account records are retained while active. Telemetry records for experiment EXP-2026-001 are preserved in the research ledger for audit repeatability. Operators may request account deletion at any time.
