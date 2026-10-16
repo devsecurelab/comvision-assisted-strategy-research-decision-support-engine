@@ -258,7 +258,7 @@ python3 scripts/termux_step0_probe.py
 
 If Python is already installed, the `pkg install` line can be skipped.
 
-The helper prompts for the ComVision administrator email and password (password input is hidden), keeps the temporary session token in memory, and revokes that session after the probe. Market-data API keys remain only in the server-side `.env`; the helper never reads or prints them. By default it checks the three pilot pairs at 15m and 1h on Twelve Data only. The JSON output contains provider health and candle data, but no passwords, tokens, or API keys.
+The helper prompts for the ComVision administrator email and password (password input is hidden), keeps the temporary session token in memory, and revokes that session after the probe. Market-data API keys remain only in the server-side `.env`; the helper never reads or prints them. It makes six provider-health requests for three pilot pairs at 15m and 1h on Twelve Data only; these may consume provider credits. The JSON output contains provider health and candle data, but no passwords, tokens, or API keys.
 
 If the server is not at `http://127.0.0.1:3000`, set `COMVISION_BASE_URL` before running the helper. Save the JSON results with their timestamps for the Step 0 review; this probe does not generate a trading signal.
 

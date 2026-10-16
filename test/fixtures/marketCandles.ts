@@ -2,9 +2,11 @@ import { Candle, Timeframe } from '../../src/engine/types';
 import { timeframeToMinutes } from '../../src/engine/dataProviders';
 
 /** Test-only deterministic data. Never import this module from production code. */
+export const FIXTURE_NOW_MS = Date.parse('2026-10-14T10:00:00.000Z'); // Wednesday, FX open.
+
 export function generateResearchCandles(count = 60, basePrice = 1.0850, timeframe: Timeframe = '5m'): Candle[] {
   const candles: Candle[] = [];
-  const now = Date.now();
+  const now = FIXTURE_NOW_MS;
   const intervalMs = timeframeToMinutes(timeframe) * 60 * 1000;
   let currentPrice = basePrice;
   for (let i = 0; i < count; i++) {
@@ -25,7 +27,7 @@ export function generateResearchCandles(count = 60, basePrice = 1.0850, timefram
 
 export function generateDeterministicValidSetup(basePrice = 1.0840, timeframe: Timeframe = '5m'): Candle[] {
   const candles = generateResearchCandles(25, basePrice, timeframe);
-  const now = Date.now();
+  const now = FIXTURE_NOW_MS;
   const stepMins = timeframeToMinutes(timeframe);
   const tMinus = (stepCount: number) => new Date(now - stepCount * stepMins * 60 * 1000).toISOString();
 
