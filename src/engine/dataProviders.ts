@@ -270,10 +270,23 @@ export class MarketFeedManager {
   public async fetchHistoricalCandles(pair: string, timeframe: Timeframe, startDate: string, endDate: string, provider: 'TWELVE_DATA' = 'TWELVE_DATA'): Promise<MarketDataResult> {
     const normalizedPair = normalizePair(pair);
     if (provider !== 'TWELVE_DATA' || !this.twelveDataApiKey) throw new MarketDataError('PROVIDER_NOT_CONFIGURED', 'R8 requires TWELVE_DATA_API_KEY; no replay or simulated fallback is permitted.', provider);
-    const start = new Date(`${startDate}T00:00:00Z`);
-    const end = new Date(`${endDate}T23:59:59Z`);
-    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start >= end) throw new MarketDataError('INVALID_BACKTEST_RANGE', 'R8 start/end dates must be valid and start before end.', provider);
-    return this.fetchProviderCandles(normalizedPair, timeframe, provider, false, { startDate, endDate, outputSize: 5000 });
+    const start = new Date(`${startDate}T00:00:00.000Z`);
+    const end = new Date(`${endDate}T00:00:00.000Z`);
+    const validDate = (value: string, date: Date) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+    if (!validDate(startDate, start) || !validDate(endDate, end) || start.getTime() > end.getTime()) {
+      throw new MarketDataError('INVALID_BACKTEST_RANGE', 'R8 start/end dates must be valid UTC dates with start on or before end.', provider);
+    }
+    const startMs = start.getTime();
+    const endExclusiveMs = end.getTime() + 86_400_000;
+    const fetched = await this.fetchProviderCandles(normalizedPair, timeframe, provider, false, { startDate, endDate: `${endDate} 23:59:59`, outputSize: 5000 });
+    const candles = fetched.candles.filter((candle) => {
+      const timestamp = Date.parse(candle.timestamp);
+      return timestamp >= startMs && timestamp < endExclusiveMs;
+    });
+    if (candles.length < 25) {
+      throw new MarketDataError('INSUFFICIENT_HISTORY', `Provider returned ${candles.length} candles inside the requested UTC range; at least 25 are required.`, provider);
+    }
+    return { ...fetched, candles, lastTickAt: candles[candles.length - 1].timestamp, volumeAvailable: candles.some((candle) => typeof candle.volume === 'number') };
   }
 
   /** Forces one real-provider request for the protected Step 0 health probe; never uses replay or cache. */

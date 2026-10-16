@@ -58,7 +58,7 @@ const misaligned = ideal.map((c, i) => (i === 5 ? { ...c, timestamp: new Date(Da
 assert.ok(validateCandleSeries(misaligned, { timeframe: tf }).issues.some((i) => i.code === 'MISALIGNED_TIMESTAMP'));
 const weekend: Candle[] = [
   { timestamp: '2026-01-09T21:45:00.000Z', open: 1, high: 1.1, low: 0.9, close: 1, volume: null },
-  { timestamp: '2026-01-11T22:00:00.000Z', open: 1, high: 1.1, low: 0.9, close: 1, volume: null },
+  { timestamp: '2026-01-11T21:00:00.000Z', open: 1, high: 1.1, low: 0.9, close: 1, volume: null },
 ];
 assert.equal(validateCandleSeries(weekend, { timeframe: tf }).ok, true, 'weekend closure is not a gap');
 assert.equal(measureClockDrift(new Date(1_000_000).toUTCString(), 1_000_000 + 4_000, 1_000_000 + 4_100).status, 'CLOCK_DRIFT');
@@ -94,4 +94,13 @@ assert.doesNotMatch(fs.readFileSync(path.join(root, 'src/engine/types.ts'), 'utf
 assert.equal((fs.readFileSync(path.join(root, 'src/engine/pipeline.ts'), 'utf8').match(/function classifySessionAndKillZone/g) || []).length, 0, 'single session implementation');
 assert.match(fs.readFileSync(path.join(root, 'src/engine/strategyV3Engine.ts'), 'utf8'), /MFCI_THRESHOLD = 0\.85;/);
 console.log('[forbidden_patterns] PASS');
+const envExample = fs.readFileSync(path.join(root, '.env.example'), 'utf8');
+for (const line of envExample.split(/\r?\n/)) {
+  const match = line.match(/^\s*([A-Z0-9_]*(?:_KEY|_TOKEN|PASSWORD[A-Z0-9_]*|_SECRET|_PASS))\s*=(.*)$/);
+  if (match) assert.equal(match[2].trim(), '', `${match[1]} must not contain a value in .env.example`);
+}
+for (const [name, value] of [['ENGINE_FULL_MODE_ENABLED', 'false'], ['AUTO_SCAN_ENABLED', 'false'], ['AUTO_SCAN_TIMEFRAME', '15m'], ['TELEGRAM_COMMAND_POLLING', 'false'], ['TELEGRAM_POLL_MS', '10000'], ['SIGNAL_LEDGER_PATH', 'data/signal-ledger.jsonl']]) {
+  assert.match(envExample, new RegExp(`^${name}=${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'), `${name} safe default is present`);
+}
+console.log('[env_example_secrets] PASS');
 console.log('=== V3 SAFETY INVARIANTS: determinism, closed candle, zero lookahead, scale, no zero-fill, data integrity, grep passed ===');

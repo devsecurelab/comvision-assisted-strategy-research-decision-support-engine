@@ -6,6 +6,7 @@ import type { Candle, MasterTelemetry, NewsEvent, Timeframe } from './types';
 import { timeframeMs } from './dataIntegrity';
 import { breakevenFor, EdgeMonitor } from './edgeMonitor';
 import { SignalLedger, signalIdFor, type SignalOutcome, type SignalView } from './signalLedger';
+import { isFxBarClosed, isFxMarketClosed } from './marketHours';
 
 export type ScanTimeframe = '5m' | '15m' | '30m';
 export type ScanTrigger = 'MANUAL' | 'AUTO';
@@ -114,14 +115,15 @@ export class ScanService {
     const pair = normalizeScanPair(pairInput);
     if (!PAIR_RE.test(pair)) return this.noTrade(pairInput, timeframe, trigger, 'UNSUPPORTED_SYMBOL');
     if (!SCAN_TIMEFRAMES.includes(timeframe)) return this.noTrade(pair, timeframe, trigger, 'UNSUPPORTED_TIMEFRAME');
+    const nowMs = this.deps.now();
+    const expectedOpen = latestClosedCandleOpenMs(nowMs, timeframe);
+    if (isFxMarketClosed(nowMs) || isFxBarClosed(new Date(expectedOpen).toISOString(), timeframe)) return this.noTrade(pair, timeframe, trigger, 'MARKET_CLOSED');
     const payout = this.deps.getPayout(pair);
     if (!payout) return this.noTrade(pair, timeframe, trigger, 'PAYOUT_UNSET');
     if (payout.pct < MIN_PAYOUT_PCT) return this.noTrade(pair, timeframe, trigger, `PAYOUT_BELOW_MIN (${payout.pct}%)`);
     const edge = this.edge.current();
     if (edge.paused) return this.noTrade(pair, timeframe, trigger, `EDGE_LOST: alerts paused since ${edge.lostAt}. Use /resume <reason>.`);
 
-    const nowMs = this.deps.now();
-    const expectedOpen = latestClosedCandleOpenMs(nowMs, timeframe);
     const expectedIso = new Date(expectedOpen).toISOString();
     const cacheKey = `${pair}|${timeframe}|${expectedIso}`;
     const cached = this.cache.get(cacheKey);
@@ -183,6 +185,9 @@ export class ScanService {
 
   /** Candle-close aligned auto cycle over eligible favourites, in favourite order, within the auto budget. */
   public async runAutoCycle(timeframe: ScanTimeframe, sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): Promise<ScanResult[]> {
+    const nowMs = this.deps.now();
+    const expectedOpen = latestClosedCandleOpenMs(nowMs, timeframe);
+    if (isFxMarketClosed(nowMs) || isFxBarClosed(new Date(expectedOpen).toISOString(), timeframe)) return this.deps.favorites().map((fav) => this.noTrade(normalizeScanPair(fav), timeframe, 'AUTO', 'MARKET_CLOSED'));
     const results: ScanResult[] = [];
     let scanned = 0;
     for (const fav of this.deps.favorites()) {
@@ -207,6 +212,7 @@ export class ScanService {
     const nowMs = this.deps.now();
     const out: Array<{ signal_id: string; outcome: SignalOutcome | 'RESOLVE_PENDING' }> = [];
     const pending = this.deps.ledger.pending(nowMs - 5_000);
+    if (isFxMarketClosed(nowMs)) return pending.map((signal) => ({ signal_id: signal.signal_id, outcome: 'RESOLVE_PENDING' as const }));
     const groups = new Map<string, SignalView[]>();
     for (const s of pending) { const key = `${s.pair}|${s.timeframe}`; groups.set(key, [...(groups.get(key) ?? []), s]); }
     for (const [key, signals] of groups) {

@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { feedManager, MarketDataError } from '../src/engine/dataProviders';
-import { buildR8Report, candlesToCsv, csvToCandles, dateChunks, mergeCandles, parseNewsCsv, sha256 } from '../src/engine/r8Backtest';
+import { buildR8Report, candlesToCsv, csvToCandles, dateChunks, htfWarmupStartDate, mergeCandles, parseNewsCsv, sha256 } from '../src/engine/r8Backtest';
 import type { Candle, NewsEvent, Timeframe } from '../src/engine/types';
 
 /**
@@ -26,9 +26,9 @@ function notRun(reason: string): never {
   process.exit(2);
 }
 
-async function fetchChunked(pair: string, timeframe: Timeframe): Promise<Candle[]> {
+async function fetchChunked(pair: string, timeframe: Timeframe, rangeStart: string, rangeEnd: string): Promise<Candle[]> {
   const chunks: Candle[][] = [];
-  for (const chunk of dateChunks(startDate, endDate, timeframe)) {
+  for (const chunk of dateChunks(rangeStart, rangeEnd, timeframe)) {
     console.log(`R8_FETCH ${pair} ${timeframe} ${chunk.start}..${chunk.end}`);
     const feed = await feedManager.fetchHistoricalCandles(pair, timeframe, chunk.start, chunk.end, 'TWELVE_DATA');
     if (feed.dataProvenance !== 'LIVE_INGESTED') throw new Error('R8 provenance gate failed: candles were not LIVE_INGESTED.');
@@ -38,8 +38,8 @@ async function fetchChunked(pair: string, timeframe: Timeframe): Promise<Candle[
   return mergeCandles(chunks);
 }
 
-async function loadSeries(pair: string, timeframe: Timeframe, manifest: Array<Record<string, unknown>>): Promise<Candle[]> {
-  const file = `${safe(pair)}-${timeframe}-${startDate}-${endDate}.csv`;
+async function loadSeries(pair: string, timeframe: Timeframe, manifest: Array<Record<string, unknown>>, rangeStart = startDate, rangeEnd = endDate): Promise<Candle[]> {
+  const file = `${safe(pair)}-${timeframe}-${rangeStart}-${rangeEnd}.csv`;
   if (csvInputDir) {
     const inputManifest = JSON.parse(await fs.readFile(path.join(csvInputDir, 'manifest.json'), 'utf8'));
     const entry = inputManifest.exports.find((e: any) => e.file === file);
@@ -49,16 +49,17 @@ async function loadSeries(pair: string, timeframe: Timeframe, manifest: Array<Re
     manifest.push({ ...entry, reused: true });
     return csvToCandles(csv);
   }
-  const candles = await fetchChunked(pair, timeframe);
+  const candles = await fetchChunked(pair, timeframe, rangeStart, rangeEnd);
   const csv = candlesToCsv(candles);
   await fs.mkdir(csvDir, { recursive: true });
   await fs.writeFile(path.join(csvDir, file), csv, 'utf8');
-  manifest.push({ pair, timeframe, file, sha256: sha256(csv), candles: candles.length, provider: 'TWELVE_DATA', fetchedAt: new Date().toISOString() });
+  manifest.push({ pair, timeframe, startDate: rangeStart, endDate: rangeEnd, file, sha256: sha256(csv), candles: candles.length, provider: 'TWELVE_DATA', provenance: 'LIVE_INGESTED', fetchedAt: new Date().toISOString() });
   return candles;
 }
 
 async function main() {
   if (!startDate || !endDate) notRun('R8_START_DATE and R8_END_DATE (YYYY-MM-DD) are required.');
+  const htfStartDate = htfWarmupStartDate(startDate, 7);
   if (!Number.isFinite(payoutPct) || payoutPct < 85 || payoutPct > 100) notRun('R8_PAYOUT_PCT must be set to the real payout (85-100).');
   if (!csvInputDir && !process.env.TWELVE_DATA_API_KEY) notRun('TWELVE_DATA_API_KEY is not configured. No simulated or replay data will be used.');
   let newsEvents: NewsEvent[] = [];
@@ -71,7 +72,7 @@ async function main() {
   const reports: Array<Record<string, unknown>> = [];
   try {
     for (const pair of pairs) {
-      const htf = await loadSeries(pair, '1h', manifest);
+      const htf = await loadSeries(pair, '1h', manifest, htfStartDate, endDate);
       for (const timeframe of timeframes) {
         const candles = await loadSeries(pair, timeframe, manifest);
         const fullCapable = candles.every((c) => typeof c.volume === 'number' && (c.volumeDelta !== undefined || c.cvd !== undefined));
@@ -88,8 +89,8 @@ async function main() {
       }
     }
     await fs.mkdir(csvDir, { recursive: true });
-    if (!csvInputDir) await fs.writeFile(path.join(csvDir, 'manifest.json'), JSON.stringify({ generatedAt: new Date().toISOString(), provider: 'TWELVE_DATA', startDate, endDate, exports: manifest }, null, 2));
-    await fs.writeFile(path.join(outDir, 'r8-summary.json'), JSON.stringify({ generatedAt: new Date().toISOString(), methodology: 'Causal walk-forward via executeStrategyPipeline; direction from closed 1h HTF bias inside the engine; next-candle outcome (expiry = timeframe); IS = first 2/3, OOS = last 1/3; verdict only when N >= 200.', startDate, endDate, payoutPct, news: newsLabel, manifest, reports: reports.map((r: any) => ({ pair: r.pair, timeframe: r.timeframe, mode: r.mode, status: r.status ?? 'EVALUATED', oos: r.outOfSample ? { n: r.outOfSample.decisive, wins: r.outOfSample.wins, verdict: r.outOfSample.verdict } : undefined })) }, null, 2));
+    if (!csvInputDir) await fs.writeFile(path.join(csvDir, 'manifest.json'), JSON.stringify({ generatedAt: new Date().toISOString(), provider: 'TWELVE_DATA', provenance: 'LIVE_INGESTED', evaluationRange: { startDate, endDate }, htfWarmupRange: { startDate: htfStartDate, endDate }, exports: manifest }, null, 2));
+    await fs.writeFile(path.join(outDir, 'r8-summary.json'), JSON.stringify({ generatedAt: new Date().toISOString(), methodology: 'Causal walk-forward via executeStrategyPipeline; closed FX-market bars are excluded from analysis but retained in raw CSV; direction from closed 1h HTF bias inside the engine; next-candle outcome (expiry = timeframe); IS = first 2/3, OOS = last 1/3; verdict only when N >= 200.', evaluationRange: { startDate, endDate }, htfWarmupRange: { startDate: htfStartDate, endDate }, payoutPct, news: newsLabel, manifest, reports: reports.map((r: any) => ({ pair: r.pair, timeframe: r.timeframe, mode: r.mode, status: r.status ?? 'EVALUATED', rawCandles: r.rawCandles, candles: r.candles, closedMarketCandlesExcluded: r.closedMarketCandlesExcluded, rawHtfCandles: r.rawHtfCandles, htfCandles: r.htfCandles, closedMarketHtfCandlesExcluded: r.closedMarketHtfCandlesExcluded, htfWarmupBars: r.htfWarmupBars, oos: r.outOfSample ? { n: r.outOfSample.decisive, wins: r.outOfSample.wins, verdict: r.outOfSample.verdict } : undefined })) }, null, 2));
     console.log(`R8_OUTPUT ${outDir}`);
   } catch (error) {
     const message = error instanceof MarketDataError ? `${error.code}: ${error.message}` : error instanceof Error ? error.message : String(error);
