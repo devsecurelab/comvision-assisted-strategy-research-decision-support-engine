@@ -128,7 +128,7 @@ async function main(): Promise<void> {
 
     async function testProviderSchedulersIntegrity() {
       const schedulers = createProviderSchedulers();
-      const expected = ['TWELVE_DATA', 'OANDA', 'TIINGO', 'FINNHUB', 'ALPHA_VANTAGE'] as const;
+      const expected = ['TWELVE_DATA', 'OANDA', 'TIINGO'] as const;
       for (const provider of expected) {
         const scheduler = schedulers.get(provider);
         assert.ok(scheduler, `${provider} scheduler must exist`);

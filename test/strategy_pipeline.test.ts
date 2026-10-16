@@ -1760,7 +1760,7 @@ runTest('Twelve Data adapter fetches actual time_series OHLC and reuses same-min
     requestedUrl = new URL(String(input));
     return new Response(JSON.stringify({ status: 'ok', values }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   }) as typeof fetch;
-  const manager = new MarketFeedManager('test-key', '', request);
+  const manager = new MarketFeedManager('test-key', request);
   const first = await manager.fetchCandles('EUR/USD', '5m', 'TWELVE_DATA');
   const second = await manager.fetchCandles('EUR/USD', '5m', 'TWELVE_DATA');
   assert.strictEqual(requestedUrl?.hostname, 'api.twelvedata.com');
@@ -1772,33 +1772,8 @@ runTest('Twelve Data adapter fetches actual time_series OHLC and reuses same-min
   assert.strictEqual(requestCount, 1);
 });
 
-runTest('Alpha Vantage adapter fetches real FX_INTRADAY OHLC and reports live provenance', async () => {
-  const newest = Date.now() - 30_000;
-  const series: Record<string, unknown> = {};
-  for (let index = 0; index < 26; index++) {
-    const timestamp = new Date(newest - index * 5 * 60_000).toISOString().replace('T', ' ').slice(0, 19);
-    series[timestamp] = { '1. open': '1.1000', '2. high': '1.1010', '3. low': '1.0990', '4. close': '1.1005' };
-  }
-  let requestedUrl: URL | undefined;
-  const request = (async (input: RequestInfo | URL) => {
-    requestedUrl = new URL(String(input));
-    return new Response(JSON.stringify({ 'Meta Data': { '6. Time Zone': 'UTC' }, 'Time Series FX (5min)': series }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-  }) as typeof fetch;
-  const manager = new MarketFeedManager('', 'test-key', request);
-  const result = await manager.fetchCandles('EUR/USD', '5m', 'ALPHA_VANTAGE');
-  assert.strictEqual(requestedUrl?.hostname, 'www.alphavantage.co');
-  assert.strictEqual(requestedUrl?.searchParams.get('function'), 'FX_INTRADAY');
-  assert.strictEqual(requestedUrl?.searchParams.get('from_symbol'), 'EUR');
-  assert.strictEqual(requestedUrl?.searchParams.get('to_symbol'), 'USD');
-  assert.strictEqual(requestedUrl?.searchParams.get('interval'), '5min');
-  assert.strictEqual(result.dataProvenance, 'LIVE_INGESTED');
-  assert.strictEqual(result.candles.length, 25);
-  assert.strictEqual(result.volumeAvailable, false, 'Forex API response without volume must be reported as unavailable');
-});
-
-
 runTest('Stale provider candles and missing live credentials fail closed without replay fallback', async () => {
-  const managerWithoutKey = new MarketFeedManager('', '', (async () => {
+  const managerWithoutKey = new MarketFeedManager('', (async () => {
     throw new Error('must not call fetch');
   }) as typeof fetch);
   await assert.rejects(
@@ -1815,7 +1790,7 @@ runTest('Stale provider candles and missing live credentials fail closed without
     datetime: new Date(staleNewest - index * 5 * 60_000).toISOString(),
     open: '1.1000', high: '1.1010', low: '1.0990', close: '1.1005', volume: '100',
   }));
-  const staleManager = new MarketFeedManager('test-key', '', (async () =>
+  const staleManager = new MarketFeedManager('test-key', (async () =>
     new Response(JSON.stringify({ status: 'ok', values }), { status: 200 })
   ) as typeof fetch);
   await assert.rejects(
@@ -1839,7 +1814,7 @@ runTest('Step 0 provider probe bypasses cache and reports closed-candle data and
       headers: { 'Content-Type': 'application/json', 'api-credits-used': '1', 'api-credits-left': '799' },
     });
   }) as typeof fetch;
-  const manager = new MarketFeedManager('test-key', '', request);
+  const manager = new MarketFeedManager('test-key', request);
   await manager.fetchCandles('EUR/USD', '15m', 'TWELVE_DATA');
   const probe = await manager.probeProvider('EUR/USD', '15m', 'TWELVE_DATA');
   assert.strictEqual(requestCount, 2, 'Diagnostic probe must make a fresh call even when the normal fetch is cached');
@@ -1847,17 +1822,6 @@ runTest('Step 0 provider probe bypasses cache and reports closed-candle data and
   assert.strictEqual(probe.creditsLeft, 799);
   assert.strictEqual(probe.volumeAvailable, true);
   assert.strictEqual(probe.lastTickAt, new Date(expectedLastClosedMs).toISOString());
-});
-
-runTest('Alpha Vantage premium endpoint denial reports UNSUPPORTED_ON_FREE_KEY without raw provider text', async () => {
-  const providerMessage = 'This is a premium endpoint. Please subscribe to a premium membership plan.';
-  const manager = new MarketFeedManager('', 'test-key', (async () =>
-    new Response(JSON.stringify({ Information: providerMessage }), { status: 200 })
-  ) as typeof fetch);
-  await assert.rejects(
-    manager.probeProvider('EUR/USD', '15m', 'ALPHA_VANTAGE'),
-    (error: any) => error?.code === 'UNSUPPORTED_ON_FREE_KEY' && !error.message.includes(providerMessage)
-  );
 });
 
 // Run all tests sequentially
@@ -1878,3 +1842,16 @@ runTest('Alpha Vantage premium endpoint denial reports UNSUPPORTED_ON_FREE_KEY w
     process.exit(1);
   }
 })();
+  const newest = Date.now() - 30_000;
+  const values = Array.from({ length: 26 }, (_, index) => ({
+    datetime: new Date(newest - index * 5 * 60_000).toISOString(),
+    open: '1.1000', high: '1.1010', low: '1.0990', close: '1.1005', volume: '100',
+  }));
+  let requestCount = 0;
+  let requestedUrl: URL | undefined;
+  const request = (async (input: RequestInfo | URL) => {
+    requestCount++;
+    requestedUrl = new URL(String(input));
+    return new Response(JSON.stringify({ status: 'ok', values }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }) as typeof fetch;
+  const manager = new MarketFeedManager('test-key', request);

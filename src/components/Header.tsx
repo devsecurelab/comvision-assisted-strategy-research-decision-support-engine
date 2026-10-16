@@ -15,7 +15,7 @@ import { ProviderStatus } from '../engine/dataProviders';
 import { PWAInstallButton } from './PWAInstallButton';
 
 const PROVIDER_LABELS: Record<string, string> = {
-  TWELVE_DATA: 'Twelve Data', OANDA: 'OANDA Practice', TIINGO: 'Tiingo FX', FINNHUB: 'Finnhub', ALPHA_VANTAGE: 'Alpha Vantage',
+  TWELVE_DATA: 'Twelve Data', OANDA: 'OANDA Practice', TIINGO: 'Tiingo FX',
 };
 
 interface HeaderProps {

@@ -46,6 +46,7 @@ export class NotificationService {
       `Reason: ${result.reason}`,
       `MFCI: ${v3 ? `${v3.mfci.totalMfci.toFixed(3)} (${v3.mfciBand})` : 'UNAVAILABLE'} | Mode: ${v3?.engineMode ?? 'UNAVAILABLE'}`,
       `Signal candle: ${time ? `${time.utcTime} UTC / ${time.bdtTime} BDT` : 'UNAVAILABLE'}`,
+      result.provider || result.htf_provider ? `Providers: LTF ${result.provider ?? 'UNAVAILABLE'} | HTF ${result.htf_provider ?? 'UNAVAILABLE'}` : '',
       result.signal_id ? `Signal ID: ${result.signal_id} | valid until ${result.valid_until}` : '',
       result.failover_reason ? `Provider failover: ${result.failover_reason}` : '',
       'Research alert only — no execution.',
@@ -55,6 +56,7 @@ export class NotificationService {
   public buildHealthText(): string {
     const scheduler = feedManager.getSchedulerSnapshot();
     const clock = feedManager.getClockState();
+    const providerStatus = feedManager.getStatus();
     const loopState = this.scanLoop?.state();
     const ledgerCheck = this.scanService?.ledger.verify();
     const edge = this.scanService?.edge.current();
@@ -63,6 +65,8 @@ export class NotificationService {
       `Auto-scan: ${loopState ? `${loopState.enabled ? 'ON' : 'OFF'} ${loopState.timeframe}` : 'NOT_WIRED'} | last run ${loopState?.lastRunAt ?? 'never'}${loopState?.lastError ? ` | last error ${loopState.lastError}` : ''}`,
       `Last cycle: ${loopState?.lastSummary || 'none'}`,
       `Provider: last OK ${clock.lastSuccessfulProvider ?? 'none'} at ${clock.lastSuccessfulSync || 'never'}${clock.lastFailedProvider ? ` | last failed ${clock.lastFailedProvider}` : ''}`,
+      `Active provider: ${providerStatus.provider} (${providerStatus.status})`,
+      `Provider circuits: ${providerStatus.circuits.map((circuit) => `${circuit.provider}=${circuit.state}${circuit.lastFailureCode ? `:${circuit.lastFailureCode}` : ''}`).join(' | ')}`,
       `Provider requests today (combined): ${scheduler.dayUsed}/${scheduler.perDay} (internal hard stop ${scheduler.hardStopDaily}, auto ${scheduler.autoUsed}/${scheduler.autoDailyBudget}) | minute ${scheduler.minuteUsed}/${scheduler.perMinute}`,
       `Clock drift: ${clock.driftMs === null ? 'UNAVAILABLE' : `${clock.driftMs} ms`} (${clock.status})`,
       `News source: ${newsGuard.isSourceOnline() ? 'ONLINE' : 'OFFLINE (fail-closed)'}`,

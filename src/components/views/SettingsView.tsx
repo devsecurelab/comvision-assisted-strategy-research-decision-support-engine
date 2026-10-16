@@ -28,8 +28,8 @@ import { getApiBaseUrl, setApiBaseUrl, apiFetch } from '../../config/api';
 interface SettingsViewProps {
   selectedTimeframe: Timeframe;
   onSelectTimeframe: (tf: Timeframe) => void;
-  selectedProvider: 'TWELVE_DATA' | 'ALPHA_VANTAGE';
-  onSelectProvider: (provider: 'TWELVE_DATA' | 'ALPHA_VANTAGE') => void;
+  selectedProvider: 'TWELVE_DATA';
+  onSelectProvider: (provider: 'TWELVE_DATA') => void;
   providerStatus?: ProviderStatus;
   onProviderStatusChange?: (status: ProviderStatus) => void;
   onDownloadHandover?: () => void;
@@ -69,7 +69,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   const [backendUrl, setBackendUrlState] = useState<string>(() => getApiBaseUrl());
   const [backendSavedFeedback, setBackendSavedFeedback] = useState<string | null>(null);
-  const [providerCredentials, setProviderCredentials] = useState({ twelveDataKey: '', oandaPracticeToken: '', tiingoApiKey: '', finnhubApiKey: '', alphaVantageKey: '' });
+  const [providerCredentials, setProviderCredentials] = useState({ twelveDataKey: '', oandaPracticeToken: '', tiingoApiKey: '' });
   const [savingProviderCredentials, setSavingProviderCredentials] = useState(false);
   const [providerCredentialFeedback, setProviderCredentialFeedback] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -88,7 +88,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.message || data.error || 'Could not update provider credentials.');
       if (data.providerStatus) onProviderStatusChange?.(data.providerStatus as ProviderStatus);
-      setProviderCredentials({ twelveDataKey: '', oandaPracticeToken: '', tiingoApiKey: '', finnhubApiKey: '', alphaVantageKey: '' });
+      setProviderCredentials({ twelveDataKey: '', oandaPracticeToken: '', tiingoApiKey: '' });
       setProviderCredentialFeedback({ ok: true, text: 'Credentials accepted for this server process. No key values were returned or written to the settings store.' });
     } catch (error) {
       setProviderCredentialFeedback({ ok: false, text: error instanceof Error ? error.message : 'Could not update provider credentials.' });
@@ -246,7 +246,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </h3>
           </div>
           <p className="text-xs text-slate-400 leading-relaxed">
-            Automatic scans use the configured server-side fallback order: Twelve Data → OANDA Practice → Tiingo FX → Finnhub → Alpha Vantage. The selector below is for direct market-feed requests; only fresh, validated provider candles can reach the alert engine.
+            Automatic scans use the configured server-side fallback order: Twelve Data → OANDA Practice → Tiingo FX. The selector below is for direct market-feed requests; only fresh, validated provider candles can reach the alert engine.
           </p>
 
           <div className="space-y-2 pt-2">
@@ -262,25 +262,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <div className="font-bold">Twelve Data (time_series REST)</div>
                 <div className="text-[10px] text-slate-500">
                   Requires a configured API key and a valid provider response
-                </div>
-              </div>
-              <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800">
-                MANUAL
-              </span>
-            </button>
-
-            <button
-              onClick={() => onSelectProvider('ALPHA_VANTAGE')}
-              className={`w-full p-3 rounded-lg border text-left flex items-center justify-between text-xs font-mono transition ${
-                selectedProvider === 'ALPHA_VANTAGE'
-                  ? 'bg-cyan-500/10 border-cyan-500 text-cyan-300'
-                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-              }`}
-            >
-              <div>
-                <div className="font-bold">Alpha Vantage FX_INTRADAY (REST)</div>
-                <div className="text-[10px] text-slate-500">
-                  Manual provider choice; endpoint access may require a paid plan
                 </div>
               </div>
               <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800">
@@ -336,8 +317,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               ['twelveDataKey', 'Twelve Data API key', 'twelveData'],
               ['oandaPracticeToken', 'OANDA Practice access token', 'oanda'],
               ['tiingoApiKey', 'Tiingo FX API key', 'tiingo'],
-              ['finnhubApiKey', 'Finnhub API key', 'finnhub'],
-              ['alphaVantageKey', 'Alpha Vantage API key', 'alphaVantage'],
             ] as const).map(([field, label, statusKey]) => {
               const configured = providerStatus?.quota[statusKey].configured;
               return (

@@ -925,7 +925,7 @@ export const DocsView: React.FC = () => {
               {
                 title: '6. Settings View',
                 whatItDoes: 'Displays engine configuration, data feed provider selection, and API key connectivity status.',
-                whatUserSees: 'Provider selectors (Twelve Data, Alpha Vantage), timeframe picker, and read-only parameter cards.',
+                whatUserSees: 'Twelve Data provider selector, timeframe picker, and read-only parameter cards.',
                 whatDataItUses: 'Engine runtime configuration object.',
                 whatResultMeans: 'Allows changing data sources and scanning timeframes.',
                 whatItDoesNotDo: 'Does NOT alter frozen Strategy v1.0 mathematical thresholds while EXP-2026-001 is active.',

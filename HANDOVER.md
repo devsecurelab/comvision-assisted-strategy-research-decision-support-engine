@@ -1082,3 +1082,32 @@ R8_RESULT EUR/USD 30m PRICE_ONLY OOS N=0 wins=0 winRate=n/a wilson=n/a breakeven
 R8_OUTPUT data/r8-smoke-rerun
 RAW_CSV_HASHES_UNCHANGED=PASS
 ```
+
+## G1–G6 follow-up — owner-run tests, interval-aware market closures, and adapter pruning
+
+**Branch:** `engine/gaps-2026-10`, based on main `2da5232`. This follow-up preserves all gate logic, strategy thresholds, MFCI weights, and the disabled FULL-mode default. The Owner explicitly instructed the agent not to run `npm test` / `npm run test:legacy`; the Owner will run them. The new tests are present in the standard suite.
+
+### Implementation
+
+- **G1 — common live/R8 closure filter:** `filterFxOpenMarketCandles` is applied to both live LTF candles and cached/fetched HTF candles before pipeline evaluation; R8 uses the same helper. The helper removes a candle when its open or close instant overlaps a scheduled closure. Raw CSV inputs remain unchanged.
+- **G2 — DST-aware market closure:** the weekly interval is Friday 17:00 through Sunday 17:00 in `America/New_York`, resolved with `Intl.DateTimeFormat`; this moves the UTC boundary between 21:00 and 22:00 as DST changes. December 25 and January 1 UTC holidays remain. Candle-interval checks and data-gap validation share the boundary predicate.
+- **G3 — kill-zone credit guard:** manual scan and auto-cycle use `classifySessionAndKillZone` from `session.ts`; outside a London/New York kill zone they return `NO_TRADE` / `OUTSIDE_KILL_ZONE` before provider access. The market-closed check also occurs before provider access. A mock 24-hour, 96-window scan-credit regression and a Monday live-vs-R8 equivalence regression were added.
+- **G4 — provenance visibility:** signal ledger records separate LTF/HTF providers. Provider switches are grouped per decision and sent as sanitized Telegram notices with source/destination, failure reason, circuit state and timestamp; health output reports active provider and circuits. Tests assert token/secret values are absent.
+- **G5 — unsupported providers:** Finnhub and Alpha Vantage adapters, Finnhub WebSocket source, key variables, selector options and related adapter tests are removed. Active fallback order is Twelve Data → OANDA Practice → Tiingo FX. `.env.example`, setup/provider docs and the delivered Bengali Termux guide are aligned.
+- **No strategy changes:** only data filtering, scheduling/visibility, provider surface and regression/documentation changes; no threshold, gate, MFCI weight, or FULL-mode default changes.
+
+### Keyless R8 replay after G1/G2
+
+The September EUR/USD CSVs were replayed from `R8_CSV_INPUT_DIR` with `TWELVE_DATA_API_KEY` and `TWELVEDATA_API_KEY` unset. No provider calls were made. Each original SHA-256 hash still matches its manifest. The latest raw/analyzed/excluded rows are: 1h 888/643/245; 5m 8,640/6,332/2,308; 15m 2,880/2,108/772; 30m 1,440/1,052/388. Each output has `dataQuality.ok=true` and retains the full Sep 30 last candle.
+
+The previous open-time-only replay produced evaluated IS/OOS totals 2,399/1,272 (5m), 723/424 (15m), and 329/212 (30m). The interval-aware replay produces 2,242/1,272; 670/424; and 302/212. OOS totals are unchanged; IS evaluated-bar counts differ because excluding closure-overlapping boundary bars changes the 120-open-candle rolling input windows in subsequent history. The one 5m signal is unchanged (`2026-09-01T12:15:00Z`, PUT, LOSS); 15m/30m remain zero-signal; all OOS decisive N remain zero / `INCONCLUSIVE`. See `docs/evidence/gaps-2026-10.md` and the updated R8 evidence addendum for the full gate tables.
+
+### Validation status (do not overstate)
+
+- `npm run lint` (`tsc --noEmit`) — **PASS**.
+- `npm run build` — **PASS**.
+- Keyless offline R8 replay — **PASS** for all three reports; all remain `INCONCLUSIVE`.
+- `npm test` and `npm run test:legacy` — **NOT RUN in this follow-up at the Owner's explicit request**. The Owner will run them. Historical C5 suite results are preserved above but do not certify the new G1–G6 changes.
+- Live provider entitlements/Termux behavior — not verified; Owner will perform their real-data smoke run. No credentials were used, written, or logged.
+
+Raw command outputs for lint, build, and offline R8 are recorded in the G1–G6 evidence file. The user requested immediate merge despite deferring tests to their own run; do not claim the full suite passed for this follow-up.

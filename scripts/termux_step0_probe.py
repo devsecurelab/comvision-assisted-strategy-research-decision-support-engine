@@ -94,24 +94,6 @@ def main() -> int:
                 emit({"http_status": http_status, **result})
                 time.sleep(1)
 
-        # Alpha Vantage FX_INTRADAY is premium-only. Probe once first; if the API
-        # denies entitlement (or any other failure occurs), stop to avoid wasting calls.
-        alpha_calls = 0
-        stop_alpha = False
-        for pair in PAIRS:
-            for timeframe in TIMEFRAMES:
-                if alpha_calls:
-                    time.sleep(13)  # Stay below the commonly documented free-key 5/min rate.
-                query = urlencode({"provider": "ALPHA_VANTAGE", "symbol": pair, "timeframe": timeframe})
-                http_status, result = request_json(f"/api/engine/provider-health?{query}", token=token)
-                emit({"http_status": http_status, **result})
-                alpha_calls += 1
-                status_value = result.get("status")
-                if status_value not in ("LIVE_CLOSED_CANDLE_VERIFIED", "LIVE_RESPONSE_EXPECTED_CANDLE_MISSING"):
-                    stop_alpha = True
-                    break
-            if stop_alpha:
-                break
     finally:
         logout_status, _ = request_json("/api/auth/logout", method="POST", token=token)
         emit({"status": "TEMPORARY_SESSION_REVOKED" if logout_status == 200 else "LOGOUT_UNCONFIRMED"})

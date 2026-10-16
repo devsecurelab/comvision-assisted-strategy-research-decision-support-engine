@@ -1,8 +1,8 @@
 import type { Candle, Timeframe } from '../types';
 
-export const PROVIDER_ORDER = ['TWELVE_DATA', 'OANDA', 'TIINGO', 'FINNHUB', 'ALPHA_VANTAGE'] as const;
+export const PROVIDER_ORDER = ['TWELVE_DATA', 'OANDA', 'TIINGO'] as const;
 export type MarketDataProvider = typeof PROVIDER_ORDER[number];
-export type ManuallySelectableProvider = 'TWELVE_DATA' | 'ALPHA_VANTAGE';
+export type ManuallySelectableProvider = 'TWELVE_DATA';
 
 export interface ProviderCandlePayload {
   rows: unknown[];

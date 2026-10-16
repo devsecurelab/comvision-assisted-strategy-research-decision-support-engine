@@ -19,7 +19,6 @@
 
 ### Phase 3: Data Feeds & Provider Provenance (Core REST ingestion implemented; operations work pending)
 - [x] Twelve Data `time_series` REST ingestion with OHLC validation, per-pair/timeframe minute cache, and stale-data rejection.
-- [x] Alpha Vantage `FX_INTRADAY` REST adapter with transparent provider tagging (provider plan access may be restricted).
 - [x] Central circuit breaker: only verified `LIVE_INGESTED` candles may reach signal decisions; replay/demo/override/test inputs are `INCONCLUSIVE` with `NO_ALERT`.
 - [x] Synthetic & deterministic replay remains explicitly demo-only.
 - [ ] Rate-limit-aware queue/throttling and multi-pair scan scheduling.

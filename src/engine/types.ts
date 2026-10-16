@@ -281,7 +281,7 @@ export interface MasterTelemetry {
     engine_mode?: 'FULL' | 'PRICE_ONLY';
     excluded_stages?: Array<{ stage: number; name: string; reason: string }>;
     decision_engine?: 'decision_engine_v3';
-    provider?: 'TWELVE_DATA' | 'OANDA' | 'TIINGO' | 'FINNHUB' | 'ALPHA_VANTAGE' | 'UNAVAILABLE';
+    provider?: 'TWELVE_DATA' | 'OANDA' | 'TIINGO' | 'UNAVAILABLE';
     poc_label?: 'PROVIDER_VOLUME_POC' | 'UNAVAILABLE';
     signal_candle_open_ts?: string | null;
     htf_bias?: 'BULLISH' | 'BEARISH' | 'UNCLEAR';
@@ -390,7 +390,7 @@ export interface MasterTelemetry {
     details?: string;
   };
   provider_provenance?: {
-    provider?: 'TWELVE_DATA' | 'OANDA' | 'TIINGO' | 'FINNHUB' | 'ALPHA_VANTAGE';
+    provider?: 'TWELVE_DATA' | 'OANDA' | 'TIINGO';
     provider_state?: string;
     rate_limit_usage?: string;
     timestamp_ingested: string;
@@ -423,9 +423,8 @@ export interface EngineSettings {
   maxWickRatio: number; // default 0.50 (frozen)
   fibEquilibriumLevel: number; // default 0.50 (frozen)
   selectedTimeframe: Timeframe;
-  activeProvider: 'TWELVE_DATA' | 'ALPHA_VANTAGE';
+  activeProvider: 'TWELVE_DATA';
   twelveDataApiKeyConfigured: boolean;
-  alphaVantageApiKeyConfigured: boolean;
   experimentLocked: boolean;
   scannerActive: boolean;
   alertsMuted: boolean;
