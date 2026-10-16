@@ -86,7 +86,7 @@ def main() -> int:
 
     emit({"status": "LOGIN_OK", "message": "Temporary session will be revoked when probes finish."})
     try:
-        # Six Twelve Data calls remain below its documented 8-credit/minute Basic rate.
+        # Six Twelve Data requests; the server-side provider scheduler enforces spacing.
         for pair in PAIRS:
             for timeframe in TIMEFRAMES:
                 query = urlencode({"provider": "TWELVE_DATA", "symbol": pair, "timeframe": timeframe})

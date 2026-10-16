@@ -1111,3 +1111,12 @@ The previous open-time-only replay produced evaluated IS/OOS totals 2,399/1,272 
 - Live provider entitlements/Termux behavior — not verified; Owner will perform their real-data smoke run. No credentials were used, written, or logged.
 
 Raw command outputs for lint, build, and offline R8 are recorded in the G1–G6 evidence file. The user requested immediate merge despite deferring tests to their own run; do not claim the full suite passed for this follow-up.
+
+
+## H1–H3 follow-up — owner-directed tests and Termux documentation (2026-10-17)
+- Created `engine/fixes-2026-10` from main. No production engine or strategy logic was changed.
+- **H1 root cause:** the old 17-candle Monday HTF test fixture lost 7 weekend-closed bars to the correct shared filter, leaving 10 open bars and only one confirmed swing high. Both live and R8 therefore correctly stopped at `HTF_BIAS_UNCLEAR`; this was insufficient test data, not a live-filter defect. The replacement fixture gives the filtered series clear HH+HL structure and asserts all nine live/R8 gate statuses and decision reasons match.
+- **H2:** strategy test candle fixtures are pinned to Wednesday 10:00 UTC. A test-only advancing `Date.now()` offset supports explicit open/closed clock runs. `market_hours.test.ts` passed at Wednesday 10:00 UTC and Saturday 12:00 UTC; `strategy_pipeline.test.ts` passed **75/75** at both clocks. No production clock behavior changed.
+- **H3:** the current main base already tracks `scripts/termux_step0_probe.py` and the file is Twelve Data-only. Updated its stale quota comment and clarified in README that six probes can consume provider credits. No Alpha Vantage/Finnhub references remain in the helper.
+- Validation: `npm run lint` PASS; `npm run build` PASS; targeted tests in both clock modes PASS; Python AST parse and `git diff --check` PASS. Aggregate `npm test` / `npm run test:legacy` were not run; Owner will run them.
+- Detailed results: `docs/evidence/h1-h3-fixes-2026-10.md`.

@@ -11,6 +11,10 @@ import { SignalLedger } from '../src/engine/signalLedger';
 import type { Candle } from '../src/engine/types';
 import { classifySessionAndKillZone } from '../src/engine/session';
 import { htfCandlesFor, idealPriceOnlySetup, SIGNAL_TS } from './fixtures/v3Reachability';
+import { deriveHtfBias } from '../src/engine/strategyV3Engine';
+import { installFixedTestClock } from './fixtures/testClock';
+
+installFixedTestClock();
 
 const closedOpen = '2026-10-16T20:45:00.000Z'; // 15m candle closes exactly at Friday 21:00 UTC.
 const openSetup = idealPriceOnlySetup(1.085, '15m', 'BULLISH', SIGNAL_TS);
@@ -110,7 +114,28 @@ while (warmHistory.length < 80) {
 warmHistory.reverse();
 const weekendPseudoBars: Candle[] = ['2026-10-16T21:00:00.000Z', '2026-10-17T12:00:00.000Z', '2026-10-18T20:45:00.000Z'].map((timestamp) => ({ timestamp, open: 1.09, high: 1.091, low: 1.089, close: 1.0905, volume: null }));
 const liveRawLtf = [...warmHistory, ...weekendPseudoBars, ...mondaySetup].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
-const mondayHtf = htfCandlesFor('BULLISH', new Date(Date.parse(mondaySignalOpen) + 15 * 60_000).toISOString());
+const mondayAsOf = new Date(Date.parse(mondaySignalOpen) + 15 * 60_000).toISOString();
+const lastHtfOpen = Math.floor(Date.parse(mondayAsOf) / 3_600_000) * 3_600_000 - 3_600_000;
+const mondayHtf: Candle[] = [];
+const bullishWave = [0, 4, 2, 5, 1];
+let openHtfIndex = 0;
+// Include closure-time pseudo-bars, but give the open-market candles 120 hours of
+// HH+HL history. The previous 17-row helper left only 10 open bars after filtering
+// (one confirmed swing high), so it correctly produced HTF_BIAS_UNCLEAR in both paths.
+for (let timestampMs = lastHtfOpen - 120 * 3_600_000; timestampMs <= lastHtfOpen; timestampMs += 3_600_000) {
+  const timestamp = new Date(timestampMs).toISOString();
+  if (isFxBarClosed(timestamp, '1h')) {
+    mondayHtf.push({ timestamp, open: 1.09, high: 1.2, low: 0.9, close: 0.91, volume: null });
+    continue;
+  }
+  const level = Math.floor(openHtfIndex / bullishWave.length) * 2 + bullishWave[openHtfIndex % bullishWave.length];
+  openHtfIndex++;
+  const mid = 1.08 + level * 0.00002;
+  mondayHtf.push({ timestamp, open: mid - 0.000002, high: mid + 0.00001, low: mid - 0.00001, close: mid + 0.000002, volume: null });
+}
+const filteredMondayHtf = filterFxOpenMarketCandles(mondayHtf, '1h');
+assert.ok(filteredMondayHtf.length < mondayHtf.length, 'synthetic closed-time HTF bars are present for the filter to remove');
+assert.equal(deriveHtfBias(filteredMondayHtf, mondayAsOf), 'BULLISH', 'the filtered HTF fixture must retain clear bullish HH+HL bias');
 const mondayNow = Date.parse(mondaySignalOpen) + 15 * 60_000 + 3_000;
 let mondayFetches = 0;
 const mondayDeps: ScanDeps = {
@@ -129,8 +154,15 @@ const mondayNext: Candle = { timestamp: new Date(Date.parse(mondaySignalOpen) + 
 const mondayR8 = runCausalBacktest([...liveRawLtf, mondayNext], mondayHtf, { pair: 'EUR/USD', timeframe: '15m', payoutPct: 90, newsEvents: [], newsSourceOnline: true, mode: 'PRICE_ONLY' });
 const r8MondayBar = mondayR8.bars.find((bar) => bar.signal_ts === mondaySignalOpen);
 assert.ok(r8MondayBar, 'R8 evaluates the matching Monday signal bar');
-assert.deepEqual(liveMonday.telemetry?.decision_engine_v3?.gates.map((gate) => gate.status), r8MondayBar.gates);
-assert.equal(liveMonday.reason, r8MondayBar.status_reason);
+const liveMondayV3 = liveMonday.telemetry?.decision_engine_v3;
+assert.ok(liveMondayV3, `live path must evaluate V3 gates; got ${liveMonday.reason}`);
+assert.equal(r8MondayBar.evaluated, true, `R8 must evaluate V3 gates; got ${r8MondayBar.status_reason}`);
+const liveGateStatuses = liveMondayV3.gates.map((gate) => gate.status);
+assert.equal(liveGateStatuses.length, 9, 'live path evaluates all nine gates');
+assert.equal(r8MondayBar.gates.length, 9, 'R8 path evaluates all nine gates');
+assert.deepEqual(liveGateStatuses, r8MondayBar.gates, 'live and R8 evaluated gate statuses match in Owner order');
+assert.equal(liveMondayV3.statusReason, r8MondayBar.status_reason, 'live and R8 decision causes match');
+assert.equal(liveMonday.reason, r8MondayBar.status_reason, 'scanner reason matches the R8 cause');
 assert.equal(liveMonday.status, mondayR8.trades.find((trade) => trade.signal_ts === mondaySignalOpen)?.direction ?? 'NO_TRADE');
 
 // Simulate 96 quarter-hour cycles: fetches occur only in the existing London/NY kill zones.
@@ -138,10 +170,15 @@ const simulationDir = fs.mkdtempSync(path.join(os.tmpdir(), 'comvision-24h-'));
 const simulationStart = Date.parse('2026-10-19T00:00:00.000Z');
 let simulationNow = simulationStart;
 let simulationFetches = 0;
+let simulationLtfFetches = 0;
+let simulationHtfFetches = 0;
 let eligibleWindows = 0;
+const eligibleHtfHours = new Set<number>();
 const simulation = new ScanService({
   fetchCandles: async (_pair, timeframe, provider) => {
     simulationFetches++;
+    if (timeframe === '1h') simulationHtfFetches++;
+    else simulationLtfFetches++;
     const timestamp = new Date(latestClosedCandleOpenMs(simulationNow, timeframe)).toISOString();
     const candle = { timestamp, open: 1.1, high: 1.1002, low: 1.0998, close: 1.1001, volume: null };
     return { candles: [candle], provider, dataProvenance: 'LIVE_INGESTED', fetchedAt: new Date(simulationNow).toISOString(), lastTickAt: timestamp, latencyMs: 1, cacheHit: false };
@@ -153,12 +190,17 @@ const simulation = new ScanService({
 for (let index = 0; index < 96; index++) {
   simulationNow = simulationStart + (index + 1) * 15 * 60_000 + 3_000;
   const expectedOpen = latestClosedCandleOpenMs(simulationNow, '15m');
-  if (!isFxBarClosed(new Date(expectedOpen).toISOString(), '15m') && classifySessionAndKillZone(new Date(expectedOpen).toISOString()).kill_zone === 'INSIDE_KILL_ZONE') eligibleWindows++;
+  if (!isFxBarClosed(new Date(expectedOpen).toISOString(), '15m') && classifySessionAndKillZone(new Date(expectedOpen).toISOString()).kill_zone === 'INSIDE_KILL_ZONE') {
+    eligibleWindows++;
+    eligibleHtfHours.add(latestClosedCandleOpenMs(simulationNow, '1h'));
+  }
   await simulation.runAutoCycle('15m', async () => undefined);
 }
-assert.equal(simulationFetches, eligibleWindows * 2, 'each eligible window uses one LTF and one HTF request only');
+assert.equal(simulationLtfFetches, eligibleWindows, 'each eligible 15m window fetches its own LTF series');
+assert.equal(simulationHtfFetches, eligibleHtfHours.size, 'the HTF cache fetches at most once per distinct closed 1h candle');
+assert.equal(simulationFetches, simulationLtfFetches + simulationHtfFetches);
 assert.ok(simulationFetches < 96 * 2, '24-hour provider fetch count is lower than unrestricted two-fetch-per-window polling');
-console.log(`=== KILL-ZONE SIMULATION: ${simulationFetches} fetches / 96 windows (${eligibleWindows} eligible) ===`);
+console.log(`=== KILL-ZONE SIMULATION: ${simulationFetches} fetches / 96 windows (${eligibleWindows} eligible, ${eligibleHtfHours.size} HTF fetches via cache) ===`);
 
 // Manual and automatic live scans are suppressed before fetchCandles/provider-credit consumption.
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'comvision-market-hours-'));

@@ -5,7 +5,7 @@
 import assert from 'node:assert';
 import path from 'node:path';
 import { feedManager, MarketFeedManager } from '../src/engine/dataProviders';
-import { generateDeterministicValidSetup, generateResearchCandles } from './fixtures/marketCandles';
+import { FIXTURE_NOW_MS, generateDeterministicValidSetup, generateResearchCandles } from './fixtures/marketCandles';
 import { executeStrategyPipeline as executePipeline, detectFractalSwings, evaluateMarketStructure, isInsideCandle, detectLiquidityPools, evaluateMomentum } from '../src/engine/pipeline';
 import { newsGuard } from '../src/engine/newsGuard';
 import { experimentTracker } from '../src/engine/experimentTracker';
@@ -18,9 +18,12 @@ import { notificationService, NotificationService } from '../src/server/notifica
 import { analyticsService } from '../src/server/analyticsService';
 import { chatService } from '../src/server/chatService';
 import { formatSignalTime } from '../src/utils/timeFormat';
+import { installFixedTestClock } from './fixtures/testClock';
 
 // Archived V2 fixture suite: runs only via `npm run test:legacy` (LEGACY_V2_FIXTURES=1 set by the script, never in-file).
 if (process.env.LEGACY_V2_FIXTURES !== '1') { console.error('strategy_pipeline.test.ts is the archived V2 suite; run it with npm run test:legacy.'); process.exit(1); }
+
+installFixedTestClock();
 
 // Isolate test storage directory to prevent interference with runtime state
 const testStorageDir = path.join(process.cwd(), 'data_test');
@@ -594,7 +597,7 @@ runTest('Test 30: Session Revocation & Quick Demo - Logout destroys session; Qui
  */
 function generateDeterministicBearishSetup(basePrice = 1.0850): Candle[] {
   const candles = generateResearchCandles(25, basePrice);
-  const now = Date.now();
+  const now = FIXTURE_NOW_MS;
   const tMinus = (mins: number) => new Date(now - mins * 60 * 1000).toISOString();
 
   // Neutral base candles
