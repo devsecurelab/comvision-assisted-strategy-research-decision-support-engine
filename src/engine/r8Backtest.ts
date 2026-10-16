@@ -12,10 +12,28 @@ import type { Candle, NewsEvent, Timeframe } from './types';
  */
 export const R8_WINDOW = 120;
 export const R8_HTF_WINDOW = 80;
+export const R8_HTF_MIN_CLOSED_CANDLES = 2 * 2 + 3;
+export const R8_GATE_LABELS = [
+  'G1 Market Structure',
+  'G2 Imbalance',
+  'G3 Order Block & Breaker',
+  'G4 Premium / Discount',
+  'G5 Wick Pushback',
+  'G6 Liquidity Sweep',
+  'G7 Momentum',
+  'G8 Session & Kill Zone',
+  'G9 BSL/SSL Target',
+];
+
+export function htfWarmupStartDate(startDate: string, days = 7): string {
+  const start = Date.parse(`${startDate}T00:00:00.000Z`);
+  if (!Number.isFinite(start)) throw new Error('R8_START_DATE must be a valid YYYY-MM-DD date.');
+  return new Date(start - days * 86_400_000).toISOString().slice(0, 10);
+}
 
 export interface R8Options { pair: string; timeframe: Timeframe; payoutPct: number; newsEvents: NewsEvent[]; newsSourceOnline: boolean; mode: 'PRICE_ONLY' | 'FULL'; seed?: number }
 export interface R8Trade { signal_ts: string; direction: 'CALL' | 'PUT'; mfci: number; entry_open: number; exit_close: number; outcome: 'WIN' | 'LOSS' | 'TIE'; session: string; hour_utc: number }
-export interface R8Bar { signal_ts: string; next_up: boolean | null; evaluated: boolean; gates: string[]; status_reason: string }
+export interface R8Bar { signal_ts: string; next_up: boolean | null; evaluated: boolean; gates: string[]; status_reason: string; htfClosedCandles: number; htfWarmup: boolean }
 
 function lastIndexAtOrBefore(htf: Candle[], cutoffMs: number): number {
   let lo = 0; let hi = htf.length - 1; let ans = -1;
@@ -35,6 +53,8 @@ export function runCausalBacktest(candles: Candle[], htf: Candle[], opts: R8Opti
       const signalClose = signalOpen + interval;
       const h = lastIndexAtOrBefore(htf, signalClose);
       const htfWindow = h >= 0 ? htf.slice(Math.max(0, h - R8_HTF_WINDOW + 1), h + 1) : [];
+      const htfClosedCandles = h + 1;
+      const htfWarmup = htfClosedCandles < R8_HTF_MIN_CLOSED_CANDLES;
       const next = candles[i + 1];
       const contiguous = Date.parse(next.timestamp) === signalClose;
       const t = executeStrategyPipeline({
@@ -43,7 +63,7 @@ export function runCausalBacktest(candles: Candle[], htf: Candle[], opts: R8Opti
         dataProvenance: 'LIVE_INGESTED', provider: 'TWELVE_DATA', pair: opts.pair, asset: opts.pair, payoutPct: opts.payoutPct, nowMs: signalClose,
       });
       const v3 = t.decision_engine_v3;
-      bars.push({ signal_ts: candles[i].timestamp, next_up: contiguous ? (next.close === next.open ? null : next.close > next.open) : null, evaluated: !!v3, gates: v3 ? v3.gates.map((g: any) => g.status) : [], status_reason: v3?.statusReason ?? t.metadata.status_reason ?? '' });
+      bars.push({ signal_ts: candles[i].timestamp, next_up: contiguous ? (next.close === next.open ? null : next.close > next.open) : null, evaluated: !!v3, gates: v3 ? v3.gates.map((g: any) => g.status) : [], status_reason: v3?.statusReason ?? t.metadata.status_reason ?? '', htfClosedCandles, htfWarmup });
       if (!v3 || v3.binarySignal === 'NO_TRADE' || !contiguous) continue;
       if (v3.engineMode !== opts.mode) continue;
       const outcome = next.close === next.open ? 'TIE' : (v3.binarySignal === 'CALL') === (next.close > next.open) ? 'WIN' : 'LOSS';
@@ -104,7 +124,7 @@ export function funnel(bars: R8Bar[]) {
   const pct = (x: number) => (evaluated.length ? x / evaluated.length : null);
   const reasons: Record<string, number> = {};
   for (const b of bars) { const k = b.status_reason.split(':')[0] || 'UNKNOWN'; reasons[k] = (reasons[k] ?? 0) + 1; }
-  return { bars: bars.length, evaluated: evaluated.length, marginal: marginal.map(pct), cumulative: cumulative.map(pct), statusReasons: reasons };
+  return { bars: bars.length, evaluated: evaluated.length, gateLabels: R8_GATE_LABELS, marginal: marginal.map(pct), cumulative: cumulative.map(pct), statusReasons: reasons, htfWarmupBars: bars.filter((b) => b.htfWarmup).length };
 }
 
 /** In-sample = first 2/3 chronologically, out-of-sample = last 1/3. OOS is the primary report. */
@@ -122,6 +142,7 @@ export function buildR8Report(candles: Candle[], htf: Candle[], opts: R8Options)
     dataQuality: { ok: quality.ok, issueCounts: quality.issues.reduce<Record<string, number>>((acc, i) => { acc[i.code] = (acc[i.code] ?? 0) + 1; return acc; }, {}) },
     outOfSample: { ...summarizeTrades(oosTrades, opts.payoutPct), baselines: baselines(oosBars, oosTrades, seed), funnel: funnel(oosBars) },
     inSample: { ...summarizeTrades(isTrades, opts.payoutPct), baselines: baselines(isBars, isTrades, seed), funnel: funnel(isBars) },
+    htfWarmupBars: { total: bars.filter((b) => b.htfWarmup).length, inSample: isBars.filter((b) => b.htfWarmup).length, outOfSample: oosBars.filter((b) => b.htfWarmup).length },
     trades,
   };
 }

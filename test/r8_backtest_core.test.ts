@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import { buildR8Report, candlesToCsv, csvToCandles, dateChunks, mergeCandles, runCausalBacktest, sha256 } from '../src/engine/r8Backtest';
+import { buildR8Report, candlesToCsv, csvToCandles, dateChunks, funnel, htfWarmupStartDate, mergeCandles, R8_GATE_LABELS, runCausalBacktest, sha256 } from '../src/engine/r8Backtest';
 import { htfCandlesFor, idealPriceOnlySetup, SIGNAL_TS } from './fixtures/v3Reachability';
 
 // R8 core mechanics on TEST fixtures only (never reported as results).
@@ -21,7 +21,18 @@ const report = buildR8Report(candles, htf, opts);
 assert.equal(report.outOfSample.verdict, 'INCONCLUSIVE', 'verdict is never given with N < 200');
 assert.ok('alwaysCall' in report.outOfSample.baselines && 'randomDirectionAtSignalTimes' in report.outOfSample.baselines);
 assert.equal(report.outOfSample.funnel.marginal.length, 9);
+assert.deepEqual(report.outOfSample.funnel.gateLabels, R8_GATE_LABELS);
+assert.deepEqual(R8_GATE_LABELS.slice(3, 6), ['G4 Premium / Discount', 'G5 Wick Pushback', 'G6 Liquidity Sweep']);
 assert.throws(() => buildR8Report(candles, htf, { ...opts, payoutPct: 80 }), /below 85/);
+// Insufficient closed 1h history must be a counted fail-closed HTF warm-up, not a crash.
+const noHtf = runCausalBacktest(candles, [], opts);
+assert.ok(noHtf.bars.length > 0);
+assert.ok(noHtf.bars.every((bar) => bar.htfWarmup && bar.htfClosedCandles < 7 && /HTF_BIAS_UNCLEAR/.test(bar.status_reason)));
+assert.equal(funnel(noHtf.bars).htfWarmupBars, noHtf.bars.length);
+const noHtfReport = buildR8Report(candles, [], opts);
+assert.equal(noHtfReport.htfWarmupBars.total, noHtf.bars.length);
+assert.equal(noHtfReport.htfWarmupBars.inSample + noHtfReport.htfWarmupBars.outOfSample, noHtf.bars.length);
+assert.equal(htfWarmupStartDate('2026-09-01'), '2026-08-25');
 // CSV round trip + hash, pagination chunks.
 const csv = candlesToCsv(setup);
 assert.deepEqual(csvToCandles(csv), setup.map((c) => ({ ...c, volumeDelta: undefined, cvd: undefined, pocPrice: undefined })));
