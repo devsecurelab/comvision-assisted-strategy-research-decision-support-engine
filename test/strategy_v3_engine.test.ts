@@ -18,7 +18,7 @@ assert.equal(ok.gates.length, 9);
 assert.equal(ok.engineMode, 'PRICE_ONLY');
 assert.equal(ok.binarySignal, 'CALL');
 for (const n of [1, 2, 3, 4, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19]) assert.equal(ok.stages[n - 1].passed, true, `S${n} must pass on ideal fixture`);
-assert.deepEqual(ok.gates.map((g) => g.name), ['Market Structure (S1 + S2 BOS + S3 CHoCH)', 'Imbalance (FVG / IFVG / BPR)', 'Order Block & Breaker', 'Liquidity Sweep', 'Premium / Discount (OTE confluence)', 'Wick Pushback', 'Momentum', 'Session & Kill Zone', 'BSL/SSL Target']);
+assert.deepEqual(ok.gates.map((g) => g.name), ['Market Structure (S1 + S2 BOS + S3 CHoCH)', 'Imbalance (FVG / IFVG / BPR)', 'Order Block & Breaker', 'Premium / Discount (OTE confluence)', 'Wick Pushback', 'Liquidity Sweep', 'Momentum', 'Session & Kill Zone', 'BSL/SSL Target']);
 assert.ok(ok.gates.every((g) => g.status !== 'UNAVAILABLE'), 'Gate 3 is restored in PRICE_ONLY');
 assert.ok(Math.abs((ok.mfci.totalMfci as number) - (0.35 * (ok.mfci.sStructure as number) + 0.20 * (ok.mfci.sLiquidity as number)) / 0.55) < 1e-12);
 assert.equal(ok.mfci.sOrderFlow, null);
@@ -57,8 +57,8 @@ const taken = set(ideal(), 33, 46, 104, 45, 50);
 assert.equal(run(taken).gates[8].status, 'BLOCKED');
 // S12 fail: close in premium.
 assert.equal(stagePassed(set(ideal(), 39, 56.5, 72.4, 56, 72), 12), false);
-// S13 is confluence only: in/out of OTE never blocks Gate 5.
-assert.equal(ok.gates[4].status, 'PASS');
+// S13 is confluence only: in/out of OTE never blocks Gate 4.
+assert.equal(ok.gates[3].status, 'PASS');
 // S14 fail: rejection wick > 50%.
 assert.equal(stagePassed(set(ideal(), 39, 56.5, 76, 56, 65.5), 14), false);
 // S15 fail: small body; flat windows fail closed (never a hard-coded z fallback).
