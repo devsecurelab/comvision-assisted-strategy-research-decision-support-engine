@@ -1,137 +1,85 @@
-# ComVision — Handover (EXP-2026-V3-REAL-001)
+# ComVision Engine Handover — 2026-10-16
 
-**Date:** 2026-10-16
-**Branch:** `engine/handover-2026-10`
-**Baseline:** `b90004f`
-**Current code HEAD:** `85679ea`
-**Status: PARTIAL — do not merge.** Code changes and tests are complete, but the required live Twelve Data R8 smoke was not run because `TWELVE_DATA_API_KEY` was not present. Consequently no R8 evidence, PR, merge, tag, or fresh-clone validation was produced.
+## Status
 
-Research alert engine only; no broker order execution.
+The authorized C1–C4 scope and required tests are complete. The September EUR/USD R8 smoke run completed, but the evidence is **not clean**: A3 failed on raw-data quality and A4 is partial because the offline `r8-summary.json` adds `reused` markers beyond the permitted `generatedAt` difference. A10 credit headers were not retained by the R8 runner. These limitations are recorded, not repaired or hidden. No strategy rule, threshold, weight, or FULL-mode default was changed. `ENGINE_FULL_MODE_ENABLED=false` remains the default.
 
-## 1. Requested changes
+R8 artifacts are retained locally under `data/r8-smoke/` and `data/r8-smoke-rerun/`; they are Git-ignored, and no provider CSV or generated R8 JSON is committed. The full A1–A10 report, manifest hashes, funnel tables, raw R8 output, and limitations are in [docs/evidence/r8-smoke-2026-10-16.md](docs/evidence/r8-smoke-2026-10-16.md).
 
-| Item | Status | Commit / evidence |
+## C1–C4 and commit sequence
+
+| Work | Status | Commit |
 |---|---|---|
-| Golden decisions before C1 | Complete | `0f81bd3`; 24 ideal + 24,000 deterministic seeded windows captured from `b90004f` |
-| C1 — owner-order gate numbering | Complete | `99dadcc`; gate names/order/reasons changed only; T1 compares finalAction, systemDecision, exact MFCI, each stage pass/fail, and mapped gate statuses across all 24,024 windows |
-| C2 — R8 HTF warm-up | Implemented and tested | `85679ea`; fetches 1h candles from 7 days before evaluation start; report includes pre-roll/evaluation ranges and counts bars with fewer than 7 closed 1h candles; no real R8 output exists yet |
-| C3 — ignore generated data | Complete | `bbb3686`; ignores `data/r8/`, `data/*.jsonl`, `data/**/*.csv`; tracked `data/.gitkeep` retained |
-| C4 — env template/stale marker | Complete | `bbb3686`; safe defaults and commented R8 settings; removed `docs/TESTS_PENDING.md`; T4 checks secrets are empty |
+| T1 baseline golden decisions at `b90004f` | Complete; saved before C1 | `0f81bd3` |
+| C1 gate order/names and T1–T3 | Complete; 24,024 baseline decisions unchanged | `99dadcc` |
+| C3/C4 ignore rules, safe `.env.example`, stale test marker removal, T4 | Complete | `bbb3686` |
+| C2 HTF pre-roll and warm-up reporting, T5 | Required and implemented; seven-day 1h pre-roll; zero evaluation bars marked warm-up in this run | `85679ea` |
+| C3 smoke-output ignore correction | Complete; explicitly ignores both requested smoke output paths | `6aff5ff` |
+| R8 evidence | Complete; raw data stays local | `4994f34` |
 
-No strategy rule, threshold, score weight, or candle logic was changed. Files under UI, auth/user, settings, legal, and saved user data were untouched. No dependency was added or updated.
+**C1 final gate order:** G1 Structure; G2 Imbalance; G3 OB & Breaker; G4 Premium/Discount; G5 Wick; G6 Liquidity Sweep; G7 Momentum; G8 Session & Kill Zone; G9 BSL/SSL Target. C1 changed numbering, labels, ordering, and reason-code alignment only; it did not alter signal decisions. T1 compares pre-C1 goldens and confirms the Owner's G4/G5/G6 mapping.
 
-## 2. Baseline and final validation
+C2 was needed: the prior runner fetched 1h data only for the evaluation window, while the bias calculation needs closed HTF history. The runner now fetches 1h from seven days before the start and records both ranges. R8 records zero HTF warm-up bars in the evaluation periods; no crash occurred.
 
-Baseline was run at `b90004f` before any code changes; all four required commands passed. The same four commands passed after the changes. The complete captured raw output is included below.
+C3 needed one further, tightly scoped `.gitignore` adjustment after the run showed `data/r8/` alone did not ignore the explicitly requested `data/r8-smoke/` output path. The added rules cover `data/r8-smoke/` and `data/r8-smoke-rerun/`. No data or engine logic was changed.
 
-T1 passed: **24,024/24,024** cases retained identical `finalAction`, `systemDecision`, MFCI, and stage pass/fail values. Gate statuses matched the required mapping (new G4=old G5, new G5=old G6, new G6=old G4). T2/T3/T4/T5 coverage also passed in the full suite.
+## Validation
 
-## 3. R8 smoke — not run
+All four required baseline commands passed at `b90004f`. After implementation and the C3 output-ignore correction, they were rerun and passed:
 
-The required no-key preflight was run with the requested EUR/USD / September 2026 settings:
+- `npm run lint` — exit 0 (`tsc --noEmit`)
+- `npm run build` — exit 0
+- `npm test` — exit 0; 77 passed, 0 failed (includes the gate-equivalence test and legacy suite)
+- `npm run test:legacy` — exit 0; 77 passed, 0 failed
+- `git diff --check` — passed; working tree clean after ignored R8 outputs
 
-```text
-> react-example@0.0.0 backtest:r8
-> tsx scripts/r8-backtest.ts
-R8_NOT_RUN: TWELVE_DATA_API_KEY is not configured. No simulated or replay data will be used.
-EXIT_CODE=2
-NO_OUTPUT_FILES_CREATED=true
-```
+Complete baseline and final raw outputs are appended below. R8 raw console output is in the evidence file linked above.
 
-The output directory did not exist before the preflight and was not created. **No provider request was made.** The following acceptance items therefore remain unverified:
+## R8 acceptance summary
 
-| Item | Result |
-|---|---|
-| A1 run success / CSVs / reports | Not run |
-| A2 source provenance | Not run; no history fetched |
-| A3 candle health | Not run |
-| A4 offline replay / tamper rejection | Not run |
-| A5 hand-check of alerts | Not run; no alerts or market bars loaded |
-| A6 nine-gate R8 funnel | Not run; suspicious 0%/100% gates unknown |
-| A7 verdict / ties / breakeven | Not run; payout 85% would imply theoretical breakeven 54.05%, not an observed result |
-| A8 zero-alert handling | Not run |
-| A9 secret check | No Twelve Data key was supplied or used; the keyless preflight created no output. T4 verified no values in the configured secret fields of `.env.example`. Since no key value was available, a value-specific grep cannot be performed. |
-| A10 request/credit/time totals | 0 provider requests; credit usage not applicable; no live run duration to report |
+- **Run:** EUR/USD, September 1–30, 2026; 5m/15m/30m; payout 85%; `PRICE_ONLY`; historical news unavailable and explicitly excluded.
+- **A1/A2:** exit 0; Twelve Data / `LIVE_INGESTED`; local manifest, summary, and three `PRICE_ONLY` reports generated. `FULL` is `UNAVAILABLE` because FX volume is absent.
+- **A3: FAIL.** Weekend candles are present; 5m data has a 1,440-minute weekday gap on September 15; all CSVs end with only the September 30 00:00 UTC candle. The 5m quality report includes `CANDLE_GAP: 1`. This is not clean market-data evidence.
+- **A4: PARTIAL.** Three per-timeframe report JSONs match byte-for-byte. The summary differs by `generatedAt` and offline manifest `reused: true` markers; only `generatedAt` was permitted, so strict acceptance is not met. A one-byte tamper was rejected by SHA-256.
+- **A5:** One 5m in-sample alert, not three; its direction, NY kill zone, next-candle open/close, and untouched SSL target were manually checked. One nearest missed bar per timeframe is in the evidence report. News was not assessed.
+- **A6:** No marginal gate is 0% or 100%; no marginal anomaly flagged. Full-period marginal and cumulative percentages are in the evidence file.
+- **A7/A8:** OOS decisive N=0 in all three timeframes; verdict `INCONCLUSIVE`; theoretical breakeven 54.05%. Ties are excluded by report logic. One in-sample alert means the full-month zero-alert case does not apply. No performance or profitability claim is made.
+- **A9:** Secret-value scan passed across 120 tracked/output/log/history files; shell variable unset; smoke outputs ignored and uncommitted.
+- **A10: PARTIAL.** Five R8 fetch requests, approximately 73 seconds. A separate sixth request for credit-header verification returned `creditsUsed=1`, `creditsLeft=7`; R8 did not retain its own per-request headers, so the first five calls' aggregate credit reading cannot be reconstructed.
 
-Do not infer strategy performance or gate health from this keyless preflight or from test fixtures.
+## Not corrected / owner review
 
-## 4. Git status and scope snapshot
+1. A3 data irregularities: weekend rows, weekday 5m gap, and truncated final date. No data was removed or altered.
+2. A4 offline summary metadata delta (`reused` markers). No R8 behavior was modified after seeing results.
+3. A10 per-fetch provider credit headers were not retained. No unrelated code was changed to reconstruct them.
+4. `npm ci` previously reported 9 dependency advisories (2 moderate, 7 high); not investigated or changed, outside scope.
 
-The working tree was clean after the final test run. The code diff snapshot below is from `85679ea`, before this handover document was added. All changed paths fall within the permitted engine, runner, test, environment, ignore, and documentation scope.
+## Not verified
 
-### `git diff --stat main..HEAD` (at `85679ea`)
+- Strategy profitability, or any claim of real-money readiness.
+- Full R8 evidence with N≥200 and an appropriate historical news CSV.
+- Live scan soak or live Telegram commands.
+- Merge, release tag, or fresh-clone post-merge validation. The Owner requires written approval before merge; none is assumed here.
 
-```text
+## Raw outputs
 
- .env.example                           | 23 ++++++++++++
- .gitignore                             |  3 ++
- docs/TESTS_PENDING.md                  | 13 -------
- package.json                           |  2 +-
- scripts/r8-backtest.ts                 | 21 ++++++-----
- src/engine/r8Backtest.ts               | 27 +++++++++++--
- src/engine/strategyV3Engine.ts         |  6 +--
- test/fixtures/gateRenumberCases.ts     | 69 ++++++++++++++++++++++++++++++++++
- test/fixtures/golden-b90004f.json      |  1 +
- test/gate_renumber_equivalence.test.ts | 69 ++++++++++++++++++++++++++++++++++
- test/r8_backtest_core.test.ts          | 13 ++++++-
- test/strategy_v3_engine.test.ts        |  6 +--
- test/v3_safety_invariants.test.ts      |  9 +++++
- 13 files changed, 228 insertions(+), 34 deletions(-)
-```
-
-### `git diff --name-only main..HEAD` (at `85679ea`)
-
-```text
-
-.env.example
-.gitignore
-docs/TESTS_PENDING.md
-package.json
-scripts/r8-backtest.ts
-src/engine/r8Backtest.ts
-src/engine/strategyV3Engine.ts
-test/fixtures/gateRenumberCases.ts
-test/fixtures/golden-b90004f.json
-test/gate_renumber_equivalence.test.ts
-test/r8_backtest_core.test.ts
-test/strategy_v3_engine.test.ts
-test/v3_safety_invariants.test.ts
-```
-
-## 5. Not fixed; notify Owner
-
-- `npm ci` reported 9 dependency advisories (2 moderate, 7 high). No audit remediation was attempted because dependency changes are outside the authorized scope. The advisories were not independently assessed in this task.
-- Live R8 evidence is blocked on the Owner supplying the Twelve Data key through the intended private mechanism. Do not put the key in a commit, PR, issue, report, output file, or chat message.
-
-## 6. Not verified
-
-- Real-market R8 smoke run (A1–A10), including all data/quality/provenance checks.
-- Real win rate, profitability, or strategy quality.
-- Full R8 with N ≥ 200 and historical news data; live scan soak; Telegram live commands.
-- PR creation, Owner approval, merge, `engine-v3.0-handover` tag, and fresh-clone verification.
-
-**Next step:** after the Owner provides the Twelve Data key through the approved private channel, run the live R8 smoke exactly as specified, preserve raw key-free output, verify outputs and key absence, and then prepare the evidence report and PR. Do not merge until the Owner explicitly replies `OK`.
+The appendix contains complete baseline and final outputs for the four required commands, plus the captured `git diff --stat main..HEAD` snapshot at evidence commit `4994f34` before this handover refresh. That stat snapshot does not include this refreshed handover's final size; it is labeled with its commit so it is not mistaken for the final PR diff.
 
 ## Appendix A — captured raw command outputs
 
-
-### Baseline before edits — npm run lint
+### Baseline before edits — `npm run lint`
 
 ```text
-
 
 > react-example@0.0.0 lint
 > tsc --noEmit
 
 EXIT_CODE=0
-
 ```
 
-
-### Baseline before edits — npm run build
+### Baseline before edits — `npm run build`
 
 ```text
-
 
 > react-example@0.0.0 build
 > vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs
@@ -175,14 +123,11 @@ files generated
 
 ⚡ Done in 15ms
 EXIT_CODE=0
-
 ```
 
-
-### Baseline before edits — npm test
+### Baseline before edits — `npm test`
 
 ```text
-
 
 > react-example@0.0.0 test
 > tsx test/strategy_v3_engine.test.ts && tsx test/strategy_v3_reachability.test.ts && tsx test/w1b_production_surface.test.ts && tsx test/w2_market_structure_integration.test.ts && tsx test/w3_binary_output.test.ts && tsx test/v3_safety_invariants.test.ts && tsx test/payout_gate.test.ts && tsx test/favorite_registry.test.ts && tsx test/w5w6_modules.test.ts && tsx test/r9_ledger_scan.test.ts && tsx test/r8_backtest_core.test.ts && npm run test:legacy
@@ -335,14 +280,11 @@ EXIT_CODE=0
 === TEST SUITE FINISHED: 77 PASSED, 0 FAILED ===
 
 EXIT_CODE=0
-
 ```
 
-
-### Baseline before edits — npm run test:legacy
+### Baseline before edits — `npm run test:legacy`
 
 ```text
-
 
 > react-example@0.0.0 test:legacy
 > LEGACY_V2_FIXTURES=1 tsx test/strategy_pipeline.test.ts
@@ -431,27 +373,21 @@ EXIT_CODE=0
 === TEST SUITE FINISHED: 77 PASSED, 0 FAILED ===
 
 EXIT_CODE=0
-
 ```
 
-
-### Final after edits — npm run lint
+### Final after code and C3 ignore correction — `npm run lint`
 
 ```text
-
 
 > react-example@0.0.0 lint
 > tsc --noEmit
 
 EXIT_CODE=0
-
 ```
 
-
-### Final after edits — npm run build
+### Final after code and C3 ignore correction — `npm run build`
 
 ```text
-
 
 > react-example@0.0.0 build
 > vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs
@@ -481,7 +417,7 @@ dist/assets/SettingsView-DbMF1MID.js         15.07 kB │ gzip:   3.99 kB
 dist/assets/DocsView-c4_ZsNX4.js             59.83 kB │ gzip:  13.00 kB
 dist/assets/index-Cb-I3tlp.js               467.40 kB │ gzip: 138.24 kB
 
-✓ built in 1.64s
+✓ built in 2.23s
 
 PWA v1.3.0
 mode      generateSW
@@ -493,16 +429,13 @@ files generated
   dist/server.cjs      270.0kb
   dist/server.cjs.map  499.5kb
 
-⚡ Done in 16ms
+⚡ Done in 14ms
 EXIT_CODE=0
-
 ```
 
-
-### Final after edits — npm test
+### Final after code and C3 ignore correction — `npm test`
 
 ```text
-
 
 > react-example@0.0.0 test
 > tsx test/strategy_v3_engine.test.ts && tsx test/gate_renumber_equivalence.test.ts && tsx test/strategy_v3_reachability.test.ts && tsx test/w1b_production_surface.test.ts && tsx test/w2_market_structure_integration.test.ts && tsx test/w3_binary_output.test.ts && tsx test/v3_safety_invariants.test.ts && tsx test/payout_gate.test.ts && tsx test/favorite_registry.test.ts && tsx test/w5w6_modules.test.ts && tsx test/r9_ledger_scan.test.ts && tsx test/r8_backtest_core.test.ts && npm run test:legacy
@@ -539,7 +472,7 @@ EXIT_CODE=0
 [FUNNEL] random PRICE_ONLY BEARISH: marginal=16.6%,42.9%,51.4%,49.6%,85.7%,54.0%,44.4%,58.6%,85.0% cumulative=16.6%,12.0%,9.4%,0.1%,0.1%,0.1%,0.1%,0.1%,0.1% alerts=3/6000
 [FUNNEL] random FULL BULLISH: marginal=1.1%,42.4%,12.5%,49.5%,84.7%,27.1%,44.3%,59.8%,85.6% cumulative=1.1%,0.9%,0.1%,0.0%,0.0%,0.0%,0.0%,0.0%,0.0% alerts=0/6000
 [FUNNEL] random FULL BEARISH: marginal=1.1%,42.1%,12.2%,50.0%,85.2%,27.4%,45.7%,59.3%,85.3% cumulative=1.1%,0.8%,0.2%,0.0%,0.0%,0.0%,0.0%,0.0%,0.0% alerts=0/6000
-[REACHABILITY] runtime 70.7s
+[REACHABILITY] runtime 69.3s
 === V3 REACHABILITY SUITE (P3): ideal matrix, own-candle mutation >= 10k windows, honest random-window funnels passed ===
 === W1b PRODUCTION SURFACE TEST: simulation, replay selector, and Vision mock surfaces removed ===
 === W2 MARKET STRUCTURE INTEGRATION: IFVG/BPR/POC, owner DST sessions (4 transition dates) and scale invariance passed ===
@@ -656,14 +589,11 @@ EXIT_CODE=0
 === TEST SUITE FINISHED: 77 PASSED, 0 FAILED ===
 
 EXIT_CODE=0
-
 ```
 
-
-### Final after edits — npm run test:legacy
+### Final after code and C3 ignore correction — `npm run test:legacy`
 
 ```text
-
 
 > react-example@0.0.0 test:legacy
 > LEGACY_V2_FIXTURES=1 tsx test/strategy_pipeline.test.ts
@@ -752,5 +682,25 @@ EXIT_CODE=0
 === TEST SUITE FINISHED: 77 PASSED, 0 FAILED ===
 
 EXIT_CODE=0
+```
 
+### Raw `git diff --stat main..HEAD` snapshot at `4994f34` (before this handover refresh)
+
+```text
+ .env.example                           |  23 ++
+ .gitignore                             |   5 +
+ HANDOVER.md                            | 558 +++++++++++++++++++++++++++------
+ docs/TESTS_PENDING.md                  |  13 -
+ docs/evidence/r8-smoke-2026-10-16.md   | 167 ++++++++++
+ package.json                           |   2 +-
+ scripts/r8-backtest.ts                 |  21 +-
+ src/engine/r8Backtest.ts               |  27 +-
+ src/engine/strategyV3Engine.ts         |   6 +-
+ test/fixtures/gateRenumberCases.ts     |  69 ++++
+ test/fixtures/golden-b90004f.json      |   1 +
+ test/gate_renumber_equivalence.test.ts |  69 ++++
+ test/r8_backtest_core.test.ts          |  13 +-
+ test/strategy_v3_engine.test.ts        |   6 +-
+ test/v3_safety_invariants.test.ts      |   9 +
+ 15 files changed, 854 insertions(+), 135 deletions(-)
 ```
