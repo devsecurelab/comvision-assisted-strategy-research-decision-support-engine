@@ -47,7 +47,7 @@ export interface PipelineInput {
   newsEvents: NewsEvent[];
   newsSourceOnline: boolean;
   dataProvenance?: DataProvenance;
-  provider?: 'TWELVE_DATA' | 'ALPHA_VANTAGE';
+  provider?: 'TWELVE_DATA' | 'OANDA' | 'TIINGO' | 'FINNHUB' | 'ALPHA_VANTAGE';
   pair?: string;
   asset?: string;
   liveTickPressure?: {
@@ -1580,7 +1580,7 @@ function createInconclusiveTelemetry(
   dataQuality: DataQuality,
   reason: string,
   nowIso: string,
-  context: { dataProvenance?: DataProvenance; provider?: 'TWELVE_DATA' | 'ALPHA_VANTAGE'; payoutPct?: number; signalCandleOpenTs?: string | null; dataQualityIssues?: string[] } = {}
+  context: { dataProvenance?: DataProvenance; provider?: 'TWELVE_DATA' | 'OANDA' | 'TIINGO' | 'FINNHUB' | 'ALPHA_VANTAGE'; payoutPct?: number; signalCandleOpenTs?: string | null; dataQualityIssues?: string[] } = {}
 ): MasterTelemetry {
   return {
     metadata: {

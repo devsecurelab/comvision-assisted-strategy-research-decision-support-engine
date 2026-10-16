@@ -86,8 +86,11 @@ npm ci
 # Step 7: Configure environment variables locally (the .env file is Git-ignored)
 test -f .env || cp .env.example .env
 nano .env
-# Add your TWELVE_DATA_API_KEY and/or ALPHA_VANTAGE_API_KEY here; never commit or share these secrets.
-# Alpha Vantage FX_INTRADAY access may require an entitled plan. Select the provider manually in the dashboard.
+# Add only server-side provider keys you are entitled to use; never commit or share these secrets.
+# Automatic scan order: Twelve Data -> OANDA Practice -> Tiingo FX -> Finnhub -> Alpha Vantage.
+# Finnhub Forex Candles and Alpha Vantage FX_INTRADAY are premium-gated; Tiingo FX REST is beta.
+# The dashboard selector is for direct feed requests; scanner failover order is fixed.
+# See docs/evidence/provider-adapter-contracts-2026-10-16.md for API, quota and volume caveats.
 # Save with Ctrl+O, Enter, then Ctrl+X. Keep HOST=127.0.0.1 for this-phone-only access.
 
 # Step 8: Build the production bundle (builds client assets and standalone server.cjs)
@@ -107,7 +110,7 @@ npm start
 # To stop: press Ctrl + C
 ```
 
-Open **http://127.0.0.1:3000** in the browser on the Android device. With `HOST=127.0.0.1`, the server is reachable only from that device; set `HOST=0.0.0.0` only if you intentionally want other devices on your network to connect. Without a configured, selected provider and a valid fresh response, scans remain `INCONCLUSIVE` and produce no alert; replay is for demo/testing only.
+Open **http://127.0.0.1:3000** in the browser on the Android device. With `HOST=127.0.0.1`, the server is reachable only from that device; set `HOST=0.0.0.0` only if you intentionally want other devices on your network to connect. Without a configured provider and a valid fresh response, scans fail closed and produce no alert; replay is for demo/testing only. Provider entitlements vary by account.
 
 #### Method B: Persistent Background Execution with PM2 (Recommended)
 ```bash

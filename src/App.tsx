@@ -722,6 +722,7 @@ export default function App() {
               selectedProvider={selectedProvider}
               onSelectProvider={handleSelectProvider}
               providerStatus={providerStatus}
+              onProviderStatusChange={setProviderStatus}
               onDownloadHandover={handleDownloadHandover}
               authToken={authToken}
               isAdmin={currentUser?.role === 'ADMIN'}

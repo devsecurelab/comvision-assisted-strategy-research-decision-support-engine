@@ -31,6 +31,7 @@ interface SettingsViewProps {
   selectedProvider: 'TWELVE_DATA' | 'ALPHA_VANTAGE';
   onSelectProvider: (provider: 'TWELVE_DATA' | 'ALPHA_VANTAGE') => void;
   providerStatus?: ProviderStatus;
+  onProviderStatusChange?: (status: ProviderStatus) => void;
   onDownloadHandover?: () => void;
   authToken?: string | null;
   isAdmin?: boolean;
@@ -42,6 +43,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   selectedProvider,
   onSelectProvider,
   providerStatus,
+  onProviderStatusChange,
   onDownloadHandover,
   authToken,
   isAdmin,
@@ -67,6 +69,33 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   const [backendUrl, setBackendUrlState] = useState<string>(() => getApiBaseUrl());
   const [backendSavedFeedback, setBackendSavedFeedback] = useState<string | null>(null);
+  const [providerCredentials, setProviderCredentials] = useState({ twelveDataKey: '', oandaPracticeToken: '', tiingoApiKey: '', finnhubApiKey: '', alphaVantageKey: '' });
+  const [savingProviderCredentials, setSavingProviderCredentials] = useState(false);
+  const [providerCredentialFeedback, setProviderCredentialFeedback] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const saveProviderCredentials = async () => {
+    if (!authToken) { setProviderCredentialFeedback({ ok: false, text: 'Admin session is required.' }); return; }
+    const payload = Object.fromEntries(Object.entries(providerCredentials).filter(([, value]) => value.trim().length > 0));
+    if (Object.keys(payload).length === 0) { setProviderCredentialFeedback({ ok: false, text: 'Enter at least one key. Blank fields preserve existing credentials.' }); return; }
+    setSavingProviderCredentials(true);
+    setProviderCredentialFeedback(null);
+    try {
+      const response = await apiFetch('/api/admin/provider-credentials', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.message || data.error || 'Could not update provider credentials.');
+      if (data.providerStatus) onProviderStatusChange?.(data.providerStatus as ProviderStatus);
+      setProviderCredentials({ twelveDataKey: '', oandaPracticeToken: '', tiingoApiKey: '', finnhubApiKey: '', alphaVantageKey: '' });
+      setProviderCredentialFeedback({ ok: true, text: 'Credentials accepted for this server process. No key values were returned or written to the settings store.' });
+    } catch (error) {
+      setProviderCredentialFeedback({ ok: false, text: error instanceof Error ? error.message : 'Could not update provider credentials.' });
+    } finally {
+      setSavingProviderCredentials(false);
+    }
+  };
 
   const handleSaveBackendUrl = (urlToSave: string) => {
     setApiBaseUrl(urlToSave);
@@ -217,7 +246,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </h3>
           </div>
           <p className="text-xs text-slate-400 leading-relaxed">
-            Select a REST market-data source. Provider choice is manual; automatic failover and multi-pair rate-limit scheduling are not implemented. Only verified live-provider data can generate alerts.
+            Automatic scans use the configured server-side fallback order: Twelve Data → OANDA Practice → Tiingo FX → Finnhub → Alpha Vantage. The selector below is for direct market-feed requests; only fresh, validated provider candles can reach the alert engine.
           </p>
 
           <div className="space-y-2 pt-2">
@@ -292,6 +321,59 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
       </div>
+
+      {isAdmin && (
+        <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+          <div className="flex items-center gap-2 text-amber-400">
+            <Lock className="w-4 h-4" />
+            <h3 className="text-sm font-bold text-slate-200 uppercase font-mono">Admin-only Provider Credentials</h3>
+          </div>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Submitted values are held in server memory for this process and are never echoed or audit-logged. Use the local .env file for restart-persistent keys. Leave blank to keep a provider's current credential; dashboard entries do not overwrite environment variables.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {([
+              ['twelveDataKey', 'Twelve Data API key', 'twelveData'],
+              ['oandaPracticeToken', 'OANDA Practice access token', 'oanda'],
+              ['tiingoApiKey', 'Tiingo FX API key', 'tiingo'],
+              ['finnhubApiKey', 'Finnhub API key', 'finnhub'],
+              ['alphaVantageKey', 'Alpha Vantage API key', 'alphaVantage'],
+            ] as const).map(([field, label, statusKey]) => {
+              const configured = providerStatus?.quota[statusKey].configured;
+              return (
+                <label key={field} className="block space-y-1.5">
+                  <span className="flex items-center justify-between text-[11px] font-mono text-slate-300">
+                    <span>{label}</span>
+                    <span className={configured ? 'text-emerald-400' : 'text-slate-500'}>{configured ? 'CONFIGURED' : 'NOT CONFIGURED'}</span>
+                  </span>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    value={providerCredentials[field]}
+                    onChange={(event) => setProviderCredentials((current) => ({ ...current, [field]: event.target.value }))}
+                    placeholder="Paste key/token; blank keeps current"
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-mono text-slate-100 placeholder:text-slate-600 focus:border-amber-500 focus:outline-none"
+                  />
+                </label>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => void saveProviderCredentials()}
+              disabled={savingProviderCredentials || !authToken}
+              className="px-4 py-2 rounded-lg bg-amber-600 text-white text-xs font-bold font-mono hover:bg-amber-500 disabled:opacity-50"
+            >
+              {savingProviderCredentials ? 'Saving securely…' : 'Save provider credentials'}
+            </button>
+            {providerCredentialFeedback && (
+              <span className={`text-xs font-mono ${providerCredentialFeedback.ok ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {providerCredentialFeedback.text}
+              </span>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* Telegram Research Alert Integration & Immediate Test Trigger */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-5">

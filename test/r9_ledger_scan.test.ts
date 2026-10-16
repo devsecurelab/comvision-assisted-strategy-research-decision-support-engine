@@ -138,6 +138,21 @@ const run = async () => {
   const fo = await failover.scanPair('AUDCAD', '15m');
   assert.equal(fo.provider, 'ALPHA_VANTAGE'); assert.match(fo.failover_reason || '', /TWELVE_DATA PROVIDER_HTTP_ERROR/);
   failTwelve = false;
+  const rateLimitAttempts: MarketDataProvider[] = [];
+  const rateLimitFallback = new ScanService({
+    ...deps,
+    ledger: new SignalLedger(path.join(dir, 'ledger-rate-limit-fallback.jsonl')),
+    providers: () => ['TWELVE_DATA', 'OANDA', 'TIINGO', 'FINNHUB', 'ALPHA_VANTAGE'],
+    fetchCandles: async (pair, timeframe, provider) => {
+      rateLimitAttempts.push(provider);
+      if (provider === 'TWELVE_DATA') throw new MarketDataError('RATE_LIMITED', 'vendor quota', provider);
+      return deps.fetchCandles(pair, timeframe, provider, 'ON_DEMAND');
+    },
+  });
+  const rateLimited = await rateLimitFallback.scanPair('AUDCAD', '15m');
+  assert.equal(rateLimited.provider, 'OANDA');
+  assert.match(rateLimited.failover_reason || '', /TWELVE_DATA RATE_LIMITED/);
+  assert.deepEqual(rateLimitAttempts.slice(0, 2), ['TWELVE_DATA', 'OANDA']);
   // Expired delivery: a signal found after valid_until is SIGNAL_EXPIRED, never ledgered.
   now = signalClose + 11_000;
   const late = new ScanService({ ...deps, ledger: new SignalLedger(path.join(dir, 'ledger-late.jsonl')) });
