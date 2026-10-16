@@ -2,7 +2,7 @@
 
 ## Status
 
-The authorized C1–C4 scope, F1 fetch-boundary fix, and tests are complete. The corrected September EUR/USD R8 run now has complete date coverage, zero temporal gaps, and full September 30 candles. Weekend bars remain present; F2 found no fully flat OHLC bars, and none were filtered. The Owner explicitly accepts the A4 `reused` metadata markers and A10 header-capture limitation as passes. No strategy rule, threshold, weight, or FULL-mode default was changed. `ENGINE_FULL_MODE_ENABLED=false` remains the default.
+The authorized C1–C5 scope, F1 fetch-boundary fix, and tests are complete. The current September EUR/USD R8 replay uses complete raw CSVs, excludes scheduled FX-closure timestamps only from analysis, and reports exact raw/analyzed/excluded counts; raw provider CSVs remain unchanged. The original F2 inspection found no fully flat OHLC bars. The Owner explicitly accepts the A4 `reused` metadata markers and A10 header-capture limitation as passes. Strategy predicates, thresholds, weights, and FULL-mode default remain unchanged; `ENGINE_FULL_MODE_ENABLED=false` remains the default.
 
 R8 artifacts are retained locally under `data/r8-smoke/` and `data/r8-smoke-rerun/`; they are Git-ignored, and no provider CSV or generated R8 JSON is committed. The full A1–A10 report, manifest hashes, funnel tables, raw R8 output, and limitations are in [docs/evidence/r8-smoke-2026-10-16.md](docs/evidence/r8-smoke-2026-10-16.md).
 
@@ -17,6 +17,7 @@ R8 artifacts are retained locally under `data/r8-smoke/` and `data/r8-smoke-reru
 | C3 smoke-output ignore correction | Complete; explicitly ignores both requested smoke output paths | `6aff5ff` |
 | R8 evidence | Complete; raw data stays local | `4994f34` |
 | F1 historical end-date and clipping correction + mock regression | Complete; date-only end range fetched through 23:59:59 UTC and clipped; 30-day two-chunk continuity test | `491ec02` |
+| C5 market-hours gate, scanner no-fetch guard, R8 closure filtering and regression coverage | Complete; UTC weekly/holiday closure, raw CSV preserved, offline C5 funnel captured | `2f5c3ca` |
 
 **C1 final gate order:** G1 Structure; G2 Imbalance; G3 OB & Breaker; G4 Premium/Discount; G5 Wick; G6 Liquidity Sweep; G7 Momentum; G8 Session & Kill Zone; G9 BSL/SSL Target. C1 changed numbering, labels, ordering, and reason-code alignment only; it did not alter signal decisions. T1 compares pre-C1 goldens and confirms the Owner's G4/G5/G6 mapping.
 
@@ -26,12 +27,13 @@ C3 needed one further, tightly scoped `.gitignore` adjustment after the run show
 
 ## Validation
 
-All four required baseline commands passed at `b90004f`. After F1 (`491ec02`), all four required commands were rerun and passed; the new mock regression is included in the R8 core test:
+All four required baseline commands passed at `b90004f`. After C5 (`2f5c3ca`), all four required commands were rerun and passed:
 
 - `npm run lint` — exit 0 (`tsc --noEmit`)
 - `npm run build` — exit 0
-- `npm test` — exit 0; 77 passed, 0 failed (includes the gate-equivalence test and legacy suite)
+- `npm test` — exit 0; 77 passed, 0 failed (includes 24,024-decision gate-equivalence, C5 market-hours test, and legacy suite)
 - `npm run test:legacy` — exit 0; 77 passed, 0 failed
+- C5 tests — passed; weekend/holiday boundaries, MARKET_CLOSED no-trade, unchanged open CALL, R8 filtering, and no-provider-fetch during closure
 - F1 mock — passed; request end strings, next-boundary clipping, all 8,640 5m bars, and zero chunk-boundary gaps checked
 - `git diff --check` — passed; generated R8 outputs remain ignored
 
@@ -39,12 +41,14 @@ Complete baseline and final raw outputs are appended below. R8 raw console outpu
 
 ## R8 acceptance summary
 
+The A1–A10 and F2 figures immediately below record the original pre-C5 raw-history run. Current C5 analysis-only closure filtering, updated counts, and funnel percentages are documented in the C5 section below and in the linked evidence addendum.
+
 - **Run:** EUR/USD, September 1–30, 2026; 5m/15m/30m; payout 85%; `PRICE_ONLY`; historical news unavailable and explicitly excluded.
 - **A1/A2:** the live runner produced all five requested fetch outputs and `R8_OUTPUT`; the log contains no `R8_FAILED`. The outer shell's exit-status capture failed after the runner completed, so no numeric runner exit code is claimed. Provenance is Twelve Data / `LIVE_INGESTED`; `FULL` is `UNAVAILABLE` because FX volume is absent.
-- **A3 coverage: PASS.** Evaluation CSVs have 8,640/2,880/1,440 bars for 5m/15m/30m, zero missing slots/gaps/duplicates/off-grid timestamps, and complete final-day candles. R8 `dataQuality.ok=true` in each report. Weekend bars remain present and are described in F2; no weekend filter was added.
+- **A3 coverage: PASS for the initial raw audit.** Source CSVs have 8,640/2,880/1,440 bars for 5m/15m/30m, zero missing slots/gaps/duplicates/off-grid timestamps, and complete final-day candles. After C5, R8 excludes scheduled-closure timestamp rows only from analysis; filtered reports remain `dataQuality.ok=true`, and the raw CSV bytes are unchanged. C5 counts and filtered A3 results follow below.
 - **A4: PASS (Owner accepted).** Three per-timeframe report JSONs match byte-for-byte. The summary matches after dropping `generatedAt` and offline `reused: true` markers; the Owner explicitly accepts the markers. One-byte tampering was rejected by SHA-256.
 - **A5:** One 5m in-sample alert; it is a `PUT` and its next-candle outcome is a loss. The closed-hour bias, session, next-bar prices, and SSL target are documented in the evidence report. One nearest missed bar per timeframe is also included. News was not assessed.
-- **A6:** No marginal gate is 0% or 100%; no marginal anomaly flagged. Full-period marginal and cumulative percentages are in the evidence file.
+- **A6:** The initial pre-C5 raw-series funnel has no marginal gate at 0% or 100%; the current C5 post-filter funnel is tabulated below and in the evidence addendum.
 - **A7:** OOS decisive N=0 in all three timeframes; verdict `INCONCLUSIVE`; theoretical breakeven 54.05%. Ties are excluded by report logic. No performance or profitability claim is made.
 - **A8:** 15m and 30m have zero alerts for the full month; 5m has one in-sample alert and zero OOS alerts. All reports completed.
 - **A9:** The earlier secret-value scan passed across 120 tracked/output/log/history files. For this rerun the key was entered hidden and unset; it was not emitted in the live log or committed, and smoke outputs remain ignored.
@@ -54,11 +58,20 @@ Complete baseline and final raw outputs are appended below. R8 raw console outpu
 
 F1 changes only the historical fetch boundary: the Twelve Data `end_date` is sent as `YYYY-MM-DD 23:59:59` UTC and any returned candle outside `[start 00:00, end+1 day 00:00)` is clipped. The mock test covers the two 5m request chunks across Sep 1–30 and verifies continuous data through Sep 30 23:55.
 
-F2 uses exact OHLC comparisons on UTC timestamps. **Fully flat (`high==low` and `open==close`) bars: zero** in every evaluation timeframe and in both windows. Saturday/Sunday bars: 2,304 (5m), 768 (15m), 384 (30m). Friday 21:00 inclusive through Sunday 21:00 exclusive has the same counts; `open==close`-only bars with nonzero ranges number 414/101/47 on Sat/Sun and 424/98/47 in the Friday-to-Sunday window. No filter was added; the evidence report gives exact timestamp coverage and the interpretation caveat.
+F2 uses exact OHLC comparisons on UTC timestamps. **Fully flat (`high==low` and `open==close`) bars: zero** in every evaluation timeframe and in both windows. Saturday/Sunday bars: 2,304 (5m), 768 (15m), 384 (30m). Friday 21:00 inclusive through Sunday 21:00 exclusive has the same counts; `open==close`-only bars with nonzero ranges number 414/101/47 on Sat/Sun and 424/98/47 in the Friday-to-Sunday window. Those F2 counts use the untouched raw CSVs; C5 now removes scheduled-closure rows from R8 analysis only.
+
+## C5 — closure policy, scanner, and filtered R8 replay
+
+- Weekly closure: **Friday 21:00 UTC inclusive to Sunday 21:00 UTC exclusive**. Full-day holidays: December 25 and January 1 UTC. Boundary and holiday cases are covered in `test/market_hours.test.ts`.
+- The pipeline returns no strategy signal and exact `metadata.status_reason=MARKET_CLOSED` for a closed-time decision; the final action is `NO_ACTION`. The live scan service/automatic cycle short-circuit before provider fetches and return `NO_TRADE` / `MARKET_CLOSED`. It also skips the just-closed candle at the exact Sunday reopening and defers closed-time resolution requests.
+- R8 filters candles whose open timestamps lie inside the closure from both the selected-timeframe analysis windows and 1h HTF bias history. Data-quality gap checks use the same exact schedule; raw provider CSVs are retained unchanged. The signal pipeline also blocks a bar whose decision-close instant is closed.
+- Offline `R8_CSV_INPUT_DIR` replay reused the same September EUR/USD CSVs and made no new provider request/key use. Raw/analyzed/excluded rows: **5m 8,640/6,336/2,304; 15m 2,880/2,112/768; 30m 1,440/1,056/384**. HTF pre-roll: **888/648/240**. Manifest hashes still match; all reports have `dataQuality.ok=true`; Sep 30 remains complete through 23:55/23:45/23:30 UTC.
+- Post-filter funnel denominators (evaluated IS/OOS): **5m 2,399/1,272; 15m 723/424; 30m 329/212**. Signals IS/OOS: **5m 1/0; 15m 0/0; 30m 0/0**. OOS decisive N=0 and all verdicts remain `INCONCLUSIVE`. The full marginal/cumulative nine-gate tables and exact keyless command are in the evidence file.
+- Validation after C5: `npm run lint`, `npm run build`, `npm test` (77 passed), `npm run test:legacy` (77 passed), and `git diff --check` all pass; gate equivalence still confirms 24,024 baseline decisions unchanged. FULL mode remains disabled by default.
 
 ## Not corrected / owner review
 
-1. The non-flat weekend feed remains for the Owner's interpretation. No data was removed or altered; the authorized scope explicitly forbade adding a filter.
+1. The raw non-flat weekend provider rows remain unchanged for the Owner's interpretation. C5 excludes specified closure-time rows only from R8 analysis; it does not alter or rewrite provider CSVs.
 2. `npm ci` previously reported 9 dependency advisories (2 moderate, 7 high); not investigated or changed, outside scope.
 
 ## Not verified
@@ -1037,4 +1050,35 @@ files generated
  test/strategy_v3_engine.test.ts        |   6 +-
  test/v3_safety_invariants.test.ts      |   9 +
  16 files changed, 877 insertions(+), 149 deletions(-)
+```
+
+
+## Appendix C — C5 final validation and replay outputs
+
+Final validation run after commit `2f5c3ca`:
+
+```text
+npm run lint       EXIT=0 (tsc --noEmit)
+npm run build      EXIT=0
+npm test           EXIT=0; 77 passed, 0 failed
+npm run test:legacy EXIT=0; 77 passed, 0 failed
+```
+
+Relevant passing regression markers:
+
+```text
+=== GATE RENUMBER EQUIVALENCE: 24024 b90004f decisions unchanged; G4/G5/G6 mapping and gate structure passed ===
+=== C5 MARKET HOURS: UTC boundaries/holidays, no closed-time signal, unchanged open CALL, R8 filter, and no-credit scanner suppression passed ===
+=== R8 CORE: live pipeline, causal walk-forward, OOS/IS, baselines, N>=200 verdict rule, CSV+SHA-256, pagination, R8_NOT_RUN passed ===
+=== TEST SUITE FINISHED: 77 PASSED, 0 FAILED ===
+```
+
+Keyless offline replay (`R8_CSV_INPUT_DIR=data/r8-smoke/historical`) output:
+
+```text
+R8_RESULT EUR/USD 5m PRICE_ONLY OOS N=0 wins=0 winRate=n/a wilson=n/a breakeven=0.5405 verdict=INCONCLUSIVE
+R8_RESULT EUR/USD 15m PRICE_ONLY OOS N=0 wins=0 winRate=n/a wilson=n/a breakeven=0.5405 verdict=INCONCLUSIVE
+R8_RESULT EUR/USD 30m PRICE_ONLY OOS N=0 wins=0 winRate=n/a wilson=n/a breakeven=0.5405 verdict=INCONCLUSIVE
+R8_OUTPUT data/r8-smoke-rerun
+RAW_CSV_HASHES_UNCHANGED=PASS
 ```
