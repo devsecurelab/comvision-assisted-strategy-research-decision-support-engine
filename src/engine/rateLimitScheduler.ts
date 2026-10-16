@@ -27,10 +27,16 @@ export class RateLimitScheduler {
   private state(): State {
     const saved = durableStorage.loadAppSettings()[this.key] as State | undefined;
     const now = Date.now(); const dayUtc = new Date(now).toISOString().slice(0, 10);
-    if (!saved || saved.dayUtc !== dayUtc) return { dayUtc, minuteStartedAt: now, minuteUsed: 0, dayUsed: 0, autoUsed: 0 };
-    let current = now - saved.minuteStartedAt >= 60_000 ? { ...saved, minuteStartedAt: now, minuteUsed: 0 } : { ...saved };
     const hourStartedAt = Math.floor(now / 3_600_000) * 3_600_000;
-    if (current.hourStartedAt !== hourStartedAt) current = { ...current, hourStartedAt, hourUsed: 0 };
+    if (!saved || saved.dayUtc !== dayUtc) return { dayUtc, minuteStartedAt: now, minuteUsed: 0, dayUsed: 0, autoUsed: 0, hourStartedAt, hourUsed: 0 };
+    let current = now - saved.minuteStartedAt >= 60_000 ? { ...saved, minuteStartedAt: now, minuteUsed: 0 } : { ...saved };
+    if (current.hourStartedAt === undefined) {
+      // Legacy same-day state has no hour anchor; preserve usage conservatively and persist the migration.
+      current = { ...current, hourStartedAt, hourUsed: current.hourUsed ?? 0 };
+      this.save(current);
+    } else if (current.hourStartedAt !== hourStartedAt) {
+      current = { ...current, hourStartedAt, hourUsed: 0 };
+    }
     return current;
   }
   private save(state: State) { durableStorage.saveAppSettings({ ...durableStorage.loadAppSettings(), [this.key]: state }); }
