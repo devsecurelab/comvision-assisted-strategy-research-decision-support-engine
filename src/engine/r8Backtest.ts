@@ -66,7 +66,7 @@ export function runCausalBacktest(candles: Candle[], htf: Candle[], opts: R8Opti
         dataProvenance: 'LIVE_INGESTED', provider: 'TWELVE_DATA', pair: opts.pair, asset: opts.pair, payoutPct: opts.payoutPct, nowMs: signalClose, gate4Mode: opts.gate4Mode,
       });
       const v3 = t.decision_engine_v3;
-      bars.push({ signal_ts: analysisCandles[i].timestamp, next_up: contiguous ? (next.close === next.open ? null : next.close > next.open) : null, evaluated: !!v3, gates: v3 ? v3.gates.map((g: any) => g.status) : [], gate4_reason: v3?.stages?.[11]?.calculatedValues?.Gate4_Reason_Code ?? null, status_reason: v3?.statusReason ?? t.metadata.status_reason ?? '', htfClosedCandles, htfWarmup });
+      bars.push({ signal_ts: analysisCandles[i].timestamp, next_up: contiguous ? (next.close === next.open ? null : next.close > next.open) : null, evaluated: !!v3, gates: v3 ? v3.gates.map((g: any) => g.status) : [], gate4_reason: opts.gate4Mode === 'A' ? 'LEGACY_A' : v3?.stages?.[11]?.calculatedValues?.Gate4_Reason_Code ?? null, status_reason: v3?.statusReason ?? t.metadata.status_reason ?? '', htfClosedCandles, htfWarmup });
       if (!v3 || v3.binarySignal === 'NO_TRADE' || !contiguous) continue;
       if (v3.engineMode !== opts.mode) continue;
       const outcome = next.close === next.open ? 'TIE' : (v3.binarySignal === 'CALL') === (next.close > next.open) ? 'WIN' : 'LOSS';

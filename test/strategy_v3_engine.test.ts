@@ -81,9 +81,11 @@ assert.equal(classifyGate4Reason('BEARISH', 10, 0, []), 'ZONE_UNAVAILABLE');
 assert.equal(classifyGate4Reason('BULLISH', 10, 0, [6]), 'ZONE_ON_WRONG_SIDE');
 // The same confirmed-range/midpoint rule applies symmetrically to bearish setups.
 const bearishConflict = evaluateStrategyV3({ candles: idealPriceOnlySetup(base, '15m', 'BEARISH'), htfBias: 'BEARISH', newsEvents: [], newsSourceOnline: true, timeframe: '15m' });
+assert.ok((bearishConflict.entryPrice as number) < Number(bearishConflict.stages[11].calculatedValues.Equilibrium));
 assert.equal(bearishConflict.stages[11].passed, true);
 assert.equal(bearishConflict.binarySignal, 'PUT');
 // Bullish BOS closes in the upper half while its OB remains in the lower half.
+assert.ok((ok.entryPrice as number) > Number(ok.stages[11].calculatedValues.Equilibrium));
 assert.equal(ok.stages[11].calculatedValues.Midpoints_Favourable, 'true');
 assert.equal(ok.gates[3].status, 'PASS');
 assert.equal(ok.binarySignal, 'CALL');

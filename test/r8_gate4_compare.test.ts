@@ -52,7 +52,9 @@ for (const comparison of report.comparisons) {
     for (const split of ['IS', 'OOS']) {
       const summary = comparison[mode][split];
       assert.ok(summary.gate4ReasonCounts && typeof summary.gate4ReasonCounts === 'object');
-      assert.ok(Object.keys(summary.gate4ReasonCounts).every((reason) => ['RANGE_UNAVAILABLE', 'ZONE_UNAVAILABLE', 'ZONE_ON_WRONG_SIDE', 'MID_AT_EQ', 'PASS', 'UNAVAILABLE'].includes(reason)));
+      const reasons = Object.keys(summary.gate4ReasonCounts);
+      assert.ok(reasons.every((reason) => ['LEGACY_A', 'RANGE_UNAVAILABLE', 'ZONE_UNAVAILABLE', 'ZONE_ON_WRONG_SIDE', 'MID_AT_EQ', 'PASS', 'UNAVAILABLE'].includes(reason)));
+      if (mode === 'modeA_legacy') assert.ok(reasons.every((reason) => reason === 'LEGACY_A' || reason === 'UNAVAILABLE'));
     }
   }
   assert.match(comparison.note, /N < 200 remains inconclusive/);
