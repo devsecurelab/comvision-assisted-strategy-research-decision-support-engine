@@ -22,4 +22,7 @@ for (const testCase of baselineGateRenumberCases()) {
   checked++;
 }
 assert.equal(checked, 24_024);
+assert.equal(changed, 15_079);
+assert.equal(passToBlocked, 8_110);
+assert.equal(blockedToPass, 6_969);
 console.log(`=== PR-B G4 GOLDEN PARITY: ${checked} cases; changed=${changed}; PASS->BLOCKED=${passToBlocked}; BLOCKED->PASS=${blockedToPass}; non-G4 gates/stages/MFCI unchanged ===`);

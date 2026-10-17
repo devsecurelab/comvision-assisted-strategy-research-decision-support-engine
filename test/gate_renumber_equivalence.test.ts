@@ -25,7 +25,7 @@ const gateOrder = [
   'Market Structure (S1 + S2 BOS + S3 CHoCH)',
   'Imbalance (FVG / IFVG / BPR)',
   'Order Block & Breaker',
-  'Premium / Discount (OTE confluence)',
+  'Premium / Discount (Zone vs Confirmed-Range EQ)',
   'Wick Pushback',
   'Liquidity Sweep',
   'Momentum',

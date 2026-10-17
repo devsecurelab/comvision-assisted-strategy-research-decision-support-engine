@@ -21,7 +21,12 @@ function summary(bars: R8Bar[]) {
   const evaluated = bars.filter((b) => b.evaluated && b.gates.length === 9);
   const g123 = evaluated.filter((b) => b.gates[0] === 'PASS' && b.gates[1] === 'PASS' && b.gates[2] === 'PASS');
   const g4Pass = g123.filter((b) => b.gates[3] === 'PASS').length;
-  return { evaluatedBars: evaluated.length, g1G3PassBars: g123.length, g4PassAmongG1G3: g4Pass, g4PassRateAmongG1G3: g123.length ? g4Pass / g123.length : null };
+  const gate4ReasonCounts = g123.reduce<Record<string, number>>((counts, bar) => {
+    const reason = bar.gate4_reason ?? 'UNAVAILABLE';
+    counts[reason] = (counts[reason] ?? 0) + 1;
+    return counts;
+  }, {});
+  return { evaluatedBars: evaluated.length, g1G3PassBars: g123.length, g4PassAmongG1G3: g4Pass, g4PassRateAmongG1G3: g123.length ? g4Pass / g123.length : null, gate4ReasonCounts };
 }
 function splitBars(bars: R8Bar[], candles: ReturnType<typeof filterFxOpenMarketCandles>) {
   const splitTs = candles[Math.floor(candles.length * 2 / 3)]?.timestamp ?? candles.at(-1)?.timestamp ?? '';

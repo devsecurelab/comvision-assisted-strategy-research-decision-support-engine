@@ -64,7 +64,8 @@ export function classifyGate4Reason(direction: 'BULLISH' | 'BEARISH', rangeHigh:
   if (rangeHigh === undefined || rangeLow === undefined || rangeHigh <= rangeLow) return 'RANGE_UNAVAILABLE';
   if (midpoints.length === 0) return 'ZONE_UNAVAILABLE';
   const eq = (rangeHigh + rangeLow) / 2;
-  if (midpoints.some((midpoint) => midpoint === eq)) return 'MID_AT_EQ';
+  const epsilon = Number.EPSILON * Math.max(1, Math.abs(eq)) * 32;
+  if (midpoints.some((midpoint) => Math.abs(midpoint - eq) <= epsilon)) return 'MID_AT_EQ';
   if (midpoints.some((midpoint) => direction === 'BULLISH' ? midpoint > eq : midpoint < eq)) return 'ZONE_ON_WRONG_SIDE';
   return 'PASS';
 }
@@ -336,6 +337,9 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
   const rangeEquilibrium = hasConfirmedRange ? (rangeHigh! + rangeLow!) / 2 : undefined;
   type ReferenceZone = { name: string; direction: 'BULLISH' | 'BEARISH'; bottom: number; top: number; midpoint: number };
   const referenceZones: ReferenceZone[] = [];
+  // OB: retain every valid candidate in the 40-candle lookback. Breaker: use
+  // only the latest detected transition because older failed transitions are
+  // superseded by the most recent confirmed breaker.
   for (const candidate of obs) { const c = cs[candidate.index]; referenceZones.push({ name: `OB@${candidate.index}`, direction: isBull ? 'BULLISH' : 'BEARISH', bottom: c.low, top: c.high, midpoint: (c.low + c.high) / 2 }); }
   if (breaker) {
     const breakerOb = failedObs.find((x) => x.index === breaker!.obIndex);
@@ -363,7 +367,7 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
   const legacyHigh = Math.max(...legacyWindow20.map((c) => c.high)); const legacyLow = Math.min(...legacyWindow20.map((c) => c.low));
   const legacyEquilibrium = legacyLow + (legacyHigh - legacyLow) / 2;
   const s12Pass = input.gate4Mode === 'A' ? (isBull ? cur.close <= legacyEquilibrium : cur.close >= legacyEquilibrium) : favourableMidpoints;
-  const s12 = stage(12, 'Premium / Discount (Confirmed Swing Range + Zone Midpoint)', 'EQUILIBRIUM', s12Pass, s12Pass ? .95 : .2, 'R = [latest confirmed pre-signal swing low, latest confirmed pre-signal swing high]; EQ=(R_low+R_high)/2; every reference-zone midpoint must be favourable', {
+  const s12 = stage(12, 'Premium / Discount (Zone vs Confirmed-Range EQ)', 'EQUILIBRIUM', s12Pass, s12Pass ? .95 : .2, 'R = [latest confirmed pre-signal swing low, latest confirmed pre-signal swing high]; EQ=(R_low+R_high)/2; every reference-zone midpoint must be favourable', {
     Range_High: fixed(rangeHigh), Range_Low: fixed(rangeLow), Equilibrium: fixed(rangeEquilibrium), Gate4_Mode: input.gate4Mode ?? 'B', Reference_Zones: referenceZones.map((z) => `${z.name}[${z.direction}]`).join(',') || 'NONE',
     Reference_Midpoints: referenceZones.map((z) => `${z.name}[${z.direction}]=${fixed(z.midpoint)}`).join(',') || 'NONE', Gate4_Reason_Code: gate4ReasonCode, Midpoints_Favourable: bool(favourableMidpoints), Signal_Candle_Excluded: 'true'
   }, gate4ReasonCode === 'RANGE_UNAVAILABLE' ? 'RANGE_UNAVAILABLE: no confirmed pre-signal swing range.' : gate4ReasonCode === 'ZONE_UNAVAILABLE' ? 'ZONE_UNAVAILABLE: no valid directional OB/Breaker/FVG/IFVG/BPR zone.' : gate4ReasonCode === 'MID_AT_EQ' ? 'MID_AT_EQ: a reference-zone midpoint equals equilibrium.' : gate4ReasonCode === 'ZONE_ON_WRONG_SIDE' ? 'ZONE_ON_WRONG_SIDE: a reference-zone midpoint is unfavourable.' : 'Every reference-zone midpoint is in the favourable half.');
@@ -425,7 +429,7 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
     g(1, 'Market Structure (S1 + S2 BOS + S3 CHoCH)', s1.passed && s2.passed && s3.passed ? 'PASS' : s1.passed && (s2.passed || s3.passed) ? 'HOLD' : 'BLOCKED', 'GATE1_STRUCTURE: confirmed swings, body-close BOS and price CHoCH required', `${s1.passed}/${s2.passed}/${s3.passed}`),
     g(2, 'Imbalance (FVG / IFVG / BPR)', s4.passed || s5.passed || s6.passed ? 'PASS' : 'BLOCKED', 'GATE2_IMBALANCE: active FVG, confirmed IFVG or BPR required', `${s4.passed}/${s5.passed}/${s6.passed}`),
     g(3, 'Order Block & Breaker', s7.passed || s8.passed ? 'PASS' : 'BLOCKED', 'GATE3_OB_BREAKER: price-based order block or breaker required', `${s7.passed}/${s8.passed}`),
-    g(4, 'Premium / Discount (OTE confluence)', s12.passed ? 'PASS' : 'BLOCKED', 'GATE4_PD: confirmed pre-signal swing range and every reference-zone midpoint must be favourable', `${s12.passed}/${s13.passed}`),
+    g(4, 'Premium / Discount (Zone vs Confirmed-Range EQ)', s12.passed ? 'PASS' : 'BLOCKED', 'GATE4_PD: confirmed pre-signal swing range and every reference-zone midpoint must be favourable', `${s12.passed}/${s13.passed}`),
     g(5, 'Wick Pushback', s14.passed ? 'PASS' : 'BLOCKED', 'GATE5_WICK: rejection wick ratio must be <= 0.50', String(s14.passed)),
     g(6, 'Liquidity Sweep', s9.passed ? 'PASS' : 'BLOCKED', 'GATE6_SWEEP: sweep of a confirmed swing required', String(s9.passed)),
     g(7, 'Momentum', s15.passed ? 'PASS' : 'HOLD', 'GATE7_MOMENTUM: body must exceed 10-period mean body (flat window fails closed)', String(s15.passed)),
