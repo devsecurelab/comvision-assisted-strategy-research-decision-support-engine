@@ -34,7 +34,6 @@ import {
   Timeframe,
   UserAccount,
   UserRecordedAction,
-  NewsEvent,
   NextCandleObservation,
 } from './engine/types';
 import { ProviderStatus } from './engine/dataProviders';
@@ -107,11 +106,6 @@ export default function App() {
   const [currentAlert, setCurrentAlert] = useState<MasterTelemetry | null>(null);
   const [candidateHistory, setCandidateHistory] = useState<MasterTelemetry[]>([]);
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | undefined>();
-  const [newsEvents, setNewsEvents] = useState<NewsEvent[]>([]);
-  const [newsOnline, setNewsOnline] = useState<boolean>(true);
-  const [newsWindowState, setNewsWindowState] = useState<
-    'CLEAR' | 'ACTIVE' | 'NEWS_DATA_UNAVAILABLE'
-  >('CLEAR');
   const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('5m');
   const [selectedProvider, setSelectedProvider] = useState<'TWELVE_DATA'>('TWELVE_DATA');
 
@@ -176,9 +170,6 @@ export default function App() {
           if (data.providerStatus.provider === 'TWELVE_DATA') setSelectedProvider('TWELVE_DATA');
         }
         setScannerActive(data.settings?.scannerActive ?? true);
-        if (data.newsStatus) {
-          setNewsWindowState(data.newsStatus.windowState || data.newsStatus.state);
-        }
       }
 
       // 2. Fetch Candidates
@@ -204,17 +195,6 @@ export default function App() {
         }
       }
 
-      // 3. Fetch News Status
-      const newsRes = await apiFetch('/api/news/status', {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (newsRes.ok && newsRes.headers.get('content-type')?.includes('application/json')) {
-        const data = await newsRes.json();
-        setNewsEvents(data.events || []);
-        if (data.windowCheck) {
-          setNewsWindowState(data.windowCheck.windowState || data.windowCheck.state);
-        }
-      }
     } catch (err) {
       console.error('Error fetching engine data:', err);
     }
@@ -404,48 +384,6 @@ export default function App() {
     }
   };
 
-  const handleDownloadHandover = async () => {
-    try {
-      const timestamp = Date.now();
-      const tokenParam = authToken ? `?token=${encodeURIComponent(authToken)}&t=${timestamp}` : `?t=${timestamp}`;
-
-      // 1. Primary authenticated download via API with cache-busting
-      const res = await apiFetch(`/api/engine/download-package${tokenParam}`, {
-        headers: authToken
-          ? {
-              Authorization: `Bearer ${authToken}`,
-              'Cache-Control': 'no-cache, no-store, must-revalidate',
-            }
-          : { 'Cache-Control': 'no-cache, no-store, must-revalidate' },
-      });
-
-      if (res.ok) {
-        const blob = await res.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'comvision-engine-v2.0-package.zip';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
-        return;
-      }
-
-      // 2. Direct browser static file fallback with cache-busting
-      const directA = document.createElement('a');
-      directA.href = `/comvision-engine-v2.0-package.zip?t=${timestamp}`;
-      directA.download = 'comvision-engine-v2.0-package.zip';
-      document.body.appendChild(directA);
-      directA.click();
-      document.body.removeChild(directA);
-    } catch (error) {
-      console.error('Download error:', error);
-      // Fallback direct browser navigation
-      window.location.href = `/comvision-engine-v2.0-package.zip?t=${Date.now()}`;
-    }
-  };
-
   // If visiting public documentation or legal pages, render DocsLayout
   if (['/docs', '/documentation', '/about', '/privacy', '/terms', '/security'].includes(currentRoute)) {
     return (
@@ -533,7 +471,6 @@ export default function App() {
         onLogout={handleLogout}
         onSwitchToPublic={() => setInPublicPortal(true)}
         onNavigate={handleNavigate}
-        onDownloadHandover={handleDownloadHandover}
       />
 
       {/* Main Content Area */}
@@ -546,10 +483,8 @@ export default function App() {
           onToggleScanner={handleToggleScanner}
           onStopScanning={handleStopScanning}
           onManualScan={handleManualScan}
-          newsWindowState={newsWindowState}
           providerStatus={providerStatus}
-          onDownloadHandover={handleDownloadHandover}
-        />
+          />
 
         {/* Dynamic View Body */}
         <main className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -705,10 +640,7 @@ export default function App() {
           )}
 
           {activeTab === 'news' && (
-            <NewsGuardView
-              newsEvents={newsEvents}
-              newsSourceOnline={newsOnline}
-            />
+            <NewsGuardView />
           )}
 
           {activeTab === 'risk' && <RiskView />}
@@ -721,8 +653,7 @@ export default function App() {
               onSelectProvider={handleSelectProvider}
               providerStatus={providerStatus}
               onProviderStatusChange={setProviderStatus}
-              onDownloadHandover={handleDownloadHandover}
-              authToken={authToken}
+                    authToken={authToken}
               isAdmin={currentUser?.role === 'ADMIN'}
             />
           )}

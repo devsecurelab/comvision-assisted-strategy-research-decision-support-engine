@@ -358,8 +358,8 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
     if (diff <= 30 * 60_000) newsBlocked = true;
   }
   const s18Pass = input.newsSourceOnline && !newsBlocked;
-  const newsReason = !input.newsSourceOnline ? 'NEWS_SOURCE_OFFLINE: fail-safe NO_TRADE.' : newsBlocked ? `NEWS_WINDOW_BLOCKED: ${nearest} within +/-30m.` : 'News clear.';
-  const s18 = stage(18, 'News Guard (Operational Guard)', 'SESSION_RISK', s18Pass, s18Pass ? 1 : 0, 'BLOCK if feed offline OR high-impact news within +/-30m', { Calendar_Online: bool(input.newsSourceOnline), News_Window_Blocked: bool(newsBlocked), Nearest_High_Impact: nearest, Minutes_To_Event: Number.isFinite(nearestDiff) ? String(Math.floor(nearestDiff / 60000)) : 'UNAVAILABLE', Spread_Guard: 'NOT_APPLICABLE_BINARY' }, newsReason);
+  const newsReason = !input.newsSourceOnline ? 'NEWS_SOURCE_OFFLINE: fail-safe NO_TRADE.' : newsBlocked ? `NEWS_WINDOW_BLOCKED: ${nearest} within +/-30m.` : 'NEWS: NOT CHECKED (manual)';
+  const s18 = stage(18, 'News Guard (Operational Guard)', 'SESSION_RISK', s18Pass, s18Pass ? 1 : 0, 'Manual review required; calendar events are not automatically verified.', { Manual_News_Review: 'NOT_CHECKED (manual)', News_Window_Blocked: bool(newsBlocked), Nearest_High_Impact: Number.isFinite(nearestDiff) ? nearest : 'UNAVAILABLE', Minutes_To_Event: Number.isFinite(nearestDiff) ? String(Math.floor(nearestDiff / 60000)) : 'UNAVAILABLE', Spread_Guard: 'NOT_APPLICABLE_BINARY' }, newsReason);
 
   // S19 — MFCI (weights frozen; M1-M4 act on gates only)
   const meanAvailable = (items: V3Stage[]) => { const xs = items.filter((s) => s.available && s.score !== null).map((s) => s.score as number); return xs.length ? mean(xs) : null; };
@@ -393,7 +393,7 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
   const systemDecision: V3SystemDecision = allPassed ? 'PASS' : guardBlocked || applicable.some((x) => x.status === 'BLOCKED') ? 'BLOCKED' : 'HOLD';
   const finalAction: V3FinalAction = systemDecision === 'PASS' ? 'MANUAL_ALERT' : systemDecision === 'HOLD' ? 'SAFE_HOLD' : 'NO_ACTION';
   const statusReason = allPassed
-    ? 'All owner gates passed, news guard clear and MFCI met the frozen 0.85 threshold.'
+    ? 'All owner gates passed; NEWS: NOT CHECKED (manual); MFCI met the frozen 0.85 threshold.'
     : guardBlocked ? newsReason
     : failed ? failed.reason
     : 'MFCI_BELOW_THRESHOLD: confluence below frozen 0.85.';

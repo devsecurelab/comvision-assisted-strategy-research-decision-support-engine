@@ -3,6 +3,8 @@ import { createProviderSchedulers, MarketFeedManager } from '../src/engine/dataP
 import { FallbackManager } from '../src/engine/providers/fallbackManager';
 import type { IForexDataProvider, ProviderCandlePayload } from '../src/engine/providers/contracts';
 import { ProviderAdapterError } from '../src/engine/providers/http';
+import { TwelveDataAdapter } from '../src/engine/providers/twelveDataAdapter';
+import { OandaAdapter } from '../src/engine/providers/oandaAdapter';
 import type { Timeframe } from '../src/engine/types';
 
 const timeframe: Timeframe = '5m';
@@ -85,11 +87,30 @@ async function circuitBreaker() {
   assert.equal(manager.snapshots()[0].state, 'CLOSED');
 }
 
+async function liveHistoryRequestCounts() {
+  const urls: URL[] = [];
+  const request = async (input: RequestInfo | URL): Promise<Response> => {
+    const url = new URL(String(input));
+    urls.push(url);
+    return mockResponse(url.hostname === 'api.twelvedata.com' ? { values: [] } : { candles: [] });
+  };
+  const twelve = new TwelveDataAdapter(request, 'mock-key');
+  const oanda = new OandaAdapter(request, 'mock-token');
+  for (const tf of ['5m', '15m', '30m'] as const) {
+    await twelve.fetchCandles('EUR/USD', tf, new AbortController().signal);
+    assert.equal(urls.at(-1)!.searchParams.get('outputsize'), '130', `Twelve Data ${tf} request must ask for 130 rows`);
+    await oanda.fetchCandles('EUR/USD', tf, new AbortController().signal);
+    assert.equal(urls.at(-1)!.searchParams.get('count'), '130', `OANDA ${tf} request must ask for 130 rows`);
+  }
+}
+
 async function main() {
   assert.equal(createProviderSchedulers().get('TWELVE_DATA')?.snapshot().minimumIntervalMs, 8_000);
   console.log('[twelve_data_minimum_spacing] PASS');
   await adapterContracts();
   console.log('[provider_adapter_rest_contracts] PASS');
+  await liveHistoryRequestCounts();
+  console.log('[live_130_candle_requests_5m_15m_30m] PASS');
   await circuitBreaker();
   console.log('[provider_circuit_breaker] PASS');
 }

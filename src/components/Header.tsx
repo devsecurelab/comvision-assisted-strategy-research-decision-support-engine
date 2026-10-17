@@ -9,7 +9,6 @@ import {
   RefreshCw,
   PanelLeft,
   PanelLeftClose,
-  Download,
 } from 'lucide-react';
 import { ProviderStatus } from '../engine/dataProviders';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -25,9 +24,7 @@ interface HeaderProps {
   onToggleScanner: () => void;
   onStopScanning: () => void;
   onManualScan: () => void;
-  newsWindowState: 'CLEAR' | 'ACTIVE' | 'NEWS_DATA_UNAVAILABLE';
   providerStatus?: ProviderStatus;
-  onDownloadHandover?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -37,30 +34,8 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleScanner,
   onStopScanning,
   onManualScan,
-  newsWindowState,
   providerStatus,
-  onDownloadHandover,
 }) => {
-  const getNewsBadge = () => {
-    if (newsWindowState === 'CLEAR') {
-      return (
-        <span className="text-emerald-400 font-bold font-mono">CLEAR</span>
-      );
-    }
-    if (newsWindowState === 'ACTIVE') {
-      return (
-        <span className="text-rose-400 font-bold font-mono animate-pulse">
-          ACTIVE (-30m/+30m)
-        </span>
-      );
-    }
-    return (
-      <span className="text-amber-400 font-bold font-mono">
-        UNAVAILABLE (FAIL-SAFE)
-      </span>
-    );
-  };
-
   return (
     <header
       id="top-status-bar"
@@ -96,7 +71,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* News Guard Status */}
         <div className="flex items-center gap-2 px-3 py-1 bg-slate-800/80 rounded-full border border-slate-700 text-xs text-slate-300">
           <Globe className="w-3.5 h-3.5 text-indigo-400" />
-          <span className="text-[11px]">News Guard: {getNewsBadge()}</span>
+          <span className="text-[11px]">NEWS: NOT CHECKED (manual)</span>
         </div>
 
         {/* Provider Provenance Badge */}
@@ -125,17 +100,7 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="flex items-center gap-2.5">
         <PWAInstallButton />
 
-        {onDownloadHandover && (
-          <button
-            id="btn-header-download-handover"
-            onClick={onDownloadHandover}
-            title="Download protected production-ready source code handover package (.ZIP)"
-            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow-sm transition border border-indigo-400/30"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Download Handover ZIP</span>
-          </button>
-        )}
+
 
         <button
           id="btn-evaluate-next-candidate"

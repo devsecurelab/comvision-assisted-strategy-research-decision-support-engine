@@ -9,10 +9,14 @@ import { formatSignalTime } from '../utils/timeFormat';
 import { displayPair, isSupportedPair, payoutRegistry } from './payoutRegistry';
 import { favoriteRegistry } from './favoriteRegistry';
 import { feedManager } from '../engine/dataProviders';
-import { newsGuard } from '../engine/newsGuard';
 import type { ScanLoop, ScanResult, ScanService, ScanTimeframe } from '../engine/scanScheduler';
 import { SCAN_TIMEFRAMES } from '../engine/scanScheduler';
 import { buildLedgerReport, formatLedgerReport } from '../engine/edgeMonitor';
+
+function alertReason(reason: string): string {
+  return reason.replace(/news[^.]*clear/gi, 'manual news review not performed')
+    .replace(/no high-impact red-folder events[^.]*/gi, 'NEWS: NOT CHECKED (manual)');
+}
 
 export interface NotificationConfig {
   telegramEnabled: boolean;
@@ -43,8 +47,9 @@ export class NotificationService {
     const v3 = result.telemetry?.decision_engine_v3;
     return [
       `${result.status} ${result.pair} ${result.timeframe}${result.cached ? ' (same candle, cached — no credit used)' : ''}`,
-      `Reason: ${result.reason}`,
-      `MFCI: ${v3 ? `${v3.mfci.totalMfci.toFixed(3)} (${v3.mfciBand})` : 'UNAVAILABLE'} | Mode: ${v3?.engineMode ?? 'UNAVAILABLE'}`,
+      `Reason: ${alertReason(result.reason)}`,
+      `MFCI (confluence score, not probability): ${v3 ? `${v3.mfci.totalMfci.toFixed(3)} (${v3.mfciBand})` : 'UNAVAILABLE'} | Mode: ${v3?.engineMode ?? 'UNAVAILABLE'}`,
+      result.status !== 'NO_TRADE' ? 'NEWS: NOT CHECKED (manual)' : '',
       `Signal candle: ${time ? `${time.utcTime} UTC / ${time.bdtTime} BDT` : 'UNAVAILABLE'}`,
       result.provider || result.htf_provider ? `Providers: LTF ${result.provider ?? 'UNAVAILABLE'} | HTF ${result.htf_provider ?? 'UNAVAILABLE'}` : '',
       result.signal_id ? `Signal ID: ${result.signal_id} | valid until ${result.valid_until}` : '',
@@ -69,8 +74,9 @@ export class NotificationService {
       `Provider circuits: ${providerStatus.circuits.map((circuit) => `${circuit.provider}=${circuit.state}${circuit.lastFailureCode ? `:${circuit.lastFailureCode}` : ''}`).join(' | ')}`,
       `Provider requests today (combined): ${scheduler.dayUsed}/${scheduler.perDay} (internal hard stop ${scheduler.hardStopDaily}, auto ${scheduler.autoUsed}/${scheduler.autoDailyBudget}) | minute ${scheduler.minuteUsed}/${scheduler.perMinute}`,
       `Clock drift: ${clock.driftMs === null ? 'UNAVAILABLE' : `${clock.driftMs} ms`} (${clock.status})`,
-      `News source: ${newsGuard.isSourceOnline() ? 'ONLINE' : 'OFFLINE (fail-closed)'}`,
+      'NEWS: NOT CHECKED (manual)',
       `Ledger: ${ledgerCheck ? (ledgerCheck.ok ? `OK (${ledgerCheck.entries} entries)` : `TAMPERED ${ledgerCheck.reason} at ${ledgerCheck.brokenAt}`) : 'NOT_WIRED'}`,
+      `SIGNAL_EXPIRED scans: ${this.scanService?.ledger.expiredScanCount() ?? 0}`,
       `Edge: ${edge ? (edge.paused ? `EDGE_LOST since ${edge.lostAt} — এখন ট্রেড নয় (${edge.reason})` : 'ACTIVE') : 'NOT_WIRED'}`,
     ].join('\n');
   }
@@ -442,12 +448,12 @@ export class NotificationService {
       extra.signalId ? `Signal ID: ${extra.signalId}` : '',
       extra.validUntil ? `Valid until: ${extra.validUntil}` : '',
       `Payout: ${payout === undefined ? 'UNSET' : `${payout}% (breakeven ${(100 / (1 + payout / 100)).toFixed(1)}%)`}`,
-      `MFCI: ${v3 ? v3.mfci.totalMfci.toFixed(3) : 'UNAVAILABLE'} (${v3?.mfciBand || 'UNAVAILABLE'}) | Mode: ${v3?.engineMode || telemetry.metadata?.engine_mode || 'UNAVAILABLE'}`,
+      `MFCI (confluence score, not probability): ${v3 ? v3.mfci.totalMfci.toFixed(3) : 'UNAVAILABLE'} (${v3?.mfciBand || 'UNAVAILABLE'}) | Mode: ${v3?.engineMode || telemetry.metadata?.engine_mode || 'UNAVAILABLE'}`,
       `Gates: ${gateLine || 'UNAVAILABLE'}`,
       `Session: ${telemetry.market_context?.session || 'UNKNOWN'} | Kill zone: ${telemetry.market_context?.kill_zone || 'UNKNOWN'}`,
-      `News guard: ${(v3?.operationalGuards || []).map((guard: any) => `${guard.status} — ${guard.reason}`).join('; ') || 'UNAVAILABLE'}`,
+      binarySignal !== 'NO_TRADE' ? 'NEWS: NOT CHECKED (manual)' : '',
       `Provider: ${telemetry.metadata?.provider || 'UNAVAILABLE'} | Provenance: ${telemetry.metadata?.data_provenance || 'UNAVAILABLE'}`,
-      `Reason: ${v3?.statusReason || telemetry.metadata?.status_reason || telemetry.system_execution.rejection_reason || 'NO_QUALIFYING_SETUP'}`,
+      `Reason: ${alertReason(v3?.statusReason || telemetry.metadata?.status_reason || telemetry.system_execution.rejection_reason || 'NO_QUALIFYING_SETUP')}`,
       `Strategy: decision_engine_v3 | ${telemetry.metadata?.experiment_id || 'UNAVAILABLE'} | Setup ${telemetry.metadata?.setup_id || 'UNAVAILABLE'}`,
     ].filter((line) => line !== '').join('\n');
   }

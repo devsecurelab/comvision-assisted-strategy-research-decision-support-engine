@@ -45,6 +45,15 @@ export function utcInstantForLocal(reference: Date, timeZone: string, hour: numb
 
 const hhmm = (date: Date) => `${String(date.getUTCHours()).padStart(2, '0')}:${String(date.getUTCMinutes()).padStart(2, '0')}`;
 
+/** Local weekday and minute-of-day for an instant, using the same IANA-zone formatting as session rules. */
+export function zonedWeekdayMinute(date: Date, timeZone: string): { weekday: string; minuteOfDay: number } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone, weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value;
+  return { weekday: get('weekday') ?? 'UNKNOWN', minuteOfDay: Number(get('hour')) * 60 + Number(get('minute')) };
+}
+
 export function classifySessionAndKillZone(timestampIso: string): SessionContext {
   const date = new Date(timestampIso);
   if (!Number.isFinite(date.getTime())) {

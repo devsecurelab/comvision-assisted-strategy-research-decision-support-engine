@@ -9,7 +9,6 @@ import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
-import crypto from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import { authService } from './src/server/auth';
 import { feedManager, MarketDataError, MarketDataProvider, timeframeToMinutes } from './src/engine/dataProviders';
@@ -61,18 +60,13 @@ const HOST = process.env.HOST?.trim() || '0.0.0.0';
 // CORS support with explicit trusted-origin checking (no credential wildcard)
 const allowedOrigins = [
   process.env.APP_URL,
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
+  ...(process.env.CORS_ALLOWED_ORIGINS || '').split(',').map((origin) => origin.trim()),
 ].filter(Boolean) as string[];
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (origin) {
-    const isAllowed =
-      allowedOrigins.includes(origin) ||
-      origin.endsWith('.run.app') ||
-      origin.startsWith('http://localhost:') ||
-      origin.startsWith('http://127.0.0.1:');
+    const isAllowed = allowedOrigins.includes(origin);
     if (isAllowed) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -375,105 +369,6 @@ app.get('/api/engine/export-telemetry', requireApprovedUser, (_req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Content-Disposition', `attachment; filename="master_telemetry_${Date.now()}.json"`);
   res.send(json);
-});
-
-// Dynamic package info endpoint (returns size, sha256, verified 309 KB handover details)
-app.get('/api/engine/package-info', (_req, res) => {
-  const possiblePaths = [
-    path.join(process.cwd(), 'protected_storage', 'comvision-engine-v2.0-package.zip'),
-    path.join(process.cwd(), 'public', 'comvision-engine-v2.0-package.zip'),
-    path.join(process.cwd(), 'protected_storage', 'comvision-engine-v3.4-handover.zip'),
-    path.join(process.cwd(), 'public', 'comvision-engine-v3.4-handover.zip'),
-  ];
-  const zipPath = possiblePaths.find((p) => fs.existsSync(p));
-  if (!zipPath) {
-    return res.status(404).json({ error: 'PACKAGE_NOT_FOUND', message: 'Package file not found' });
-  }
-
-  const stat = fs.statSync(zipPath);
-  const fileBuf = fs.readFileSync(zipPath);
-  const sha256 = crypto.createHash('sha256').update(fileBuf).digest('hex');
-  const sizeKb = Math.round(stat.size / 1024);
-
-  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-  res.setHeader('Pragma', 'no-cache');
-  res.setHeader('Expires', '0');
-
-  res.json({
-    filename: 'comvision-engine-v2.0-package.zip',
-    sizeBytes: stat.size,
-    sizeKb,
-    exactKb: sizeKb,
-    sizeFormatted: `${sizeKb} KB`,
-    sha256,
-    updatedAt: stat.mtime.toISOString(),
-  });
-});
-
-// Authenticated protected package download (Approved operators only)
-app.get(['/api/engine/download-package', '/api/engine/download-handover', '/api/engine/download-zip'], (req: AuthenticatedRequest, res) => {
-  // Allow authorization header OR token query param for seamless operator download
-  const token = req.headers.authorization?.replace(/^Bearer\s+/, '') || (req.query.token as string);
-  const user = token ? authService.getUserByToken(token) : null;
-
-  if (!user || user.status !== 'APPROVED') {
-    // If no active session, ensure user is authenticated
-    if (!token && !req.headers.authorization) {
-      return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Authentication required to download source package' });
-    }
-  }
-
-  const possiblePaths = [
-    path.join(process.cwd(), 'protected_storage', 'comvision-engine-v2.0-package.zip'),
-    path.join(process.cwd(), 'public', 'comvision-engine-v2.0-package.zip'),
-    path.join(process.cwd(), 'protected_storage', 'comvision-engine-v3.4-handover.zip'),
-    path.join(process.cwd(), 'public', 'comvision-engine-v3.4-handover.zip'),
-  ];
-  const zipPath = possiblePaths.find((p) => fs.existsSync(p));
-  if (!zipPath) {
-    return res.status(404).json({
-      error: 'PACKAGE_NOT_FOUND',
-      message: 'Source code handover package archive not found on server.',
-    });
-  }
-
-  durableStorage.recordAuditEvent({
-    event_type: 'HANDOVER_PACKAGE_DOWNLOADED',
-    actor_id: user?.id || 'operator',
-    actor_email: user?.email || 'approved_operator',
-    details: { file: path.basename(zipPath), size: fs.statSync(zipPath).size },
-  });
-
-  const stat = fs.statSync(zipPath);
-  res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Length', stat.size.toString());
-  res.setHeader('Content-Disposition', 'attachment; filename="comvision-engine-v2.0-package.zip"');
-  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-  res.setHeader('Pragma', 'no-cache');
-  res.setHeader('Expires', '0');
-  res.sendFile(zipPath, { maxAge: 0, lastModified: false, etag: false });
-});
-
-// Direct file serving endpoint for browser convenience
-app.get(['/comvision-engine-v2.0-package.zip', '/download/comvision-engine-v2.0-package.zip', '/comvision-engine-v3.4-handover.zip'], (_req, res) => {
-  const possiblePaths = [
-    path.join(process.cwd(), 'public', 'comvision-engine-v2.0-package.zip'),
-    path.join(process.cwd(), 'protected_storage', 'comvision-engine-v2.0-package.zip'),
-    path.join(process.cwd(), 'public', 'comvision-engine-v3.4-handover.zip'),
-    path.join(process.cwd(), 'protected_storage', 'comvision-engine-v3.4-handover.zip'),
-  ];
-  const zipPath = possiblePaths.find((p) => fs.existsSync(p));
-  if (zipPath) {
-    const stat = fs.statSync(zipPath);
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Length', stat.size.toString());
-    res.setHeader('Content-Disposition', 'attachment; filename="comvision-engine-v2.0-package.zip"');
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
-    return res.sendFile(zipPath, { maxAge: 0, lastModified: false, etag: false });
-  }
-  res.status(404).json({ error: 'Package file not found' });
 });
 
 app.get('/api/market/feed', requireApprovedUser, async (req, res) => {
@@ -919,6 +814,12 @@ app.all('/api/*', (req, res) => {
     error: 'NOT_FOUND',
     message: `API endpoint ${req.method} ${req.path} not found`,
   });
+});
+
+// No source archives are served from public/dist; old and arbitrary ZIP paths must be a real 404.
+app.use((req, res, next) => {
+  if (/\.zip$/i.test(req.path)) return res.status(404).json({ error: 'NOT_FOUND' });
+  next();
 });
 
 // --- VITE / STATIC SERVING INTEGRATION ---

@@ -14,7 +14,6 @@ import {
   ChevronRight,
   ChevronLeft,
   X,
-  Download,
 } from 'lucide-react';
 import { UserAccount } from '../engine/types';
 
@@ -27,7 +26,6 @@ interface SidebarProps {
   onLogout: () => void;
   onSwitchToPublic: () => void;
   onNavigate?: (route: string) => void;
-  onDownloadHandover?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -39,27 +37,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onLogout,
   onSwitchToPublic,
   onNavigate,
-  onDownloadHandover,
 }) => {
   const isAdmin = currentUser?.role === 'ADMIN';
-  const [packageSize, setPackageSize] = React.useState<string>('309 KB');
-
-  React.useEffect(() => {
-    // Dynamic fetch of verified package size with anti-cache query
-    fetch(`/api/engine/package-info?t=${Date.now()}`, {
-      headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' },
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data?.sizeFormatted) {
-          setPackageSize(data.sizeFormatted);
-        } else if (data?.sizeBytes) {
-          setPackageSize(`${Math.round(data.sizeBytes / 1024)} KB`);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
   const handleItemClick = (tab: string) => {
     setActiveTab(tab);
     // Auto-close on mobile/tablet view
@@ -189,35 +168,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             active={activeTab === 'settings'}
             onClick={() => handleItemClick('settings')}
           />
-
-          {/* v2.0 Package ZIP Download (Directly Below Settings) */}
-          <div className="pt-0.5 pb-0.5">
-            <button
-              id="btn-sidebar-download-v2-zip"
-              onClick={onDownloadHandover}
-              title="Download comvision-engine-v2.0-package.zip (Full Source Code & 9-Stage Engine)"
-              className="w-full text-left p-2.5 bg-gradient-to-r from-indigo-950/80 to-purple-950/70 hover:from-indigo-900/90 hover:to-purple-900/80 border border-indigo-500/50 hover:border-indigo-400 rounded-xl flex items-center justify-between transition group shadow-md cursor-pointer"
-            >
-              <div className="flex items-center gap-2.5">
-                <div className="p-1.5 bg-indigo-600 group-hover:bg-indigo-500 rounded-lg text-white shadow-sm transition">
-                  <Download className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                    <span>v2.0 Package ZIP</span>
-                    <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-indigo-500/30 text-indigo-200 border border-indigo-500/40">
-                      .ZIP
-                    </span>
-                  </div>
-                  <div className="text-[10px] text-emerald-300 font-mono flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block animate-pulse" />
-                    <span>{packageSize} • Click to Download</span>
-                  </div>
-                </div>
-              </div>
-              <ChevronRight className="w-4 h-4 text-indigo-400 group-hover:translate-x-0.5 transition-transform" />
-            </button>
-          </div>
 
           <SidebarItem
             id="nav-audit"

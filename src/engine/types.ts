@@ -225,9 +225,9 @@ export type NextCandleObservation =
 export type UserRecordedAction = 'PENDING' | 'TAKEN' | 'NOT_TAKEN' | 'NOT_RECORDED' | 'SKIPPED' | 'WIN' | 'LOSS';
 
 // Pressure Observation (Legacy observation layer)
-export type PressureClassification = 'ALIGNED' | 'NEUTRAL' | 'OPPOSITE' | 'UNCERTAIN';
-export type PressureMagnitude = 'LOW' | 'MEDIUM' | 'HIGH';
-export type PressureConsistency = 'LOW' | 'MEDIUM' | 'HIGH';
+export type PressureClassification = 'ALIGNED' | 'NEUTRAL' | 'OPPOSITE' | 'UNCERTAIN' | 'UNAVAILABLE';
+export type PressureMagnitude = 'LOW' | 'MEDIUM' | 'HIGH' | 'UNAVAILABLE';
+export type PressureConsistency = 'LOW' | 'MEDIUM' | 'HIGH' | 'UNAVAILABLE';
 
 export interface PressureObservation {
   classification: PressureClassification;
