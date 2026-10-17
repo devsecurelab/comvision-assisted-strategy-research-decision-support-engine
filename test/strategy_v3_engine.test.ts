@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { evaluateStrategyV3, deriveHtfBias, type V3Input } from '../src/engine/strategyV3Engine';
+import { evaluateStrategyV3, deriveHtfBias, classifyGate4Reason, type V3Input } from '../src/engine/strategyV3Engine';
 import type { Candle } from '../src/engine/types';
 import { htfCandlesFor, idealFullSetup, idealPriceOnlySetup, SIGNAL_TS } from './fixtures/v3Reachability';
 
@@ -57,15 +57,23 @@ const taken = set(ideal(), 33, 46, 104, 45, 50);
 assert.equal(run(taken).gates[8].status, 'BLOCKED');
 // Gate 4 B uses confirmed pre-signal swing range plus reference-zone midpoints;
 // OTE remains confluence-only, so moving the signal close alone does not change G4.
-assert.equal(stagePassed(set(ideal(), 39, 56.5, 72.4, 56, 72), 12), true);
+assert.equal(stagePassed(set(ideal(), 39, 56.5, 72.4, 56, 72), 12), true); // signal candle outside confirmed range is excluded
 assert.equal(run(ideal()).stages[11].calculatedValues.Signal_Candle_Excluded, 'true');
 // Gate 4 fail-closed cases: no confirmed range, no valid zone, and midpoint == EQ.
 assert.equal(run(mono).stages[11].passed, false);
+assert.equal(run(mono).stages[11].calculatedValues.Gate4_Reason_Code, 'RANGE_UNAVAILABLE'); // no confirmed range
 const noZone = ideal().map((c, i) => i >= 33 ? { ...c, open: p(55), high: p(56), low: p(54), close: p(55) } : c);
 assert.equal(run(noZone).stages[11].passed, false);
+assert.equal(run(noZone).stages[11].calculatedValues.Gate4_Reason_Code, 'ZONE_UNAVAILABLE'); // no valid zone
 const midpointAtEq = ideal();
-midpointAtEq[36] = { ...midpointAtEq[36], low: p(44.6), high: p(63.4), open: p(46), close: p(50) };
+midpointAtEq[36] = { ...midpointAtEq[36], low: p(44.6), high: p(63.4), open: p(50), close: p(46) };
 assert.equal(run(midpointAtEq).stages[11].passed, false);
+assert.equal(run(midpointAtEq).stages[11].calculatedValues.Gate4_Reason_Code, 'ZONE_ON_WRONG_SIDE'); // invalid zone boundary remains fail-closed
+assert.equal(classifyGate4Reason('BULLISH', 10, 0, [5]), 'MID_AT_EQ'); // midpoint equals EQ
+assert.equal(classifyGate4Reason('BEARISH', 10, 0, [5]), 'MID_AT_EQ'); // bearish midpoint equals EQ
+assert.equal(classifyGate4Reason('BULLISH', undefined, 0, [1]), 'RANGE_UNAVAILABLE');
+assert.equal(classifyGate4Reason('BEARISH', 10, 0, []), 'ZONE_UNAVAILABLE');
+assert.equal(classifyGate4Reason('BULLISH', 10, 0, [6]), 'ZONE_ON_WRONG_SIDE');
 // The same confirmed-range/midpoint rule applies symmetrically to bearish setups.
 assert.equal(evaluateStrategyV3({ candles: idealPriceOnlySetup(base, '15m', 'BEARISH'), htfBias: 'BEARISH', newsEvents: [], newsSourceOnline: true, timeframe: '15m' }).stages[11].passed, true);
 // S13 is confluence only: in/out of OTE never blocks Gate 4.

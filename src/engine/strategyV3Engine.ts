@@ -60,6 +60,14 @@ type Swing = { index: number; type: 'SWING_HIGH' | 'SWING_LOW'; price: number; c
 
 const fixed = (v: number | null | undefined, d = 5) => typeof v === 'number' && Number.isFinite(v) ? v.toFixed(d) : 'UNAVAILABLE';
 const bool = (v: boolean) => (v ? 'true' : 'false');
+export function classifyGate4Reason(direction: 'BULLISH' | 'BEARISH', rangeHigh: number | undefined, rangeLow: number | undefined, midpoints: number[]): 'PASS' | 'RANGE_UNAVAILABLE' | 'ZONE_UNAVAILABLE' | 'ZONE_ON_WRONG_SIDE' | 'MID_AT_EQ' {
+  if (rangeHigh === undefined || rangeLow === undefined || rangeHigh <= rangeLow) return 'RANGE_UNAVAILABLE';
+  if (midpoints.length === 0) return 'ZONE_UNAVAILABLE';
+  const eq = (rangeHigh + rangeLow) / 2;
+  if (midpoints.some((midpoint) => midpoint === eq)) return 'MID_AT_EQ';
+  if (midpoints.some((midpoint) => direction === 'BULLISH' ? midpoint > eq : midpoint < eq)) return 'ZONE_ON_WRONG_SIDE';
+  return 'PASS';
+}
 const body = (c: Candle) => Math.abs(c.close - c.open);
 const range = (c: Candle) => c.high - c.low;
 const bullish = (c: Candle) => c.close > c.open;
@@ -326,39 +334,39 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
   const rangeLow = latestSwingBefore('SWING_LOW', last)?.price;
   const hasConfirmedRange = rangeHigh !== undefined && rangeLow !== undefined && rangeHigh > rangeLow;
   const rangeEquilibrium = hasConfirmedRange ? (rangeHigh! + rangeLow!) / 2 : undefined;
-  type ReferenceZone = { name: string; bottom: number; top: number; midpoint: number };
+  type ReferenceZone = { name: string; direction: 'BULLISH' | 'BEARISH'; bottom: number; top: number; midpoint: number };
   const referenceZones: ReferenceZone[] = [];
-  if (ob) referenceZones.push({ name: 'OB', bottom: cs[ob.index].low, top: cs[ob.index].high, midpoint: (cs[ob.index].low + cs[ob.index].high) / 2 });
+  for (const candidate of obs) { const c = cs[candidate.index]; referenceZones.push({ name: `OB@${candidate.index}`, direction: isBull ? 'BULLISH' : 'BEARISH', bottom: c.low, top: c.high, midpoint: (c.low + c.high) / 2 }); }
   if (breaker) {
     const breakerOb = failedObs.find((x) => x.index === breaker!.obIndex);
     if (breakerOb) {
       const bc = cs[breakerOb.index];
-      referenceZones.push({ name: 'Breaker', bottom: bc.low, top: bc.high, midpoint: (bc.low + bc.high) / 2 });
+      referenceZones.push({ name: `Breaker@${breakerOb.index}`, direction: isBull ? 'BULLISH' : 'BEARISH', bottom: bc.low, top: bc.high, midpoint: (bc.low + bc.high) / 2 });
     }
   }
   if (referenceZones.length === 0) {
     if (fvg && fvg.valid && (fvg.status === 'UNMITIGATED' || fvg.status === 'PARTIAL_FILL')) {
       const fvgBottom = fvg.bottom;
       const fvgTop = fvg.top;
-      referenceZones.push({ name: 'FVG', bottom: Math.min(fvgBottom, fvgTop), top: Math.max(fvgBottom, fvgTop), midpoint: (fvgBottom + fvgTop) / 2 });
+      referenceZones.push({ name: 'FVG', direction: isBull ? 'BULLISH' : 'BEARISH', bottom: Math.min(fvgBottom, fvgTop), top: Math.max(fvgBottom, fvgTop), midpoint: (fvgBottom + fvgTop) / 2 });
     } else if (s5Pass && ifvg.original_fvg_zone && ifvg.ifvg_direction === (isBull ? 'BULLISH' : 'BEARISH')) {
       const [bottom, top] = ifvg.original_fvg_zone;
-      referenceZones.push({ name: 'IFVG', bottom, top, midpoint: (bottom + top) / 2 });
+      referenceZones.push({ name: 'IFVG', direction: isBull ? 'BULLISH' : 'BEARISH', bottom, top, midpoint: (bottom + top) / 2 });
     } else if (s6Pass && bpr.bpr_zone_low !== undefined && bpr.bpr_zone_high !== undefined) {
       const bottom = bpr.bpr_zone_low; const top = bpr.bpr_zone_high;
-      referenceZones.push({ name: 'BPR', bottom, top, midpoint: (bottom + top) / 2 });
+      referenceZones.push({ name: 'BPR', direction: isBull ? 'BULLISH' : 'BEARISH', bottom, top, midpoint: (bottom + top) / 2 });
     }
   }
-  const favourableMidpoints = hasConfirmedRange && referenceZones.length > 0
-    && referenceZones.every((z) => isBull ? z.midpoint < rangeEquilibrium! : z.midpoint > rangeEquilibrium!);
+  const gate4ReasonCode = classifyGate4Reason(isBull ? 'BULLISH' : 'BEARISH', rangeHigh, rangeLow, referenceZones.map((z) => z.midpoint));
+  const favourableMidpoints = gate4ReasonCode === 'PASS';
   const legacyWindow20 = cs.slice(-20);
   const legacyHigh = Math.max(...legacyWindow20.map((c) => c.high)); const legacyLow = Math.min(...legacyWindow20.map((c) => c.low));
   const legacyEquilibrium = legacyLow + (legacyHigh - legacyLow) / 2;
   const s12Pass = input.gate4Mode === 'A' ? (isBull ? cur.close <= legacyEquilibrium : cur.close >= legacyEquilibrium) : favourableMidpoints;
   const s12 = stage(12, 'Premium / Discount (Confirmed Swing Range + Zone Midpoint)', 'EQUILIBRIUM', s12Pass, s12Pass ? .95 : .2, 'R = [latest confirmed pre-signal swing low, latest confirmed pre-signal swing high]; EQ=(R_low+R_high)/2; every reference-zone midpoint must be favourable', {
-    Range_High: fixed(rangeHigh), Range_Low: fixed(rangeLow), Equilibrium: fixed(rangeEquilibrium), Gate4_Mode: input.gate4Mode ?? 'B', Reference_Zones: referenceZones.map((z) => z.name).join(',') || 'NONE',
-    Reference_Midpoints: referenceZones.map((z) => `${z.name}=${fixed(z.midpoint)}`).join(',') || 'NONE', Midpoints_Favourable: bool(favourableMidpoints), Signal_Candle_Excluded: 'true'
-  }, !hasConfirmedRange ? 'BLOCKED: no confirmed pre-signal swing range.' : referenceZones.length === 0 ? 'BLOCKED: no valid directional OB/Breaker/FVG/IFVG/BPR zone.' : s12Pass ? 'Every reference-zone midpoint is in the favourable half.' : 'One or more reference-zone midpoints are in the unfavourable half.');
+    Range_High: fixed(rangeHigh), Range_Low: fixed(rangeLow), Equilibrium: fixed(rangeEquilibrium), Gate4_Mode: input.gate4Mode ?? 'B', Reference_Zones: referenceZones.map((z) => `${z.name}[${z.direction}]`).join(',') || 'NONE',
+    Reference_Midpoints: referenceZones.map((z) => `${z.name}[${z.direction}]=${fixed(z.midpoint)}`).join(',') || 'NONE', Gate4_Reason_Code: gate4ReasonCode, Midpoints_Favourable: bool(favourableMidpoints), Signal_Candle_Excluded: 'true'
+  }, gate4ReasonCode === 'RANGE_UNAVAILABLE' ? 'RANGE_UNAVAILABLE: no confirmed pre-signal swing range.' : gate4ReasonCode === 'ZONE_UNAVAILABLE' ? 'ZONE_UNAVAILABLE: no valid directional OB/Breaker/FVG/IFVG/BPR zone.' : gate4ReasonCode === 'MID_AT_EQ' ? 'MID_AT_EQ: a reference-zone midpoint equals equilibrium.' : gate4ReasonCode === 'ZONE_ON_WRONG_SIDE' ? 'ZONE_ON_WRONG_SIDE: a reference-zone midpoint is unfavourable.' : 'Every reference-zone midpoint is in the favourable half.');
   // OTE remains the pre-existing 20-candle confluence calculation; it never blocks Gate 4.
   const oteWindow = cs.slice(-20);
   const anchorHigh = Math.max(...oteWindow.map((c) => c.high)); const anchorLow = Math.min(...oteWindow.map((c) => c.low));

@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { buildR8Report, csvToCandles, htfWarmupStartDate, runCausalBacktest } from '../src/engine/r8Backtest';
+import { buildR8Report, csvToCandles, htfWarmupStartDate, runCausalBacktest, type R8Bar } from '../src/engine/r8Backtest';
 import { filterFxOpenMarketCandles } from '../src/engine/marketHours';
 import type { Timeframe } from '../src/engine/types';
 
@@ -17,33 +17,49 @@ async function load(tf: Timeframe, from = start) {
   const file = `${safe(pair)}-${tf}-${from}-${end}.csv`;
   return csvToCandles(await fs.readFile(path.join(csvDir, file), 'utf8'));
 }
-function countStatusChanges(a: ReturnType<typeof runCausalBacktest>['bars'], b: ReturnType<typeof runCausalBacktest>['bars']) {
+function summary(bars: R8Bar[]) {
+  const evaluated = bars.filter((b) => b.evaluated && b.gates.length === 9);
+  const g123 = evaluated.filter((b) => b.gates[0] === 'PASS' && b.gates[1] === 'PASS' && b.gates[2] === 'PASS');
+  const g4Pass = g123.filter((b) => b.gates[3] === 'PASS').length;
+  return { evaluatedBars: evaluated.length, g1G3PassBars: g123.length, g4PassAmongG1G3: g4Pass, g4PassRateAmongG1G3: g123.length ? g4Pass / g123.length : null };
+}
+function splitBars(bars: R8Bar[], candles: ReturnType<typeof filterFxOpenMarketCandles>) {
+  const splitTs = candles[Math.floor(candles.length * 2 / 3)]?.timestamp ?? candles.at(-1)?.timestamp ?? '';
+  return { IS: bars.filter((b) => b.signal_ts < splitTs), OOS: bars.filter((b) => b.signal_ts >= splitTs) };
+}
+function transitionBreakdown(a: R8Bar[], b: R8Bar[]) {
   const bm = new Map(b.map((x) => [x.signal_ts, x]));
-  let passToBlocked = 0; let blockedToPass = 0; let changed = 0; const ids: string[] = [];
-  for (const x of a) {
-    const y = bm.get(x.signal_ts); if (!y || x.gates.length !== 9 || y.gates.length !== 9) continue;
-    const oldG4 = x.gates[3]; const newG4 = y.gates[3];
-    if (oldG4 !== newG4) { changed++; ids.push(x.signal_ts); if (oldG4 === 'PASS' && newG4 === 'BLOCKED') passToBlocked++; if (oldG4 === 'BLOCKED' && newG4 === 'PASS') blockedToPass++; }
+  let eligible = 0; let passToBlocked = 0; let blockedToPass = 0; const ids: string[] = [];
+  for (const oldBar of a) {
+    const next = bm.get(oldBar.signal_ts);
+    if (!next || oldBar.gates.length !== 9 || next.gates.length !== 9) continue;
+    const g123 = oldBar.gates.slice(0, 3).every((x) => x === 'PASS') && next.gates.slice(0, 3).every((x) => x === 'PASS');
+    if (!g123) continue;
+    eligible++;
+    if (oldBar.gates[3] === 'PASS' && next.gates[3] === 'BLOCKED') { passToBlocked++; ids.push(`${oldBar.signal_ts}:PASS->BLOCKED`); }
+    if (oldBar.gates[3] === 'BLOCKED' && next.gates[3] === 'PASS') { blockedToPass++; ids.push(`${oldBar.signal_ts}:BLOCKED->PASS`); }
   }
-  return { changed, passToBlocked, blockedToPass, ids };
+  return { eligibleG1G3PassBars: eligible, passToBlocked, blockedToPass, changed: passToBlocked + blockedToPass, ids };
 }
 async function main() {
   const htf = await load('1h', htfWarmupStartDate(start));
   const comparisons = [];
   for (const timeframe of timeframes) {
     const candles = await load(timeframe);
+    const openCandles = filterFxOpenMarketCandles(candles, timeframe);
+    const openHtf = filterFxOpenMarketCandles(htf, '1h');
     const common = { pair, timeframe, payoutPct, newsEvents: [], newsSourceOnline: true, mode: 'PRICE_ONLY' as const };
     const a = buildR8Report(candles, htf, { ...common, gate4Mode: 'A' });
     const b = buildR8Report(candles, htf, { ...common, gate4Mode: 'B' });
-    const aRun = runCausalBacktest(filterFxOpenMarketCandles(candles, timeframe), filterFxOpenMarketCandles(htf, '1h'), { ...common, gate4Mode: 'A' });
-    const bRun = runCausalBacktest(filterFxOpenMarketCandles(candles, timeframe), filterFxOpenMarketCandles(htf, '1h'), { ...common, gate4Mode: 'B' });
-    const changes = countStatusChanges(aRun.bars, bRun.bars);
+    const aBars = splitBars(runCausalBacktest(openCandles, openHtf, { ...common, gate4Mode: 'A' }).bars, openCandles);
+    const bBars = splitBars(runCausalBacktest(openCandles, openHtf, { ...common, gate4Mode: 'B' }).bars, openCandles);
     comparisons.push({
       timeframe,
-      gate4ModeA: { inSample: a.inSample.funnel, outOfSample: a.outOfSample.funnel },
-      gate4ModeB: { inSample: b.inSample.funnel, outOfSample: b.outOfSample.funnel },
-      g4ChangeBreakdown: changes,
-      note: 'A is the legacy 20-candle close-vs-midpoint rule. B is the approved confirmed-swing-range plus all available reference-zone midpoint rule. No edge or profit claim; N must be assessed separately.'
+      modeA_legacy: { IS: summary(aBars.IS), OOS: summary(aBars.OOS) },
+      modeB_approved: { IS: summary(bBars.IS), OOS: summary(bBars.OOS) },
+      transitionsAmongG1G3Pass: { IS: transitionBreakdown(aBars.IS, bBars.IS), OOS: transitionBreakdown(aBars.OOS, bBars.OOS) },
+      reportOosN: { A: a.outOfSample.decisive, B: b.outOfSample.decisive },
+      note: 'A is the legacy 20-candle close-vs-midpoint rule. B is the approved confirmed-swing-range plus all valid Gate 3 OB/Breaker midpoints, with Gate 2 fallback. No edge/profit claim; N < 200 remains inconclusive.'
     });
   }
   await fs.mkdir(path.dirname(outFile), { recursive: true });
