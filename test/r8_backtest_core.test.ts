@@ -14,6 +14,12 @@ const htf = htfCandlesFor('BULLISH', new Date(Date.parse(SIGNAL_TS) + 900_000).t
 const opts = { pair: 'EUR/USD', timeframe: '15m' as const, payoutPct: 87, newsEvents: [], newsSourceOnline: true, mode: 'PRICE_ONLY' as const };
 const { trades, bars } = runCausalBacktest(candles, htf, opts);
 assert.ok(trades.some((t) => t.signal_ts === SIGNAL_TS && t.direction === 'CALL' && t.outcome === 'WIN'), 'the live pipeline produces the fixture CALL and grades it on the next candle');
+const legacyBars = runCausalBacktest(candles, htf, { ...opts, gate4Mode: 'A' }).bars.filter((b) => b.evaluated && b.gates.length === 9 && b.gates.slice(0, 3).every((g) => g === 'PASS'));
+assert.ok(legacyBars.length > 0);
+assert.ok(legacyBars.every((b) => b.gate4_reason === 'LEGACY_A'), 'mode A must not expose B reason codes');
+const approvedBars = runCausalBacktest(candles, htf, { ...opts, gate4Mode: 'B' }).bars.filter((b) => b.evaluated && b.gates.length === 9 && b.gates.slice(0, 3).every((g) => g === 'PASS'));
+assert.ok(approvedBars.length > 0);
+assert.ok(approvedBars.every((b) => b.gate4_reason !== 'LEGACY_A'), 'mode B must expose computed Gate 4 reason codes');
 // Causality: appending later candles never changes bars already evaluated.
 const later = [...candles, { ...next, timestamp: new Date(Date.parse(next.timestamp) + 900_000).toISOString(), open: 2, high: 3, low: 1.5, close: 2.5 }];
 const again = runCausalBacktest(later, htf, opts);
