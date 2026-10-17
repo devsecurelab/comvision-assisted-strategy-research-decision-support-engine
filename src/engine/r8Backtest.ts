@@ -32,7 +32,7 @@ export function htfWarmupStartDate(startDate: string, days = 7): string {
   return new Date(start - days * 86_400_000).toISOString().slice(0, 10);
 }
 
-export interface R8Options { pair: string; timeframe: Timeframe; payoutPct: number; newsEvents: NewsEvent[]; newsSourceOnline: boolean; mode: 'PRICE_ONLY' | 'FULL'; seed?: number }
+export interface R8Options { pair: string; timeframe: Timeframe; payoutPct: number; newsEvents: NewsEvent[]; newsSourceOnline: boolean; mode: 'PRICE_ONLY' | 'FULL'; gate4Mode?: 'A' | 'B'; seed?: number }
 export interface R8Trade { signal_ts: string; direction: 'CALL' | 'PUT'; mfci: number; entry_open: number; exit_close: number; outcome: 'WIN' | 'LOSS' | 'TIE'; session: string; hour_utc: number }
 export interface R8Bar { signal_ts: string; next_up: boolean | null; evaluated: boolean; gates: string[]; status_reason: string; htfClosedCandles: number; htfWarmup: boolean }
 
@@ -63,7 +63,7 @@ export function runCausalBacktest(candles: Candle[], htf: Candle[], opts: R8Opti
       const t = executeStrategyPipeline({
         decisionEngineVersion: 'V3', candles: window, currentCandleIndex: window.length - 1, selectedTimeframe: opts.timeframe,
         htfCandles: htfWindow, newsEvents: opts.newsEvents, newsSourceOnline: opts.newsSourceOnline,
-        dataProvenance: 'LIVE_INGESTED', provider: 'TWELVE_DATA', pair: opts.pair, asset: opts.pair, payoutPct: opts.payoutPct, nowMs: signalClose,
+        dataProvenance: 'LIVE_INGESTED', provider: 'TWELVE_DATA', pair: opts.pair, asset: opts.pair, payoutPct: opts.payoutPct, nowMs: signalClose, gate4Mode: opts.gate4Mode,
       });
       const v3 = t.decision_engine_v3;
       bars.push({ signal_ts: analysisCandles[i].timestamp, next_up: contiguous ? (next.close === next.open ? null : next.close > next.open) : null, evaluated: !!v3, gates: v3 ? v3.gates.map((g: any) => g.status) : [], status_reason: v3?.statusReason ?? t.metadata.status_reason ?? '', htfClosedCandles, htfWarmup });
@@ -142,7 +142,7 @@ export function buildR8Report(candles: Candle[], htf: Candle[], opts: R8Options)
   const isBars = bars.filter((b) => b.signal_ts < splitTs); const oosBars = bars.filter((b) => b.signal_ts >= splitTs);
   const seed = opts.seed ?? 20260101;
   return {
-    pair: opts.pair, timeframe: opts.timeframe, mode: opts.mode, payoutPct: opts.payoutPct,
+    pair: opts.pair, timeframe: opts.timeframe, mode: opts.mode, gate4Mode: opts.gate4Mode ?? 'B', payoutPct: opts.payoutPct,
     candles: analysisCandles.length, rawCandles: candles.length, closedMarketCandlesExcluded: candles.length - analysisCandles.length,
     htfCandles: analysisHtf.length, rawHtfCandles: htf.length, closedMarketHtfCandlesExcluded: htf.length - analysisHtf.length,
     firstCandle: analysisCandles[0]?.timestamp, lastCandle: analysisCandles.at(-1)?.timestamp, splitAt: splitTs,

@@ -46,6 +46,7 @@ for (const testCase of baselineGateRenumberCases()) {
     newsSourceOnline: true,
     timeframe: testCase.timeframe,
     fullModeEnabled: testCase.full,
+    gate4Mode: 'A', // preserve the pre-PR-B golden baseline; PR-B is compared separately.
   });
   assert.equal(actual.finalAction, expected[0], `${testCase.id}: finalAction unchanged`);
   assert.equal(actual.systemDecision, expected[1], `${testCase.id}: systemDecision unchanged`);

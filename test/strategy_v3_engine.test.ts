@@ -55,8 +55,19 @@ assert.ok(r10.gates[8].status === 'BLOCKED' || r10.stages[9].calculatedValues.Un
 // Gate 9 fail: BSL above has been taken (a later high trades through 100.05).
 const taken = set(ideal(), 33, 46, 104, 45, 50);
 assert.equal(run(taken).gates[8].status, 'BLOCKED');
-// S12 fail: close in premium.
-assert.equal(stagePassed(set(ideal(), 39, 56.5, 72.4, 56, 72), 12), false);
+// Gate 4 B uses confirmed pre-signal swing range plus reference-zone midpoints;
+// OTE remains confluence-only, so moving the signal close alone does not change G4.
+assert.equal(stagePassed(set(ideal(), 39, 56.5, 72.4, 56, 72), 12), true);
+assert.equal(run(ideal()).stages[11].calculatedValues.Signal_Candle_Excluded, 'true');
+// Gate 4 fail-closed cases: no confirmed range, no valid zone, and midpoint == EQ.
+assert.equal(run(mono).stages[11].passed, false);
+const noZone = ideal().map((c, i) => i >= 33 ? { ...c, open: p(55), high: p(56), low: p(54), close: p(55) } : c);
+assert.equal(run(noZone).stages[11].passed, false);
+const midpointAtEq = ideal();
+midpointAtEq[36] = { ...midpointAtEq[36], low: p(44.6), high: p(63.4), open: p(46), close: p(50) };
+assert.equal(run(midpointAtEq).stages[11].passed, false);
+// The same confirmed-range/midpoint rule applies symmetrically to bearish setups.
+assert.equal(evaluateStrategyV3({ candles: idealPriceOnlySetup(base, '15m', 'BEARISH'), htfBias: 'BEARISH', newsEvents: [], newsSourceOnline: true, timeframe: '15m' }).stages[11].passed, true);
 // S13 is confluence only: in/out of OTE never blocks Gate 4.
 assert.equal(ok.gates[3].status, 'PASS');
 // S14 fail: rejection wick > 50%.
