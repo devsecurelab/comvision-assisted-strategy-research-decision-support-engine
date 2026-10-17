@@ -317,17 +317,6 @@ export const DecisionAlertCard: React.FC<DecisionAlertCardProps> = ({
           status="PASS"
           detail={`${alert.market_context.session || 'London'} (${alert.market_context.kill_zone === 'INSIDE_KILL_ZONE' ? 'ACTIVE' : 'OUTSIDE'})`}
         />
-        <ValidationBadge
-          label="16. News Guard Fail-Safe"
-          status={
-            alert.guardrails.news_guard.news_window_state === 'CLEAR'
-              ? 'PASS'
-              : alert.guardrails.news_guard.news_window_state === 'NEWS_DATA_UNAVAILABLE'
-              ? 'INCONCLUSIVE'
-              : 'REJECT'
-          }
-          detail={`Window: ${alert.guardrails.news_guard.news_window_state}`}
-        />
       </div>
 
       {/* Risk Parameters Notice */}

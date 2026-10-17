@@ -1325,7 +1325,7 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
   let newsWindowState: 'CLEAR' | 'ACTIVE' | 'NEWS_DATA_UNAVAILABLE' = 'CLEAR';
   let newsEventDetected = false;
   let newsStatus: 'PASS' | 'REJECT' | 'INCONCLUSIVE' = 'PASS';
-  let newsReason = 'No high-impact red-folder events in +/-30m window';
+  let newsReason = 'NOT_CHECKED (manual)';
 
   if (!newsSourceOnline) {
     newsWindowState = 'NEWS_DATA_UNAVAILABLE';
@@ -1436,9 +1436,10 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
       : 'INCONCLUSIVE';
     final_action = v3Decision.finalAction;
     if (v3Decision.systemDecision !== 'PASS') {
+      const blockedGuard = v3Decision.operationalGuards.find((guard) => guard.status === 'BLOCKED');
       const failedGate = v3Decision.gates.find((gate) => gate.status !== 'PASS');
-      halted_at_stage = `V3 Gate ${failedGate?.gateNumber ?? 9}`;
-      rejection_reason = failedGate?.reason ?? 'V3 confluence or safety gate did not pass';
+      halted_at_stage = blockedGuard ? `Operational Guard: ${blockedGuard.name}` : `V3 Gate ${failedGate?.gateNumber ?? 9}`;
+      rejection_reason = blockedGuard?.reason ?? failedGate?.reason ?? 'V3 confluence or safety gate did not pass';
     }
   }
 
@@ -1542,17 +1543,17 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
       bsl_ssl: bslSslState,
     },
     pressure_observation: {
-      classification: input.liveTickPressure?.classification ?? 'ALIGNED',
-      magnitude: input.liveTickPressure?.magnitude ?? 'HIGH',
-      consistency: input.liveTickPressure?.consistency ?? 'HIGH',
-      speedPxPerSec: input.liveTickPressure?.speedPxPerSec ?? 14.5,
+      classification: input.liveTickPressure?.classification ?? 'UNAVAILABLE',
+      magnitude: input.liveTickPressure?.magnitude ?? 'UNAVAILABLE',
+      consistency: input.liveTickPressure?.consistency ?? 'UNAVAILABLE',
+      speedPxPerSec: input.liveTickPressure?.speedPxPerSec,
     },
     guardrails: {
       news_guard: {
         news_event_detected: newsEventDetected,
         news_window_state: newsWindowState,
-        news_source: newsSourceOnline ? 'Trading Economics Live Calendar' : 'NEWS_DATA_UNAVAILABLE',
-        reason: newsReason,
+        news_source: 'NOT_CHECKED (manual)',
+        reason: 'NOT_CHECKED (manual)',
       },
     },
     system_execution: {
@@ -1630,8 +1631,8 @@ function createInconclusiveTelemetry(
       wick_check: { status: 'REJECT', wick_ratio: 1.0, reason },
       liquidity_sweep: { status: 'NOT_TESTING', reason },
     },
-    pressure_observation: { classification: 'UNCERTAIN', magnitude: 'LOW', consistency: 'LOW' },
-    guardrails: { news_guard: { news_event_detected: false, news_window_state: 'NEWS_DATA_UNAVAILABLE', news_source: 'OFFLINE', reason } },
+    pressure_observation: { classification: 'UNAVAILABLE', magnitude: 'UNAVAILABLE', consistency: 'UNAVAILABLE' },
+    guardrails: { news_guard: { news_event_detected: false, news_window_state: 'NEWS_DATA_UNAVAILABLE', news_source: 'NOT_CHECKED (manual)', reason: 'NOT_CHECKED (manual)' } },
     system_execution: {
       system_decision: 'INCONCLUSIVE',
       final_action: 'NO_ACTION',

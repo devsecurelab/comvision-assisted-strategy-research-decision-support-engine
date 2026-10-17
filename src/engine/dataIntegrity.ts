@@ -1,4 +1,5 @@
 import type { Candle, Timeframe } from './types';
+import { NEW_YORK_TZ, zonedWeekdayMinute } from './session';
 
 export type DataQualityCode =
   | 'INSUFFICIENT_CANDLES'
@@ -17,9 +18,6 @@ export interface DataQualityReport { ok: boolean; status: 'DATA_QUALITY_OK' | 'D
 
 export const MAX_CLOCK_DRIFT_MS = 2_000;
 const TIMEFRAME_MINUTES: Record<Timeframe, number> = { '1m': 1, '5m': 5, '15m': 15, '30m': 30, '1h': 60 };
-const NEW_YORK_WEEK_PARTS = new Intl.DateTimeFormat('en-US', {
-  timeZone: 'America/New_York', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-});
 
 export function timeframeMs(timeframe: Timeframe): number {
   return TIMEFRAME_MINUTES[timeframe] * 60_000;
@@ -31,10 +29,7 @@ export function isScheduledMarketClosure(ms: number): boolean {
   const month = date.getUTCMonth();
   const dom = date.getUTCDate();
   if ((month === 11 && dom === 25) || (month === 0 && dom === 1)) return true;
-  const parts = NEW_YORK_WEEK_PARTS.formatToParts(date);
-  const get = (type: string) => parts.find((part) => part.type === type)?.value;
-  const weekday = get('weekday');
-  const minuteOfDay = Number(get('hour')) * 60 + Number(get('minute'));
+  const { weekday, minuteOfDay } = zonedWeekdayMinute(date, NEW_YORK_TZ);
   if (weekday === 'Sat') return true;
   if (weekday === 'Fri') return minuteOfDay >= 17 * 60;
   return weekday === 'Sun' && minuteOfDay < 17 * 60;

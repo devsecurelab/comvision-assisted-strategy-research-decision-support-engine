@@ -319,7 +319,7 @@ export class ChatService {
         `Stage 4 (Tick Proxy): **${telemetry.validation_metrics.tick_proxy.status}** (${telemetry.validation_metrics.tick_proxy.tick_sequence})`,
         `Stage 5 (Wick Validation): **${telemetry.validation_metrics.wick_check.status}** (Ratio: ${telemetry.validation_metrics.wick_check.wick_ratio.toFixed(3)})`,
         `Stage 6 (Fib 50% Equilibrium): **${telemetry.validation_metrics.fib_zone.status}** (Level: ${telemetry.validation_metrics.fib_zone.fib_50_level?.toFixed(5) ?? 'N/A'})`,
-        `Stage 7 (News Guard): **${telemetry.guardrails.news_guard.news_window_state}** (${telemetry.guardrails.news_guard.news_source})`,
+        `NEWS: NOT CHECKED (manual)`,
         `Stage 8 (T-10s Observation): **${telemetry.pressure_observation.classification}** (Magnitude: ${telemetry.pressure_observation.magnitude})`,
         `Stage 9 (Pressure): Pushback Wick **${telemetry.validation_metrics.wick_check.status}** (Ratio: ${telemetry.validation_metrics.wick_check.wick_ratio.toFixed(3)})`,
         ``,

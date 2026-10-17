@@ -32,6 +32,9 @@ export interface ScanResult {
   htf_provider?: MarketDataProvider;
   failover_reason?: string;
   provider_changes?: ProviderSwitchNotice;
+  scan_started_at?: string;
+  candle_available_at?: string | null;
+  delivered_at?: string;
   cached: boolean;
   telemetry?: MasterTelemetry;
 }
@@ -92,6 +95,19 @@ export class ScanService {
 
   private noTrade(pair: string, timeframe: ScanTimeframe, trigger: ScanTrigger, reason: string, extra: Partial<ScanResult> = {}): ScanResult {
     return { pair: displayScanPair(pair), timeframe, trigger, status: 'NO_TRADE', reason, signal_candle_open_ts: null, cached: false, ...extra };
+  }
+
+  private recordUnfetchedScan(result: ScanResult): ScanResult {
+    const scanStartedAt = new Date(this.deps.now()).toISOString();
+    const deliveredAt = new Date(this.deps.now()).toISOString();
+    const timed: ScanResult = { ...result, scan_started_at: scanStartedAt, candle_available_at: null, delivered_at: deliveredAt };
+    this.deps.ledger.recordScan({
+      scan_id: `${scanStartedAt}|${timed.pair}|${timed.timeframe}|${timed.trigger}`,
+      pair: timed.pair, timeframe: timed.timeframe, trigger: timed.trigger,
+      status: timed.status, reason: timed.reason, scan_started_at: scanStartedAt,
+      candle_available_at: null, delivered_at: deliveredAt,
+    });
+    return timed;
   }
 
   /** One provider per scan window; a failover is sticky for the window and its reason is preserved. */
@@ -156,6 +172,34 @@ export class ScanService {
   }
 
   public async scanPair(pairInput: string, timeframe: ScanTimeframe, trigger: ScanTrigger = 'MANUAL'): Promise<ScanResult> {
+    const scanStartedAt = new Date(this.deps.now()).toISOString();
+    let candleAvailableAt: string | null = null;
+    let result: ScanResult;
+    try {
+      result = await this.scanPairCore(pairInput, timeframe, trigger, (timestamp) => { candleAvailableAt = timestamp; });
+    } catch (error) {
+      const deliveredAt = new Date(this.deps.now()).toISOString();
+      const pair = displayScanPair(pairInput);
+      const reason = error instanceof MarketDataError ? error.code : 'SCAN_ERROR';
+      this.deps.ledger.recordScan({ scan_id: `${scanStartedAt}|${pair}|${timeframe}|${trigger}`, pair, timeframe, trigger, status: 'NO_TRADE', reason, scan_started_at: scanStartedAt, candle_available_at: candleAvailableAt, delivered_at: deliveredAt });
+      throw error;
+    }
+    const deliveredAt = new Date(this.deps.now()).toISOString();
+    const timedResult: ScanResult = { ...result, scan_started_at: scanStartedAt, candle_available_at: candleAvailableAt, delivered_at: deliveredAt };
+    this.deps.ledger.recordScan({
+      scan_id: `${scanStartedAt}|${timedResult.pair}|${timeframe}|${trigger}`,
+      pair: timedResult.pair, timeframe, trigger, status: timedResult.status, reason: timedResult.reason,
+      signal_id: timedResult.signal_id, scan_started_at: scanStartedAt, candle_available_at: candleAvailableAt, delivered_at: deliveredAt,
+    });
+    if (timedResult.signal_candle_open_ts) {
+      const key = `${normalizeScanPair(timedResult.pair)}|${timeframe}|${timedResult.signal_candle_open_ts}`;
+      const cached = this.cache.get(key);
+      if (cached && !cached.cached) this.cache.set(key, timedResult);
+    }
+    return timedResult;
+  }
+
+  private async scanPairCore(pairInput: string, timeframe: ScanTimeframe, trigger: ScanTrigger, markCandleAvailable: (timestamp: string | null) => void): Promise<ScanResult> {
     const pair = normalizeScanPair(pairInput);
     if (!PAIR_RE.test(pair)) return this.noTrade(pairInput, timeframe, trigger, 'UNSUPPORTED_SYMBOL');
     if (!SCAN_TIMEFRAMES.includes(timeframe)) return this.noTrade(pair, timeframe, trigger, 'UNSUPPORTED_TIMEFRAME');
@@ -172,7 +216,7 @@ export class ScanService {
     const expectedIso = new Date(expectedOpen).toISOString();
     const cacheKey = `${pair}|${timeframe}|${expectedIso}`;
     const cached = this.cache.get(cacheKey);
-    if (cached) return { ...cached, trigger, cached: true };
+    if (cached) { markCandleAvailable(cached.candle_available_at ?? null); return { ...cached, trigger, cached: true }; }
 
     const kind = trigger === 'AUTO' ? 'AUTO' : 'ON_DEMAND';
     const windowKey = `${timeframe}|${expectedIso}`;
@@ -180,6 +224,7 @@ export class ScanService {
     let htf: FetchedMarketData | undefined;
     try {
       primary = await this.fetchWithFailover(displayScanPair(pair), timeframe, kind, windowKey);
+      markCandleAvailable(new Date(this.deps.now()).toISOString());
       htf = await this.htfCandles(displayScanPair(pair), nowMs, kind, windowKey);
     } catch (error) {
       const providerChanges = primary ? await this.notifyProviderSwitches(displayScanPair(pair), timeframe, primary.providerSwitches.map((step) => ({ series: 'LTF' as const, step }))) : undefined;
@@ -240,16 +285,16 @@ export class ScanService {
   public async runAutoCycle(timeframe: ScanTimeframe, sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): Promise<ScanResult[]> {
     const nowMs = this.deps.now();
     const expectedOpen = latestClosedCandleOpenMs(nowMs, timeframe);
-    if (isFxMarketClosed(nowMs) || isFxBarClosed(new Date(expectedOpen).toISOString(), timeframe)) return this.deps.favorites().map((fav) => this.noTrade(normalizeScanPair(fav), timeframe, 'AUTO', 'MARKET_CLOSED'));
-    if (classifySessionAndKillZone(new Date(expectedOpen).toISOString()).kill_zone !== 'INSIDE_KILL_ZONE') return this.deps.favorites().map((fav) => this.noTrade(normalizeScanPair(fav), timeframe, 'AUTO', 'OUTSIDE_KILL_ZONE'));
+    if (isFxMarketClosed(nowMs) || isFxBarClosed(new Date(expectedOpen).toISOString(), timeframe)) return this.deps.favorites().map((fav) => this.recordUnfetchedScan(this.noTrade(normalizeScanPair(fav), timeframe, 'AUTO', 'MARKET_CLOSED')));
+    if (classifySessionAndKillZone(new Date(expectedOpen).toISOString()).kill_zone !== 'INSIDE_KILL_ZONE') return this.deps.favorites().map((fav) => this.recordUnfetchedScan(this.noTrade(normalizeScanPair(fav), timeframe, 'AUTO', 'OUTSIDE_KILL_ZONE')));
     const results: ScanResult[] = [];
     let scanned = 0;
     for (const fav of this.deps.favorites()) {
       const pair = normalizeScanPair(fav);
       const payout = this.deps.getPayout(pair);
-      if (!payout || payout.pct < MIN_PAYOUT_PCT) { results.push(this.noTrade(pair, timeframe, 'AUTO', payout ? `PAYOUT_BELOW_MIN (${payout.pct}%)` : 'PAYOUT_UNSET')); continue; }
-      if (scanned >= MAX_AUTO_PAIRS[timeframe]) { results.push(this.noTrade(pair, timeframe, 'AUTO', `BUDGET_LIMIT: ${timeframe} auto-scan cap is ${MAX_AUTO_PAIRS[timeframe]} pair(s) per candle.`)); continue; }
-      if (this.deps.autoBudgetRemaining() < 2) { results.push(this.noTrade(pair, timeframe, 'AUTO', 'BUDGET_LIMIT: daily auto-scan budget (70%) exhausted.')); continue; }
+      if (!payout || payout.pct < MIN_PAYOUT_PCT) { results.push(this.recordUnfetchedScan(this.noTrade(pair, timeframe, 'AUTO', payout ? `PAYOUT_BELOW_MIN (${payout.pct}%)` : 'PAYOUT_UNSET'))); continue; }
+      if (scanned >= MAX_AUTO_PAIRS[timeframe]) { results.push(this.recordUnfetchedScan(this.noTrade(pair, timeframe, 'AUTO', `BUDGET_LIMIT: ${timeframe} auto-scan cap is ${MAX_AUTO_PAIRS[timeframe]} pair(s) per candle.`))); continue; }
+      if (this.deps.autoBudgetRemaining() < 2) { results.push(this.recordUnfetchedScan(this.noTrade(pair, timeframe, 'AUTO', 'BUDGET_LIMIT: daily auto-scan budget (70%) exhausted.'))); continue; }
       scanned++;
       let result = await this.scanPair(pair, timeframe, 'AUTO');
       for (let attempt = 0; attempt < RETRY_BACKOFF_MS.length && /LATEST_CLOSED_CANDLE_MISSING|PROVIDER_HTTP_ERROR|PROVIDER_ERROR|STALE_MARKET_DATA/.test(result.reason) && this.deps.autoBudgetRemaining() >= 1; attempt++) {

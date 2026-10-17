@@ -28,7 +28,7 @@ export class OandaAdapter implements IForexDataProvider {
     const instrument = pair.replace('/', '_').toUpperCase();
     const url = new URL(`https://api-fxpractice.oanda.com/v3/instruments/${encodeURIComponent(instrument)}/candles`);
     url.searchParams.set('granularity', GRANULARITY[timeframe]);
-    url.searchParams.set('count', '100');
+    url.searchParams.set('count', '130');
     url.searchParams.set('price', 'M');
     const response = await requestJson(this.id, this.request, url, signal, { Authorization: `Bearer ${this.token}` });
     const payload = response.payload as any;

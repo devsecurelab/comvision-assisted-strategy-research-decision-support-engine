@@ -6,9 +6,7 @@ import {
   Database,
   Clock,
   Lock,
-  Download,
   ShieldCheck,
-  FileArchive,
   Send,
   CheckCircle2,
   AlertCircle,
@@ -32,7 +30,6 @@ interface SettingsViewProps {
   onSelectProvider: (provider: 'TWELVE_DATA') => void;
   providerStatus?: ProviderStatus;
   onProviderStatusChange?: (status: ProviderStatus) => void;
-  onDownloadHandover?: () => void;
   authToken?: string | null;
   isAdmin?: boolean;
 }
@@ -44,7 +41,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onSelectProvider,
   providerStatus,
   onProviderStatusChange,
-  onDownloadHandover,
   authToken,
   isAdmin,
 }) => {
@@ -504,57 +500,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           </div>
         )}
-      </div>
-
-      {/* Production Handover Package Section */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-lg bg-indigo-600/20 text-indigo-400 border border-indigo-500/30">
-              <FileArchive className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-white uppercase font-mono tracking-wide">
-                Production-Ready Source Code Handover Package
-              </h3>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">
-                Target Scope: Strategy v2.0-FROZEN • Technical Specification v4.0 • EXP-2026-V2-001
-              </p>
-            </div>
-          </div>
-
-          {onDownloadHandover && (
-            <button
-              id="btn-settings-download-handover"
-              onClick={onDownloadHandover}
-              className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-indigo-600/20 transition border border-indigo-400/40"
-            >
-              <Download className="w-4 h-4" />
-              <span>Download Source Code Handover (.ZIP)</span>
-            </button>
-          )}
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
-          <div className="p-3 bg-slate-950 border border-slate-800/80 rounded-lg">
-            <div className="text-[10px] text-slate-500 uppercase font-mono">Archive Spec</div>
-            <div className="text-xs font-semibold text-slate-200 mt-1">v2.0 Frozen Specification</div>
-            <div className="text-[10px] text-emerald-400 mt-0.5 font-mono">309 KB (.ZIP) • 9-Stage Pipeline</div>
-          </div>
-          <div className="p-3 bg-slate-950 border border-slate-800/80 rounded-lg">
-            <div className="text-[10px] text-slate-500 uppercase font-mono">Access Security</div>
-            <div className="text-xs font-semibold text-emerald-400 mt-1 flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Approved Operators Only</span>
-            </div>
-            <div className="text-[10px] text-slate-400 mt-0.5">Bearer-token protected endpoint</div>
-          </div>
-          <div className="p-3 bg-slate-950 border border-slate-800/80 rounded-lg">
-            <div className="text-[10px] text-slate-500 uppercase font-mono">Deterministic Tests</div>
-            <div className="text-xs font-semibold text-indigo-300 mt-1">71 / 71 Verified Passed</div>
-            <div className="text-[10px] text-slate-400 mt-0.5">Strategy v2.0 9-stage pipeline integrity</div>
-          </div>
-        </div>
       </div>
 
       {/* Admin Telegram Bot & Chat ID Inspector */}

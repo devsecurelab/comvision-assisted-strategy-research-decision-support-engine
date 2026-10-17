@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
  * Every line commits to the previous line's hash, so editing, deleting or
  * reordering any historical record is detected by verify().
  */
-export type LedgerEventType = 'SIGNAL' | 'RESULT' | 'EDGE_LOST' | 'EDGE_RESUMED';
+export type LedgerEventType = 'SIGNAL' | 'SCAN' | 'RESULT' | 'EDGE_LOST' | 'EDGE_RESUMED';
 export type SignalOutcome = 'WIN' | 'LOSS' | 'TIE' | 'SKIPPED' | 'UNRESOLVED';
 
 export interface LedgerEntry<T = Record<string, unknown>> { seq: number; type: LedgerEventType; ts: string; payload: T; prevHash: string; hash: string }
@@ -35,6 +35,19 @@ export interface SignalPayload {
   kill_zone?: string;
 }
 
+export interface ScanPayload {
+  scan_id: string;
+  pair: string;
+  timeframe: '5m' | '15m' | '30m';
+  trigger: 'MANUAL' | 'AUTO';
+  status: 'CALL' | 'PUT' | 'NO_TRADE';
+  reason: string;
+  signal_id?: string;
+  scan_started_at: string;
+  candle_available_at: string | null;
+  delivered_at: string;
+}
+
 export interface ResultPayload {
   signal_id: string;
   outcome: SignalOutcome;
@@ -45,7 +58,15 @@ export interface ResultPayload {
   note?: string;
 }
 
-export interface SignalView extends SignalPayload { outcome?: SignalOutcome; result_source?: ResultPayload['source']; resolved_at?: string; entry_price?: number; exit_price?: number }
+export interface SignalView extends SignalPayload {
+  outcome?: SignalOutcome;
+  provider_outcome?: SignalOutcome;
+  broker_outcome?: SignalOutcome;
+  result_source?: ResultPayload['source'];
+  resolved_at?: string;
+  entry_price?: number;
+  exit_price?: number;
+}
 
 export const GENESIS_HASH = '0'.repeat(64);
 
@@ -54,7 +75,7 @@ export function signalIdFor(pair: string, timeframe: string, signalCandleOpenTs:
 }
 
 function hashEntry(entry: Omit<LedgerEntry, 'hash'>): string {
-  return createHash('sha256').update(JSON.stringify({ seq: entry.seq, type: entry.type, ts: entry.ts, payload: entry.payload, prevHash: entry.prevHash })).digest('hex');
+  return createHash('sha256').update(JSON.stringify({ seq: entry.seq, type: entry.type, ts: entry.ts, payload: entry.payload, prevHash: entry.prevHash })).digest('hex').toLowerCase();
 }
 
 export class SignalLedger {
@@ -101,6 +122,19 @@ export class SignalLedger {
     return true;
   }
 
+  /** Records every scan invocation, including cached and NO_TRADE results. */
+  public recordScan(scan: ScanPayload): LedgerEntry<ScanPayload> {
+    return this.append('SCAN', scan, scan.delivered_at);
+  }
+
+  public scanEntries(): ScanPayload[] {
+    return this.readAll().filter((entry) => entry.type === 'SCAN').map((entry) => entry.payload as unknown as ScanPayload);
+  }
+
+  public expiredScanCount(): number {
+    return this.scanEntries().filter((scan) => scan.reason.startsWith('SIGNAL_EXPIRED')).length;
+  }
+
   public recordResult(result: ResultPayload, ts?: string): LedgerEntry<ResultPayload> {
     if (!this.signals().some((s) => s.signal_id === result.signal_id)) throw new Error(`UNKNOWN_SIGNAL: ${result.signal_id}`);
     return this.append('RESULT', result, ts);
@@ -111,8 +145,13 @@ export class SignalLedger {
     for (const e of this.readAll()) {
       if (e.type === 'SIGNAL') map.set((e.payload as unknown as SignalPayload).signal_id, { ...(e.payload as unknown as SignalPayload) });
       if (e.type === 'RESULT') {
-        const r = e.payload as unknown as ResultPayload; const s = map.get(r.signal_id);
-        if (s) Object.assign(s, { outcome: r.outcome, result_source: r.source, resolved_at: e.ts, entry_price: r.entry_price, exit_price: r.exit_price });
+        const r = e.payload as unknown as ResultPayload;
+        const s = map.get(r.signal_id);
+        if (s) {
+          if (r.source === 'AUTO_PROVIDER') s.provider_outcome = r.outcome;
+          else s.broker_outcome = r.outcome;
+          Object.assign(s, { outcome: r.outcome, result_source: r.source, resolved_at: e.ts, entry_price: r.entry_price, exit_price: r.exit_price });
+        }
       }
     }
     return [...map.values()];

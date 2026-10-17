@@ -39,6 +39,17 @@ assert.equal(isFxMarketClosed('2026-01-09T22:00:00.000Z'), true);
 assert.equal(isFxMarketClosed('2026-01-11T21:59:59.999Z'), true);
 assert.equal(isFxMarketClosed('2026-01-11T22:00:00.000Z'), false);
 // DST spring-forward and fall-back weekends move the UTC boundary while retaining 17:00 New York local time.
+assert.equal(isFxMarketClosed('2026-10-30T20:59:59.999Z'), false);
+assert.equal(isFxMarketClosed('2026-10-30T21:00:00.000Z'), true);
+assert.equal(isFxMarketClosed('2026-11-01T21:59:59.000Z'), true);
+assert.equal(isFxMarketClosed('2026-11-01T22:00:00.000Z'), false);
+assert.equal(isFxMarketClosed('2026-11-06T21:59:59.000Z'), false);
+assert.equal(isFxMarketClosed('2026-11-06T22:00:00.000Z'), true);
+assert.equal(isFxMarketClosed('2027-03-12T21:59:59.000Z'), false);
+assert.equal(isFxMarketClosed('2027-03-12T22:00:00.000Z'), true);
+assert.equal(isFxMarketClosed('2027-03-14T20:59:59.000Z'), true);
+assert.equal(isFxMarketClosed('2027-03-14T21:00:00.000Z'), false);
+assert.equal(isFxMarketClosed('2026-10-30T20:59:59.999Z'), false, 'NY summer close begins Friday 17:00 local');
 assert.equal(isFxMarketClosed('2026-03-06T21:59:59.999Z'), false);
 assert.equal(isFxMarketClosed('2026-03-06T22:00:00.000Z'), true);
 assert.equal(isFxMarketClosed('2026-03-08T20:59:59.999Z'), true);

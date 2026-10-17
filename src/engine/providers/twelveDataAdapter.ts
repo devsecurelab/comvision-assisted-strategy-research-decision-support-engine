@@ -21,7 +21,7 @@ export class TwelveDataAdapter implements IForexDataProvider {
     const url = new URL('https://api.twelvedata.com/time_series');
     url.searchParams.set('symbol', pair);
     url.searchParams.set('interval', INTERVAL[timeframe]);
-    url.searchParams.set('outputsize', '100');
+    url.searchParams.set('outputsize', '130');
     url.searchParams.set('timezone', 'UTC');
     url.searchParams.set('order', 'asc');
     const response = await requestJson(this.id, this.request, url, signal, { Authorization: `apikey ${this.apiKey}` });
