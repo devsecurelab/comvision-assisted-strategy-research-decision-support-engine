@@ -66,6 +66,7 @@ export interface PipelineInput {
   htfCandles?: Candle[];
   /** Wall-clock used for the forming-candle check. Live callers pass Date.now(); R8 passes the causal replay clock. */
   nowMs?: number;
+  gate4Mode?: 'A' | 'B';
 }
 
 export const MIN_PAYOUT_PCT = 85;
@@ -1138,7 +1139,7 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
   const c1 = candles[currentCandleIndex - 2];
 
   const resolvedProvenance: DataProvenance = dataProvenance;
-  const v3Decision = evaluateStrategyV3({ candles: candles.slice(0, currentCandleIndex + 1), htfBias: resolvedHtfBias, newsEvents, newsSourceOnline, timeframe: selectedTimeframe, timestamp: c3.timestamp });
+  const v3Decision = evaluateStrategyV3({ candles: candles.slice(0, currentCandleIndex + 1), htfBias: resolvedHtfBias, newsEvents, newsSourceOnline, timeframe: selectedTimeframe, timestamp: c3.timestamp, gate4Mode: input.gate4Mode });
   if (decisionEngineVersion === 'V3' && (v3Decision.mfci.totalMfci === null || v3Decision.mfci.sStructure === null || v3Decision.mfci.sLiquidity === null || v3Decision.entryPrice === null)) {
     return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'INVALID', v3Decision.statusReason, new Date().toISOString(), failContext);
   }

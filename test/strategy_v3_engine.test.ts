@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { evaluateStrategyV3, deriveHtfBias, type V3Input } from '../src/engine/strategyV3Engine';
+import { evaluateStrategyV3, deriveHtfBias, classifyGate4Reason, type V3Input } from '../src/engine/strategyV3Engine';
 import type { Candle } from '../src/engine/types';
 import { htfCandlesFor, idealFullSetup, idealPriceOnlySetup, SIGNAL_TS } from './fixtures/v3Reachability';
 
@@ -18,7 +18,7 @@ assert.equal(ok.gates.length, 9);
 assert.equal(ok.engineMode, 'PRICE_ONLY');
 assert.equal(ok.binarySignal, 'CALL');
 for (const n of [1, 2, 3, 4, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19]) assert.equal(ok.stages[n - 1].passed, true, `S${n} must pass on ideal fixture`);
-assert.deepEqual(ok.gates.map((g) => g.name), ['Market Structure (S1 + S2 BOS + S3 CHoCH)', 'Imbalance (FVG / IFVG / BPR)', 'Order Block & Breaker', 'Premium / Discount (OTE confluence)', 'Wick Pushback', 'Liquidity Sweep', 'Momentum', 'Session & Kill Zone', 'BSL/SSL Target']);
+assert.deepEqual(ok.gates.map((g) => g.name), ['Market Structure (S1 + S2 BOS + S3 CHoCH)', 'Imbalance (FVG / IFVG / BPR)', 'Order Block & Breaker', 'Premium / Discount (Zone vs Confirmed-Range EQ)', 'Wick Pushback', 'Liquidity Sweep', 'Momentum', 'Session & Kill Zone', 'BSL/SSL Target']);
 assert.ok(ok.gates.every((g) => g.status !== 'UNAVAILABLE'), 'Gate 3 is restored in PRICE_ONLY');
 assert.ok(Math.abs((ok.mfci.totalMfci as number) - (0.35 * (ok.mfci.sStructure as number) + 0.20 * (ok.mfci.sLiquidity as number)) / 0.55) < 1e-12);
 assert.equal(ok.mfci.sOrderFlow, null);
@@ -55,8 +55,38 @@ assert.ok(r10.gates[8].status === 'BLOCKED' || r10.stages[9].calculatedValues.Un
 // Gate 9 fail: BSL above has been taken (a later high trades through 100.05).
 const taken = set(ideal(), 33, 46, 104, 45, 50);
 assert.equal(run(taken).gates[8].status, 'BLOCKED');
-// S12 fail: close in premium.
-assert.equal(stagePassed(set(ideal(), 39, 56.5, 72.4, 56, 72), 12), false);
+// Gate 4 B uses confirmed pre-signal swing range plus reference-zone midpoints;
+// OTE remains confluence-only, so moving the signal close alone does not change G4.
+assert.equal(stagePassed(set(ideal(), 39, 56.5, 72.4, 56, 72), 12), true); // signal candle outside confirmed range is excluded
+assert.equal(run(ideal()).stages[11].calculatedValues.Signal_Candle_Excluded, 'true');
+// Gate 4 fail-closed cases: no confirmed range, no valid zone, and midpoint == EQ.
+assert.equal(run(mono).stages[11].passed, false);
+assert.equal(run(mono).stages[11].calculatedValues.Gate4_Reason_Code, 'RANGE_UNAVAILABLE'); // no confirmed range
+const noZone = ideal().map((c, i) => i >= 33 ? { ...c, open: p(55), high: p(56), low: p(54), close: p(55) } : c);
+assert.equal(run(noZone).stages[11].passed, false);
+assert.equal(run(noZone).stages[11].calculatedValues.Gate4_Reason_Code, 'ZONE_UNAVAILABLE'); // no valid zone
+const midpointAtEq = ideal();
+// Move the confirmed swing low and valid-zone boundaries so the real engine
+// path produces a reference-zone midpoint at confirmed-range EQ.
+midpointAtEq[35] = { ...midpointAtEq[35], low: p(28) };
+midpointAtEq[33] = { ...midpointAtEq[33], low: p(41), high: p(51) };
+const midpointAtEqResult = run(midpointAtEq);
+assert.equal(midpointAtEqResult.stages[11].passed, false);
+assert.equal(midpointAtEqResult.stages[11].calculatedValues.Gate4_Reason_Code, 'MID_AT_EQ');
+assert.equal(midpointAtEqResult.gates[3].status, 'BLOCKED');
+assert.equal(classifyGate4Reason('BULLISH', 10, 0, [5]), 'MID_AT_EQ'); // midpoint equals EQ
+assert.equal(classifyGate4Reason('BEARISH', 10, 0, [5]), 'MID_AT_EQ'); // bearish midpoint equals EQ
+assert.equal(classifyGate4Reason('BULLISH', undefined, 0, [1]), 'RANGE_UNAVAILABLE');
+assert.equal(classifyGate4Reason('BEARISH', 10, 0, []), 'ZONE_UNAVAILABLE');
+assert.equal(classifyGate4Reason('BULLISH', 10, 0, [6]), 'ZONE_ON_WRONG_SIDE');
+// The same confirmed-range/midpoint rule applies symmetrically to bearish setups.
+const bearishConflict = evaluateStrategyV3({ candles: idealPriceOnlySetup(base, '15m', 'BEARISH'), htfBias: 'BEARISH', newsEvents: [], newsSourceOnline: true, timeframe: '15m' });
+assert.equal(bearishConflict.stages[11].passed, true);
+assert.equal(bearishConflict.binarySignal, 'PUT');
+// Bullish BOS closes in the upper half while its OB remains in the lower half.
+assert.equal(ok.stages[11].calculatedValues.Midpoints_Favourable, 'true');
+assert.equal(ok.gates[3].status, 'PASS');
+assert.equal(ok.binarySignal, 'CALL');
 // S13 is confluence only: in/out of OTE never blocks Gate 4.
 assert.equal(ok.gates[3].status, 'PASS');
 // S14 fail: rejection wick > 50%.
