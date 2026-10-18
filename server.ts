@@ -16,8 +16,8 @@ import { newsGuard } from './src/engine/newsGuard';
 import { experimentTracker } from './src/engine/experimentTracker';
 import { executeStrategyPipeline } from './src/engine/pipeline';
 import { STRATEGY_MANIFEST, ACTIVE_EXPERIMENT_ID } from './src/engine/manifest';
-import { EngineSettings, Timeframe, UserAccount } from './src/engine/types';
-import { durableStorage } from './src/server/storage';
+import { EngineSettings, Timeframe, UserAccount, UserRole } from './src/engine/types';
+import { durableStorage, type SignalOutcome as StoredSignalOutcome } from './src/server/storage';
 import { notificationService } from './src/server/notificationService';
 import { formatProviderSwitchWarning } from './src/server/providerSwitchFormatter';
 import { analyticsService } from './src/server/analyticsService';
@@ -82,7 +82,7 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
-// Runtime engine settings (Strategy v1.0 parameters are frozen during EXP-2026-001)
+// Runtime engine settings for the frozen RDP Strategy V3.0 experiment.
 const currentSettings: EngineSettings = {
   maxWickRatio: 0.50,
   fibEquilibriumLevel: 0.50,
@@ -157,6 +157,20 @@ function requireAdmin(req: AuthenticatedRequest, res: Response, next: NextFuncti
   });
 }
 
+function requireRole(...roles: UserRole[]) {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    requireApprovedUser(req, res, () => {
+      if (!req.user || !roles.includes(req.user.role)) {
+        return res.status(403).json({ error: 'FORBIDDEN_ROLE', message: `Forbidden: requires one of ${roles.join(', ')}.` });
+      }
+      next();
+    });
+  };
+}
+
+const requireResearcher = requireRole('ADMIN', 'ANALYST');
+const requireOperator = requireRole('ADMIN');
+
 // --- AUTHENTICATION API ROUTES ---
 
 app.post('/api/auth/register', (req, res) => {
@@ -215,7 +229,7 @@ app.get(['/api/engine/dashboard-state', '/api/engine/status'], requireApprovedUs
     stats,
     activeAlert,
     validSetups,
-    settings: currentSettings,
+    settings: { ...currentSettings, scannerActive: scanLoop.state().enabled },
     providerStatus,
     newsStatus: {
       ...newsStatus,
@@ -241,7 +255,7 @@ app.get('/api/engine/candidates', requireApprovedUser, (req, res) => {
   res.json({ candidates });
 });
 
-app.post('/api/engine/toggle-scanner', requireApprovedUser, (req, res) => {
+app.post('/api/engine/toggle-scanner', requireOperator, (req, res) => {
   const { active } = req.body;
   if (typeof active === 'boolean') {
     currentSettings.scannerActive = active;
@@ -253,11 +267,17 @@ app.post('/api/engine/toggle-scanner', requireApprovedUser, (req, res) => {
   scanLoop.setEnabled(currentSettings.scannerActive);
   if (currentSettings.scannerActive) scanLoop.start();
   else scanLoop.stop();
+  durableStorage.recordAuditEvent({
+    event_type: currentSettings.scannerActive ? 'SCANNER_ENABLED' : 'SCANNER_DISABLED',
+    actor_id: (req as AuthenticatedRequest).user?.id,
+    actor_email: (req as AuthenticatedRequest).user?.email,
+    details: { enabled: currentSettings.scannerActive },
+  });
   res.json({ scannerActive: currentSettings.scannerActive });
 });
 
 
-app.post('/api/engine/select-provider', requireApprovedUser, (req: AuthenticatedRequest, res) => {
+app.post('/api/engine/select-provider', requireOperator, (req: AuthenticatedRequest, res) => {
   const { provider } = req.body;
   if (provider === 'TWELVE_DATA') {
     const resolvedProvider: 'TWELVE_DATA' = provider;
@@ -303,11 +323,12 @@ app.post('/api/admin/provider-credentials', requireAdmin, (req: AuthenticatedReq
 });
 
 // Dashboard Operator Timeframe Authority (Section 3.1)
-app.post('/api/engine/select-timeframe', requireApprovedUser, (req: AuthenticatedRequest, res) => {
+app.post('/api/engine/select-timeframe', requireOperator, (req: AuthenticatedRequest, res) => {
   const { timeframe } = req.body;
-  const validTimeframes: Timeframe[] = ['1m', '5m', '15m', '30m', '1h'];
+  const validTimeframes: ScanTimeframe[] = ['5m', '15m', '30m'];
   if (validTimeframes.includes(timeframe)) {
     currentSettings.selectedTimeframe = timeframe;
+    scanLoop.setEnabled(scanLoop.state().enabled, timeframe);
     durableStorage.recordAuditEvent({
       event_type: 'OPERATOR_TIMEFRAME_UPDATED',
       actor_id: req.user?.id,
@@ -320,10 +341,10 @@ app.post('/api/engine/select-timeframe', requireApprovedUser, (req: Authenticate
       message: `Evaluation timeframe authority set to ${timeframe}`,
     });
   }
-  res.status(400).json({ error: 'INVALID_TIMEFRAME', message: 'Valid timeframes are 1m, 5m, 15m, 30m, 1h' });
+  res.status(400).json({ error: 'INVALID_TIMEFRAME', message: 'Valid scan timeframes are 5m, 15m, 30m.' });
 });
 
-app.post('/api/engine/record-action', requireApprovedUser, (req: AuthenticatedRequest, res) => {
+app.post('/api/engine/record-action', requireResearcher, (req: AuthenticatedRequest, res) => {
   const { setupId, action } = req.body;
   if (!setupId || !action) {
     return res.status(400).json({ error: 'Missing setupId or action' });
@@ -344,13 +365,23 @@ app.post('/api/engine/record-action', requireApprovedUser, (req: AuthenticatedRe
   res.json({ success: true, setupId, action });
 });
 
-app.post('/api/engine/record-outcome', requireApprovedUser, async (req: AuthenticatedRequest, res) => {
+app.post('/api/engine/record-outcome', requireResearcher, async (req: AuthenticatedRequest, res) => {
   const { setupId, outcome, nextCandle, notes } = req.body;
   if (!setupId || !outcome) {
     return res.status(400).json({ error: 'Missing setupId or outcome' });
   }
+  const validOutcomes = ['NEXT_CANDLE_FAVORABLE', 'NEXT_CANDLE_UNFAVORABLE', 'NEXT_CANDLE_NEUTRAL', 'NEXT_CANDLE_INCONCLUSIVE', 'WIN', 'LOSS', 'INVALIDATED', 'UNRESOLVED'];
+  if (typeof outcome !== 'string' || !validOutcomes.includes(outcome)) {
+    return res.status(400).json({ error: 'INVALID_OUTCOME', message: `Outcome must be one of: ${validOutcomes.join(', ')}.` });
+  }
+  if (nextCandle !== undefined) {
+    return res.status(400).json({ error: 'CLIENT_CANDLE_NOT_ACCEPTED', message: 'Observed candle OHLC must come from a verified provider; record only the operator observation.' });
+  }
+  if (notes !== undefined && (typeof notes !== 'string' || notes.length > 2_000)) {
+    return res.status(400).json({ error: 'INVALID_NOTES', message: 'Notes must be a string of at most 2,000 characters.' });
+  }
 
-  const outcomeRecord = experimentTracker.recordSignalOutcome(setupId, outcome, nextCandle, notes);
+  const outcomeRecord = experimentTracker.recordSignalOutcome(setupId, outcome as StoredSignalOutcome, undefined, notes);
   if (!outcomeRecord) {
     return res.status(404).json({ error: 'Candidate setup not found' });
   }
@@ -368,7 +399,7 @@ app.post('/api/engine/record-outcome', requireApprovedUser, async (req: Authenti
   res.json({ success: true, outcomeRecord, notifications: notifResult });
 });
 
-app.get('/api/engine/export-telemetry', requireApprovedUser, (_req, res) => {
+app.get('/api/engine/export-telemetry', requireOperator, (_req, res) => {
   const json = experimentTracker.exportTelemetryJson();
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Content-Disposition', `attachment; filename="master_telemetry_${Date.now()}.json"`);
@@ -481,6 +512,10 @@ app.get('/api/audit/verify-chain', requireApprovedUser, (_req, res) => {
   res.json(verification);
 });
 
+app.get('/api/audit/verify-signal-ledger', requireAdmin, (_req, res) => {
+  res.json({ path: signalLedger.path, verification: signalLedger.verify() });
+});
+
 app.get('/api/audit/logs', requireAdmin, (_req, res) => {
   const logs = durableStorage.loadAuditEvents();
   res.json({ logs });
@@ -514,7 +549,7 @@ app.get('/api/notifications/status', requireApprovedUser, (_req, res) => {
   res.json(notificationService.getConfig());
 });
 
-app.post('/api/notifications/test', requireApprovedUser, async (req: AuthenticatedRequest, res) => {
+app.post('/api/notifications/test', requireOperator, async (req: AuthenticatedRequest, res) => {
   const result = await notificationService.sendTestNotification();
   durableStorage.recordAuditEvent({
     event_type: 'NOTIFICATION_TEST_TRIGGERED',
@@ -525,7 +560,7 @@ app.post('/api/notifications/test', requireApprovedUser, async (req: Authenticat
   res.json({ success: true, results: result });
 });
 
-app.post('/api/notifications/test-telegram', requireApprovedUser, async (req: AuthenticatedRequest, res) => {
+app.post('/api/notifications/test-telegram', requireOperator, async (req: AuthenticatedRequest, res) => {
   const result = await notificationService.sendTelegramTestAlert();
   durableStorage.recordAuditEvent({
     event_type: 'TELEGRAM_TEST_TRIGGERED',
@@ -579,8 +614,11 @@ const scanService = new ScanService({
   ledger: signalLedger,
   onScan: async (result) => {
     if (!result.telemetry) return;
+    if (result.trigger === 'AUTO' && !scanLoop.state().enabled) return;
     const recorded = experimentTracker.recordCandidate(result.telemetry);
-    if (result.status !== 'NO_TRADE') await notificationService.dispatchSignalAlert(recorded, { signalId: result.signal_id, validUntil: result.valid_until });
+    if (result.status !== 'NO_TRADE' && recorded.system_execution.system_decision === 'PASS') {
+      await notificationService.dispatchSignalAlert(recorded, { signalId: result.signal_id, validUntil: result.valid_until });
+    }
   },
   onProviderSwitches: async (notice) => {
     const safeText = formatProviderSwitchWarning(notice, feedManager.getStatus().circuits);
@@ -599,10 +637,12 @@ scanLoop = new ScanLoop(scanService, { now: () => Date.now(), loadState: loadSca
   timeframe: (SCAN_TIMEFRAMES as string[]).includes(process.env.AUTO_SCAN_TIMEFRAME || '') ? (process.env.AUTO_SCAN_TIMEFRAME as ScanTimeframe) : '15m',
   enabled: process.env.AUTO_SCAN_ENABLED === 'true',
 });
+currentSettings.scannerActive = scanLoop.state().enabled;
+experimentTracker.setScannerActive(currentSettings.scannerActive);
 notificationService.attachScanService(scanService, scanLoop);
 
 // Manual scan (dashboard). Latest closed candle only; a repeat on the same pair/candle returns the cached result without a credit charge.
-app.post(['/api/engine/evaluate-candidate', '/api/engine/scan-candidate'], requireApprovedUser, async (req: AuthenticatedRequest, res) => {
+app.post(['/api/engine/evaluate-candidate', '/api/engine/scan-candidate'], requireOperator, async (req: AuthenticatedRequest, res) => {
   const { pair, timeframe } = req.body;
   const selectedPair = pair || 'EUR/USD';
   const payout = payoutRegistry.get(normalizePair(selectedPair));
@@ -672,7 +712,7 @@ app.get('/api/admin/settings', requireAdmin, (_req, res) => {
 
 /**
  * BLOCKER COMPLIANCE: Scope Freeze Enforcement
- * Rejects any attempt to mutate frozen Strategy v1.0 parameters (maxWickRatio, fibEquilibriumLevel, etc.)
+ * Rejects any attempt to mutate frozen RDP Strategy V3.0 parameters (maxWickRatio, fibEquilibriumLevel, etc.)
  * server-side with HTTP 403, records audit event, and leaves active configuration untouched.
  */
 app.post('/api/admin/settings', requireAdmin, (req: AuthenticatedRequest, res) => {
@@ -699,7 +739,7 @@ app.post('/api/admin/settings', requireAdmin, (req: AuthenticatedRequest, res) =
     return res.status(403).json({
       error: 'EXPERIMENT_SCOPE_FROZEN',
       field: freezeCheck.field,
-      message: freezeCheck.reason || 'Strategy v1.0 parameters are frozen during active controlled experiment EXP-2026-001. Mutation rejected.',
+      message: freezeCheck.reason || 'RDP Strategy V3.0 parameters are frozen during the active controlled experiment. Mutation rejected.',
     });
   }
 

@@ -102,7 +102,7 @@ export default function App() {
   };
 
   // Engine state
-  const [scannerActive, setScannerActive] = useState<boolean>(true);
+  const [scannerActive, setScannerActive] = useState<boolean>(false);
   const [currentAlert, setCurrentAlert] = useState<MasterTelemetry | null>(null);
   const [candidateHistory, setCandidateHistory] = useState<MasterTelemetry[]>([]);
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | undefined>();
@@ -169,7 +169,7 @@ export default function App() {
           setProviderStatus(data.providerStatus);
           if (data.providerStatus.provider === 'TWELVE_DATA') setSelectedProvider('TWELVE_DATA');
         }
-        setScannerActive(data.settings?.scannerActive ?? true);
+        setScannerActive(data.settings?.scannerActive ?? false);
       }
 
       // 2. Fetch Candidates

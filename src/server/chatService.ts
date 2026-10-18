@@ -10,6 +10,7 @@ import { analyticsService } from './analyticsService';
 import { durableStorage, ChatMessage } from './storage';
 import { formatSignalTime } from '../utils/timeFormat';
 import { ACTIVE_STRATEGY_VERSION, ACTIVE_EXPERIMENT_ID, CONFIG_HASH, STRATEGY_MANIFEST } from '../engine/manifest';
+import { displayPair, isSupportedPair, normalizePair, payoutRegistry } from './payoutRegistry';
 
 export interface ChatResponse {
   message: string;
@@ -33,7 +34,7 @@ export class ChatService {
       const responseText = [
         `🔒 [STRATEGY RULES ARE FROZEN — EXPERIMENT SCOPE FROZEN]`,
         ``,
-        `Active Strategy: **${ACTIVE_STRATEGY_VERSION}** (Strategy v1.0-FROZEN legacy baseline archived) (Experiment: **${ACTIVE_EXPERIMENT_ID}**)`,
+        `Active Strategy: **${ACTIVE_STRATEGY_VERSION}** (Experiment: **${ACTIVE_EXPERIMENT_ID}**)`,
         `Configuration Hash: \`${CONFIG_HASH}\``,
         `Target Sample: **100 Valid Setups**`,
         ``,
@@ -221,7 +222,7 @@ export class ChatService {
         `   - SKIPPED: **${analytics.userActions.skipped}**`,
         ``,
         `*Note: research_observation != financial_trade_outcome. TAKEN, NOT_TAKEN, and NOT_RECORDED are completely separate operator discretionary action fields.*`,
-        `*Data cryptographically chained under Config Hash: ${CONFIG_HASH.slice(0, 16)}...*`,
+        `*Candidate records are hash-chained; active Config Hash prefix: ${CONFIG_HASH.slice(0, 16)}...*`,
       ];
 
       const referencedIds = analytics.validSignals.map((s) => s.setupId).slice(0, 10);
@@ -244,7 +245,9 @@ export class ChatService {
 
     // 5. Current Market Condition & Pair Analysis Queries (19 Stages)
     let pair = 'EUR/USD';
-    if (lower.includes('btc') || lower.includes('bitcoin')) pair = 'BTC/USD';
+    const explicitPair = lower.match(/\b([a-z]{3})\s*\/\s*([a-z]{3})\b/);
+    if (explicitPair && isSupportedPair(`${explicitPair[1]}${explicitPair[2]}`)) pair = displayPair(`${explicitPair[1]}${explicitPair[2]}`);
+    else if (lower.includes('btc') || lower.includes('bitcoin')) pair = 'BTC/USD';
     else if (/(^|\s)(nq|nasdaq)(\s|$)/.test(lower)) pair = 'NQ';
     else if (/(^|\s)(es|s&p|spx)(\s|$)/.test(lower)) pair = 'ES';
     else if (/(^|\s)(gbp|gbp\/usd)(\s|$)/.test(lower)) pair = 'GBP/USD';
@@ -262,13 +265,28 @@ export class ChatService {
 
     if (isMarketAnalysis || lower.includes(pair.toLowerCase())) {
       const status = feedManager.getStatus();
+      const payout = payoutRegistry.get(normalizePair(pair));
+      if (!payout) {
+        const responseText = `**NO_TRADE — payout unavailable**\n\nSet the approved payout for ${pair} before requesting a deterministic market analysis. Research alert only.`;
+        durableStorage.recordChatMessage({ user_id: userId, user_query: trimmed, assistant_response: responseText, query_type: 'MARKET_CONDITION' });
+        return { message: responseText, queryType: 'MARKET_CONDITION' };
+      }
+      if (payout.pct < 85) {
+        const responseText = `**NO_TRADE — payout below minimum**\n\n${pair} payout is ${payout.pct}%; the deterministic scan minimum is 85%. Research alert only.`;
+        durableStorage.recordChatMessage({ user_id: userId, user_query: trimmed, assistant_response: responseText, query_type: 'MARKET_CONDITION' });
+        return { message: responseText, queryType: 'MARKET_CONDITION' };
+      }
 
       let currentCandles;
       let higherTimeframeBias: 'BULLISH' | 'BEARISH' | 'UNCLEAR' = 'UNCLEAR';
+      let marketProvenance: 'LIVE_INGESTED' | 'REPLAY' | 'TEST' | 'NOT_LIVE' | 'SYNTHETIC_OVERRIDE' = 'NOT_LIVE';
+      let marketProvider = status.provider;
       try {
         const marketData = await feedManager.fetchCandles(pair, '15m', status.provider);
         const htfData = await feedManager.fetchCandles(pair, '1h', status.provider);
         currentCandles = marketData.candles;
+        marketProvenance = marketData.dataProvenance;
+        marketProvider = marketData.provider;
         const htfSwings = detectFractalSwings(htfData.candles, htfData.candles.length - 1);
         higherTimeframeBias = evaluateMarketStructure(htfSwings).bias;
         if (higherTimeframeBias === 'UNCLEAR') throw new Error('1h higher-timeframe bias is unclear.');
@@ -287,10 +305,12 @@ export class ChatService {
         higherTimeframeBias,
         newsEvents: newsGuard.getEvents(),
         newsSourceOnline: newsGuard.isOnline(),
-            dataProvenance: 'LIVE_INGESTED',
-        provider: status.provider,
+        dataProvenance: marketProvenance,
+        provider: marketProvider,
         pair,
         asset: pair,
+        payoutPct: payout.pct,
+        payoutSetAt: payout.setAt,
       });
 
       const timeData = formatSignalTime(telemetry.metadata.timestamp_utc);
@@ -307,7 +327,7 @@ export class ChatService {
         `**SYSTEM DECISION:** **${telemetry.system_execution.system_decision}**`,
         `**FINAL ACTION:** **${telemetry.system_execution.final_action}**`,
         ``,
-        `Data Provenance: **${telemetry.metadata.data_provenance || 'LIVE_INGESTED'}**`,
+        `Data Provenance: **${telemetry.metadata.data_provenance || marketProvenance}**`,
         ``,
         `Timestamps:`,
         `• UTC: ${timeData.utcTime}`,
@@ -340,7 +360,7 @@ export class ChatService {
       ``,
       `আমি আপনাকে RDP Strategy V3.0 (Frozen) সংক্রান্ত যেকোনো তথ্য এবং লাইভ টেলিমেট্রি বিশ্লেষণ জানাতে পারি:`,
       `1. **ঐতিহাসিক ফলাফল**: "গত ৩ দিনে কয়টা FAVORABLE এবং কয়টা UNFAVORABLE পর্যবেক্ষণ হয়েছিল?"`,
-      `2. **মার্কেট অবস্থা**: "EUR/USD-এর current market condition কী?" অথবা "9-stage pipeline breakdown"`,
+      `2. **মার্কেট অবস্থা**: "EUR/USD-এর current market condition কী?" অথবা "V3 gate breakdown"`,
       `3. **স্ট্র্যাটেজি কনসেপ্ট**: "CHoCH কি?", "IFVG এবং BPR কীভাবে কাজ করে?", "OTE রেঞ্জ কত?"`,
       `4. **কনফিগ হ্যাশ**: "What is the canonical config hash?"`,
       ``,

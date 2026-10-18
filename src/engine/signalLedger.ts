@@ -31,7 +31,7 @@ export interface SignalPayload {
   htf_provider?: string;
   setup_id: string;
   experiment_id: string;
-  config_hash: string;
+  config_hash?: string;
   session?: string;
   kill_zone?: string;
 }
@@ -80,9 +80,35 @@ function hashEntry(entry: Omit<LedgerEntry, 'hash'>): string {
 }
 
 export class SignalLedger {
-  constructor(private readonly filePath: string = process.env.SIGNAL_LEDGER_PATH || path.join(process.env.DATA_DIR || path.join(process.cwd(), 'data'), 'signal-ledger.jsonl')) {}
+  constructor(private readonly filePath: string = process.env.SIGNAL_LEDGER_PATH || path.join(process.env.DATA_DIR || path.join(process.cwd(), 'data'), 'signal-ledger.jsonl')) {
+    this.recoverPartialTail();
+  }
 
   public get path(): string { return this.filePath; }
+
+  /** Recover only an incomplete final JSONL line; any earlier corruption remains fail-closed. */
+  public recoverPartialTail(): { recovered: boolean; reason?: string } {
+    if (!fs.existsSync(this.filePath)) return { recovered: false };
+    const raw = fs.readFileSync(this.filePath, 'utf8');
+    if (!raw || raw.endsWith('\n')) return { recovered: false };
+    const lastNewline = raw.lastIndexOf('\n');
+    const tail = raw.slice(lastNewline + 1).trim();
+    if (!tail) return { recovered: false };
+    try {
+      JSON.parse(tail);
+      fs.appendFileSync(this.filePath, '\n');
+      return { recovered: false };
+    } catch {
+      if (/[}\]]$/.test(tail)) return { recovered: false, reason: 'FINAL_LINE_PARSE_ERROR' };
+      if (lastNewline < 0) throw new Error('LEDGER_CORRUPT_NO_VALID_PREFIX');
+      const fd = fs.openSync(this.filePath, 'r+');
+      try {
+        fs.ftruncateSync(fd, lastNewline + 1);
+        fs.fsyncSync(fd);
+      } finally { fs.closeSync(fd); }
+      return { recovered: true, reason: 'TRUNCATED_INCOMPLETE_FINAL_LINE' };
+    }
+  }
 
   public readAll(): LedgerEntry[] {
     if (!fs.existsSync(this.filePath)) return [];

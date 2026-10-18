@@ -282,7 +282,7 @@ export class ScanService {
   }
 
   /** Candle-close aligned auto cycle over eligible favourites, in favourite order, within the auto budget. */
-  public async runAutoCycle(timeframe: ScanTimeframe, sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): Promise<ScanResult[]> {
+  public async runAutoCycle(timeframe: ScanTimeframe, sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)), shouldContinue: () => boolean = () => true): Promise<ScanResult[]> {
     const nowMs = this.deps.now();
     const expectedOpen = latestClosedCandleOpenMs(nowMs, timeframe);
     if (isFxMarketClosed(nowMs) || isFxBarClosed(new Date(expectedOpen).toISOString(), timeframe)) return this.deps.favorites().map((fav) => this.recordUnfetchedScan(this.noTrade(normalizeScanPair(fav), timeframe, 'AUTO', 'MARKET_CLOSED')));
@@ -290,6 +290,7 @@ export class ScanService {
     const results: ScanResult[] = [];
     let scanned = 0;
     for (const fav of this.deps.favorites()) {
+      if (!shouldContinue()) break;
       const pair = normalizeScanPair(fav);
       const payout = this.deps.getPayout(pair);
       if (!payout || payout.pct < MIN_PAYOUT_PCT) { results.push(this.recordUnfetchedScan(this.noTrade(pair, timeframe, 'AUTO', payout ? `PAYOUT_BELOW_MIN (${payout.pct}%)` : 'PAYOUT_UNSET'))); continue; }
@@ -298,7 +299,9 @@ export class ScanService {
       scanned++;
       let result = await this.scanPair(pair, timeframe, 'AUTO');
       for (let attempt = 0; attempt < RETRY_BACKOFF_MS.length && /LATEST_CLOSED_CANDLE_MISSING|PROVIDER_HTTP_ERROR|PROVIDER_ERROR|STALE_MARKET_DATA/.test(result.reason) && this.deps.autoBudgetRemaining() >= 1; attempt++) {
+        if (!shouldContinue()) break;
         await sleep(RETRY_BACKOFF_MS[attempt]);
+        if (!shouldContinue()) break;
         result = await this.scanPair(pair, timeframe, 'AUTO');
       }
       results.push(result);
@@ -356,6 +359,7 @@ export class ScanService {
 export class ScanLoop {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private running = false;
+  private generation = 0;
 
   constructor(private readonly service: ScanService, private readonly deps: Pick<ScanDeps, 'now' | 'loadState' | 'saveState'>, private readonly defaults: { timeframe: ScanTimeframe; enabled: boolean }) {}
 
@@ -365,17 +369,29 @@ export class ScanLoop {
 
   private save(patch: Partial<ScanLoopState>) { this.deps.saveState?.({ ...this.state(), ...patch }); }
 
-  public start(): void { this.stop(); this.schedule(); }
-  public stop(): void { if (this.timer) clearTimeout(this.timer); this.timer = undefined; }
+  public start(): void {
+    this.stop();
+    if (this.state().enabled) this.schedule(this.generation);
+  }
+  public stop(): void {
+    this.generation += 1;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = undefined;
+  }
   public setEnabled(enabled: boolean, timeframe?: ScanTimeframe) { this.save({ enabled, ...(timeframe ? { timeframe } : {}) }); }
 
-  private schedule(): void {
+  private schedule(generation = this.generation): void {
+    if (generation !== this.generation || !this.state().enabled) return;
     const { timeframe } = this.state();
     const delay = Math.max(1_000, nextCandleCloseMs(this.deps.now(), timeframe) + SCAN_DELAY_AFTER_CLOSE_MS - this.deps.now());
-    this.timer = setTimeout(() => { void this.tick().finally(() => this.schedule()); }, delay);
+    this.timer = setTimeout(() => {
+      if (generation !== this.generation || !this.state().enabled) return;
+      void this.tick(generation).finally(() => this.schedule(generation));
+    }, delay);
   }
 
-  public async tick(): Promise<ScanResult[]> {
+  public async tick(expectedGeneration = this.generation): Promise<ScanResult[]> {
+    if (expectedGeneration !== this.generation) return [];
     const state = this.state();
     if (!state.enabled || this.running) return [];
     const candleOpen = new Date(latestClosedCandleOpenMs(this.deps.now(), state.timeframe)).toISOString();
@@ -383,7 +399,8 @@ export class ScanLoop {
     this.running = true;
     try {
       this.save({ lastCycleCandleOpen: candleOpen });
-      const results = await this.service.runAutoCycle(state.timeframe);
+      const results = await this.service.runAutoCycle(state.timeframe, undefined, () => expectedGeneration === this.generation && this.state().enabled);
+      if (expectedGeneration !== this.generation || !this.state().enabled) return results;
       await this.service.resolvePending();
       this.save({ lastRunAt: new Date(this.deps.now()).toISOString(), lastSummary: results.map((r) => `${r.pair}:${r.status}`).join(','), lastError: undefined });
       return results;
