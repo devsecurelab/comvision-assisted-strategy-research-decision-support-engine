@@ -8,7 +8,7 @@ export type HtfBias = 'BULLISH' | 'BEARISH' | 'UNCLEAR';
 export type V3GateStatus = 'PASS' | 'HOLD' | 'BLOCKED' | 'UNAVAILABLE';
 export type V3SystemDecision = 'PASS' | 'HOLD' | 'BLOCKED';
 export type V3FinalAction = 'MANUAL_ALERT' | 'SAFE_HOLD' | 'NO_ACTION';
-export interface V3Stage { stageNumber: number; name: string; category: string; passed: boolean | null; score: number | null; available: boolean; unavailable_reason?: string; v2Baseline: string; v3Refinement: string; mathematicalFormula: string; calculatedValues: Record<string, string>; telemetry: string; }
+export interface V3Stage { stageNumber: number; name: string; category: string; passed: boolean | null; score: number | null; available: boolean; unavailable_reason?: string; mathematicalFormula: string; calculatedValues: Record<string, string>; telemetry: string; }
 export interface V3Gate { gateNumber: number; name: string; status: V3GateStatus; reason: string; metricDetails: string; }
 export interface V3OperationalGuard { name: string; status: 'PASS' | 'BLOCKED'; reason: string }
 export interface V3Decision {
@@ -118,7 +118,7 @@ export function deriveHtfBias(htfCandles: Candle[], asOfIso: string): HtfBias {
 }
 
 function stage(stageNumber: number, name: string, category: string, passed: boolean, score: number, formula: string, calculatedValues: Record<string, string>, telemetry: string): V3Stage {
-  return { stageNumber, name, category, passed, score: Math.max(0, Math.min(1, score)), available: true, v2Baseline: 'Strategy v2.0 owner baseline', v3Refinement: name, mathematicalFormula: formula, calculatedValues, telemetry };
+  return { stageNumber, name, category, passed, score: Math.max(0, Math.min(1, score)), available: true, mathematicalFormula: formula, calculatedValues, telemetry };
 }
 function unavailable(s: V3Stage, reason: string): V3Stage {
   return { ...s, passed: null, score: null, available: false, unavailable_reason: reason, telemetry: `UNAVAILABLE: ${reason}` };
