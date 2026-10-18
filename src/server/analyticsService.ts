@@ -20,7 +20,7 @@ export interface AnalyticsSummary {
   endDateUtc: string;
   totalCandidatesEvaluated: number;
   validSignalsCount: number;
-  // v2.0 Research Observation Semantics
+  // V3.0 Research Observation Semantics
   nextCandleFavorableCount: number;
   nextCandleUnfavorableCount: number;
   nextCandleNeutralCount: number;
@@ -138,13 +138,12 @@ export class AnalyticsService {
       | 'WIN'
       | 'LOSS'
       | 'UNRESOLVED';
-    nextCandleOpen: number;
-    nextCandleClose: number;
+    nextCandle?: SignalOutcomeRecord['next_candle'];
     userAction: 'TAKEN' | 'NOT_TAKEN' | 'NOT_RECORDED' | 'SKIPPED' | 'PENDING';
     timestamp?: string;
   }) {
     const existing = durableStorage.loadOutcomes();
-    // Normalize outcome to v2.0 research semantics
+    // Normalize outcome to frozen research semantics
     let standardized: SignalOutcome = record.outcome as SignalOutcome;
     if (record.outcome === 'WIN') standardized = 'NEXT_CANDLE_FAVORABLE';
     else if (record.outcome === 'LOSS') standardized = 'NEXT_CANDLE_UNFAVORABLE';
@@ -159,20 +158,17 @@ export class AnalyticsService {
       signal_timestamp_bdt: new Date().toISOString(),
       signal_outcome: standardized,
       outcome: standardized,
-      next_candle: {
-        open: record.nextCandleOpen,
-        high: Math.max(record.nextCandleOpen, record.nextCandleClose),
-        low: Math.min(record.nextCandleOpen, record.nextCandleClose),
-        close: record.nextCandleClose,
-      },
-      nextCandleOpen: record.nextCandleOpen,
-      nextCandleClose: record.nextCandleClose,
       user_recorded_action: record.userAction,
       userAction: record.userAction,
       result_timestamp_utc: record.timestamp || new Date().toISOString(),
       result_timestamp_bdt: record.timestamp || new Date().toISOString(),
       notes: 'Recorded via analyticsService',
     };
+    if (record.nextCandle) {
+      formatted.next_candle = record.nextCandle;
+      formatted.nextCandleOpen = record.nextCandle.open;
+      formatted.nextCandleClose = record.nextCandle.close;
+    }
     durableStorage.saveOutcomes([...existing.filter((o) => o.setup_id !== record.setup_id), formatted]);
   }
 
@@ -251,7 +247,7 @@ export class AnalyticsService {
     > = {};
     const validSignalList: AnalyticsSummary['validSignals'] = [];
 
-    // Helper to normalize outcome to v2.0 semantics
+    // Helper to normalize outcome to frozen semantics
     const normalizeOutcome = (raw?: string): 'NEXT_CANDLE_FAVORABLE' | 'NEXT_CANDLE_UNFAVORABLE' | 'NEXT_CANDLE_NEUTRAL' | 'NEXT_CANDLE_INCONCLUSIVE' => {
       if (!raw) return 'NEXT_CANDLE_INCONCLUSIVE';
       if (raw === 'NEXT_CANDLE_FAVORABLE' || raw === 'WIN') return 'NEXT_CANDLE_FAVORABLE';
@@ -372,7 +368,7 @@ export class AnalyticsService {
       endDateUtc: new Date(endMillis).toISOString(),
       totalCandidatesEvaluated: matchedCandidates.length,
       validSignalsCount: validCandidates.length,
-      // v2.0 Research Observation Semantics
+      // V3.0 Research Observation Semantics
       nextCandleFavorableCount: favorable,
       nextCandleUnfavorableCount: unfavorable,
       nextCandleNeutralCount: neutral,

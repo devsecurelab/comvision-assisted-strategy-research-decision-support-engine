@@ -1,5 +1,5 @@
 // Record Research Observation & User Action Modal Component
-// Implements Strategy v2.0-FROZEN Semantics:
+// Implements RDP Strategy V3.0 (Frozen) Semantics:
 // Research Outcome: NEXT_CANDLE_FAVORABLE | NEXT_CANDLE_UNFAVORABLE | NEXT_CANDLE_NEUTRAL | NEXT_CANDLE_INCONCLUSIVE
 // User Action (Strictly separate field): TAKEN | NOT_TAKEN | NOT_RECORDED
 import React, { useState } from 'react';
@@ -216,11 +216,11 @@ export const RecordResultModal: React.FC<RecordResultModalProps> = ({
             </div>
           </div>
 
-          {/* Strategy v2.0-FROZEN Immutable Notice */}
+          {/* RDP Strategy V3.0 (Frozen) Immutable Notice */}
           <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/80 text-[11px] text-slate-400 flex items-start gap-2">
             <ShieldCheck className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
             <span>
-              <strong>Strategy v2.0-FROZEN:</strong> Storing research observation and operator action does not modify the 19-stage deterministic pipeline. Data is cryptographically hashed.
+              <strong>RDP Strategy V3.0 (Frozen):</strong> Storing research observation and operator action does not modify the 19-stage deterministic pipeline. Data is cryptographically hashed.
             </span>
           </div>
 

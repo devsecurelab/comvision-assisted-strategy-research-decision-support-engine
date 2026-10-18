@@ -61,7 +61,7 @@ export function runCausalBacktest(candles: Candle[], htf: Candle[], opts: R8Opti
       const next = analysisCandles[i + 1];
       const contiguous = Date.parse(next.timestamp) === signalClose;
       const t = executeStrategyPipeline({
-        decisionEngineVersion: 'V3', candles: window, currentCandleIndex: window.length - 1, selectedTimeframe: opts.timeframe,
+        candles: window, currentCandleIndex: window.length - 1, selectedTimeframe: opts.timeframe,
         htfCandles: htfWindow, newsEvents: opts.newsEvents, newsSourceOnline: opts.newsSourceOnline,
         dataProvenance: 'LIVE_INGESTED', provider: 'TWELVE_DATA', pair: opts.pair, asset: opts.pair, payoutPct: opts.payoutPct, nowMs: signalClose, gate4Mode: opts.gate4Mode,
       });

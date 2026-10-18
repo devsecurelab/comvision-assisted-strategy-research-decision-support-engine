@@ -1,9 +1,8 @@
 // ComVision Assistant & Quantitative Research Chat Engine
-// Strategy v2.0-FROZEN Master Specification (EXP-2026-V2-001)
-// Natural Language Queries + Deterministic Strategy v2.0 Pipeline Separation
+// RDP Strategy V3.0 (Frozen) Master Specification (EXP-2026-V2-001)
+// Natural Language Queries + Deterministic RDP Strategy V3.0 Pipeline Separation
 // STRICT NON-EXECUTION BOUNDARY: Informational decision-support only. No trade execution.
 
-import { GoogleGenAI } from '@google/genai';
 import { executeStrategyPipeline, detectFractalSwings, evaluateMarketStructure } from '../engine/pipeline';
 import { feedManager } from '../engine/dataProviders';
 import { newsGuard } from '../engine/newsGuard';
@@ -11,6 +10,7 @@ import { analyticsService } from './analyticsService';
 import { durableStorage, ChatMessage } from './storage';
 import { formatSignalTime } from '../utils/timeFormat';
 import { ACTIVE_STRATEGY_VERSION, ACTIVE_EXPERIMENT_ID, CONFIG_HASH, STRATEGY_MANIFEST } from '../engine/manifest';
+import { displayPair, isSupportedPair, normalizePair, payoutRegistry } from './payoutRegistry';
 
 export interface ChatResponse {
   message: string;
@@ -20,24 +20,12 @@ export interface ChatResponse {
 }
 
 export class ChatService {
-  private ai: GoogleGenAI | null = null;
-
-  constructor() {
-    if (process.env.GEMINI_API_KEY) {
-      try {
-        this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      } catch (err) {
-        console.warn('[ChatService] Failed to initialize GoogleGenAI client:', err);
-      }
-    }
-  }
-
   public async processQuery(userOrId: any, userQuery: string): Promise<ChatResponse> {
     const userId = typeof userOrId === 'string' ? userOrId : userOrId?.id || userOrId?.email || 'operator';
     const trimmed = userQuery.trim();
     const lower = trimmed.toLowerCase();
 
-    // 1. Guard against Strategy v2.0 mutation attempts (Scope Freeze Enforcement)
+    // 1. Guard against RDP Strategy V3.0 mutation attempts (Scope Freeze Enforcement)
     const mutationMatch =
       lower.match(/(?:change|modify|update|set|alter|disable|override)\s*(?:wick|fib|threshold|parameter|strategy|ratio|setting|choch|bos|fvg|ifvg|bpr|breaker|ote|session)/i) ||
       lower.match(/(?:wick|fib|threshold|parameter|choch|bos|fvg|bpr|ote).*(?:change|বদল|পরিবর্তন|সংশোধন)/i);
@@ -46,7 +34,7 @@ export class ChatService {
       const responseText = [
         `🔒 [STRATEGY RULES ARE FROZEN — EXPERIMENT SCOPE FROZEN]`,
         ``,
-        `Active Strategy: **${ACTIVE_STRATEGY_VERSION}** (Strategy v1.0-FROZEN legacy baseline archived) (Experiment: **${ACTIVE_EXPERIMENT_ID}**)`,
+        `Active Strategy: **${ACTIVE_STRATEGY_VERSION}** (Experiment: **${ACTIVE_EXPERIMENT_ID}**)`,
         `Configuration Hash: \`${CONFIG_HASH}\``,
         `Target Sample: **100 Valid Setups**`,
         ``,
@@ -77,7 +65,7 @@ export class ChatService {
     // 2. Config Hash & Manifest Queries
     if (lower.includes('config hash') || lower.includes('hash') || lower.includes('manifest') || lower.includes('হ্যাশ')) {
       const hashResponse = [
-        `🛡️ **Strategy v2.0-FROZEN Master Manifest & Snapshot**`,
+        `🛡️ **RDP Strategy V3.0 (Frozen) Master Manifest & Snapshot**`,
         ``,
         `• **Active Version**: \`${ACTIVE_STRATEGY_VERSION}\``,
         `• **Experiment ID**: \`${ACTIVE_EXPERIMENT_ID}\``,
@@ -122,7 +110,7 @@ export class ChatService {
       let conceptText = '';
       if (lower.includes('choch')) {
         conceptText = [
-          `📖 **Change of Character (CHoCH) in Strategy v2.0-FROZEN:**`,
+          `📖 **Change of Character (CHoCH) in RDP Strategy V3.0 (Frozen):**`,
           ``,
           `• **Definition**: Early structural transition signaling potential shift in trend character.`,
           `• **Bullish CHoCH**: When prior structure was bearish (Lower Highs, Lower Lows) and current candle produces a decisive **Body Close** above the confirmed Lower High.`,
@@ -132,7 +120,7 @@ export class ChatService {
         ].join('\n');
       } else if (lower.includes('ifvg')) {
         conceptText = [
-          `📖 **Inverse Fair Value Gap (IFVG) in Strategy v2.0-FROZEN:**`,
+          `📖 **Inverse Fair Value Gap (IFVG) in RDP Strategy V3.0 (Frozen):**`,
           ``,
           `• **Definition**: An existing FVG that transitions into an inversion zone once price closes decisively through its opposing boundary.`,
           `• **Bullish Invalidation**: Bullish FVG broken downward by body close (\`Close < FVG_LOW\`) transitions into Bearish IFVG resistance.`,
@@ -141,7 +129,7 @@ export class ChatService {
         ].join('\n');
       } else if (lower.includes('bpr')) {
         conceptText = [
-          `📖 **Balanced Price Range (BPR) in Strategy v2.0-FROZEN:**`,
+          `📖 **Balanced Price Range (BPR) in RDP Strategy V3.0 (Frozen):**`,
           ``,
           `• **Definition**: Deterministic overlap zone formed between opposing bullish and bearish Fair Value Gaps.`,
           `• **Formula**: \`[max(BullishFVG.bottom, BearishFVG.bottom), min(BullishFVG.top, BearishFVG.top)]\`.`,
@@ -150,7 +138,7 @@ export class ChatService {
         ].join('\n');
       } else if (lower.includes('breaker')) {
         conceptText = [
-          `📖 **Breaker Block in Strategy v2.0-FROZEN:**`,
+          `📖 **Breaker Block in RDP Strategy V3.0 (Frozen):**`,
           ``,
           `• **Definition**: An Order Block that failed after sweeping liquidity and breaking market structure in the opposite direction.`,
           `• **Bullish Breaker**: A bearish OB that price subsequently displaced above via decisive body close.`,
@@ -159,7 +147,7 @@ export class ChatService {
         ].join('\n');
       } else if (lower.includes('ote')) {
         conceptText = [
-          `📖 **Optimal Trade Entry (OTE) in Strategy v2.0-FROZEN:**`,
+          `📖 **Optimal Trade Entry (OTE) in RDP Strategy V3.0 (Frozen):**`,
           ``,
           `• **Definition**: High-probability Fibonacci retracement pocket between **61.8% and 78.6%** of the structural swing.`,
           `• **Bullish Setup**: Retracement into [61.8%, 78.6%] discount zone from recent swing low to swing high.`,
@@ -168,7 +156,7 @@ export class ChatService {
         ].join('\n');
       } else {
         conceptText = [
-          `📖 **Break of Structure (BOS) in Strategy v2.0-FROZEN:**`,
+          `📖 **Break of Structure (BOS) in RDP Strategy V3.0 (Frozen):**`,
           ``,
           `• **Definition**: Structural trend continuation confirmed exclusively by candle body close.`,
           `• **Bullish BOS**: Current candle \`Close > PreviousConfirmedSwingHigh\`.`,
@@ -216,10 +204,10 @@ export class ChatService {
       });
 
       const responseLines = [
-        `📊 **ComVision Strategy v2.0 Research Summary / গবেষণা ফলাফল (${window.label} / Asia: Asia/Dhaka)**`,
+        `📊 **ComVision RDP Strategy V3.0 Research Summary / গবেষণা ফলাফল (${window.label} / Asia: Asia/Dhaka)**`,
         ``,
         `• **Strategy Version**: \`${ACTIVE_STRATEGY_VERSION}\` (\`${ACTIVE_EXPERIMENT_ID}\`)`,
-        `• **Valid Setups (Strategy v2.0 PASS)**: **${analytics.validSignalsCount}**`,
+        `• **Valid Setups (RDP Strategy V3.0 PASS)**: **${analytics.validSignalsCount}**`,
         ``,
         `• **Next-Candle Research Observations (Research WIN / LOSS)**:`,
         `   - NEXT_CANDLE_FAVORABLE (WIN): **${analytics.researchWins}**`,
@@ -234,7 +222,7 @@ export class ChatService {
         `   - SKIPPED: **${analytics.userActions.skipped}**`,
         ``,
         `*Note: research_observation != financial_trade_outcome. TAKEN, NOT_TAKEN, and NOT_RECORDED are completely separate operator discretionary action fields.*`,
-        `*Data cryptographically chained under Config Hash: ${CONFIG_HASH.slice(0, 16)}...*`,
+        `*Candidate records are hash-chained; active Config Hash prefix: ${CONFIG_HASH.slice(0, 16)}...*`,
       ];
 
       const referencedIds = analytics.validSignals.map((s) => s.setupId).slice(0, 10);
@@ -257,11 +245,13 @@ export class ChatService {
 
     // 5. Current Market Condition & Pair Analysis Queries (19 Stages)
     let pair = 'EUR/USD';
-    if (lower.includes('btc') || lower.includes('bitcoin')) pair = 'BTC/USD';
-    else if (lower.includes('nq') || lower.includes('nasdaq')) pair = 'NQ';
-    else if (lower.includes('es') || lower.includes('s&p') || lower.includes('spx')) pair = 'ES';
-    else if (lower.includes('gbp') || lower.includes('gu')) pair = 'GBP/USD';
-    else if (lower.includes('eur')) pair = 'EUR/USD';
+    const explicitPair = lower.match(/\b([a-z]{3})\s*\/\s*([a-z]{3})\b/);
+    if (explicitPair && isSupportedPair(`${explicitPair[1]}${explicitPair[2]}`)) pair = displayPair(`${explicitPair[1]}${explicitPair[2]}`);
+    else if (lower.includes('btc') || lower.includes('bitcoin')) pair = 'BTC/USD';
+    else if (/(^|\s)(nq|nasdaq)(\s|$)/.test(lower)) pair = 'NQ';
+    else if (/(^|\s)(es|s&p|spx)(\s|$)/.test(lower)) pair = 'ES';
+    else if (/(^|\s)(gbp|gbp\/usd)(\s|$)/.test(lower)) pair = 'GBP/USD';
+    else if (/(^|\s)(eur|eur\/usd)(\s|$)/.test(lower)) pair = 'EUR/USD';
 
     const isMarketAnalysis =
       lower.includes('condition') ||
@@ -275,13 +265,28 @@ export class ChatService {
 
     if (isMarketAnalysis || lower.includes(pair.toLowerCase())) {
       const status = feedManager.getStatus();
+      const payout = payoutRegistry.get(normalizePair(pair));
+      if (!payout) {
+        const responseText = `**NO_TRADE — payout unavailable**\n\nSet the approved payout for ${pair} before requesting a deterministic market analysis. Research alert only.`;
+        durableStorage.recordChatMessage({ user_id: userId, user_query: trimmed, assistant_response: responseText, query_type: 'MARKET_CONDITION' });
+        return { message: responseText, queryType: 'MARKET_CONDITION' };
+      }
+      if (payout.pct < 85) {
+        const responseText = `**NO_TRADE — payout below minimum**\n\n${pair} payout is ${payout.pct}%; the deterministic scan minimum is 85%. Research alert only.`;
+        durableStorage.recordChatMessage({ user_id: userId, user_query: trimmed, assistant_response: responseText, query_type: 'MARKET_CONDITION' });
+        return { message: responseText, queryType: 'MARKET_CONDITION' };
+      }
 
       let currentCandles;
       let higherTimeframeBias: 'BULLISH' | 'BEARISH' | 'UNCLEAR' = 'UNCLEAR';
+      let marketProvenance: 'LIVE_INGESTED' | 'REPLAY' | 'TEST' | 'NOT_LIVE' | 'SYNTHETIC_OVERRIDE' = 'NOT_LIVE';
+      let marketProvider = status.provider;
       try {
         const marketData = await feedManager.fetchCandles(pair, '15m', status.provider);
         const htfData = await feedManager.fetchCandles(pair, '1h', status.provider);
         currentCandles = marketData.candles;
+        marketProvenance = marketData.dataProvenance;
+        marketProvider = marketData.provider;
         const htfSwings = detectFractalSwings(htfData.candles, htfData.candles.length - 1);
         higherTimeframeBias = evaluateMarketStructure(htfSwings).bias;
         if (higherTimeframeBias === 'UNCLEAR') throw new Error('1h higher-timeframe bias is unclear.');
@@ -293,40 +298,36 @@ export class ChatService {
 
       // Execute only on verified live provider candles.
       const telemetry = executeStrategyPipeline({
-        decisionEngineVersion: 'V3',
+        
         candles: currentCandles,
         currentCandleIndex: currentCandles.length - 1,
         selectedTimeframe: '15m',
         higherTimeframeBias,
         newsEvents: newsGuard.getEvents(),
         newsSourceOnline: newsGuard.isOnline(),
-            dataProvenance: 'LIVE_INGESTED',
-        provider: status.provider,
+        dataProvenance: marketProvenance,
+        provider: marketProvider,
         pair,
         asset: pair,
+        payoutPct: payout.pct,
+        payoutSetAt: payout.setAt,
       });
 
       const timeData = formatSignalTime(telemetry.metadata.timestamp_utc);
 
       const responseLines = [
-        `🔍 **[DETERMINISTIC MARKET ANALYSIS] ${pair} — 9-Stage Frozen Strategy Pipeline**`,
-        `Timeframe: **5m** | Setup: **${telemetry.metadata.setup_id}**`,
+        `🔍 **[DETERMINISTIC MARKET ANALYSIS] ${pair} — RDP Strategy V3.0 Nine-Gate Decision**`,
+        `Timeframe: **${telemetry.market_context.selected_timeframe}** | Setup: **${telemetry.metadata.setup_id}**`,
         ``,
-        `**Sequential 9-Stage Validation Order:**`,
-        `Stage 1 (Structure): **${telemetry.validation_metrics.structure.status}** (${telemetry.market_context.local_bias})`,
-        `Stage 2 (Fair Value Gap): **${telemetry.validation_metrics.fvg.fvg_status}** (${telemetry.validation_metrics.fvg.fvg_mitigation_state})`,
-        `Stage 3 (3-Candle Pattern): **${telemetry.validation_metrics.pattern_3_candle.status}** (Inside Candle: ${telemetry.validation_metrics.inside_candle?.inside_candle_detected ? 'Yes' : 'No'})`,
-        `Stage 4 (Tick Proxy): **${telemetry.validation_metrics.tick_proxy.status}** (${telemetry.validation_metrics.tick_proxy.tick_sequence})`,
-        `Stage 5 (Wick Validation): **${telemetry.validation_metrics.wick_check.status}** (Ratio: ${telemetry.validation_metrics.wick_check.wick_ratio.toFixed(3)})`,
-        `Stage 6 (Fib 50% Equilibrium): **${telemetry.validation_metrics.fib_zone.status}** (Level: ${telemetry.validation_metrics.fib_zone.fib_50_level?.toFixed(5) ?? 'N/A'})`,
-        `NEWS: NOT CHECKED (manual)`,
-        `Stage 8 (T-10s Observation): **${telemetry.pressure_observation.classification}** (Magnitude: ${telemetry.pressure_observation.magnitude})`,
-        `Stage 9 (Pressure): Pushback Wick **${telemetry.validation_metrics.wick_check.status}** (Ratio: ${telemetry.validation_metrics.wick_check.wick_ratio.toFixed(3)})`,
+        `**Authoritative V3 Gates:**`,
+        ...(telemetry.decision_engine_v3?.gates ?? []).map((gate: any) =>
+          `Gate ${gate.gate} (${gate.name}): **${gate.status ?? 'UNAVAILABLE'}** — ${gate.reason ?? 'No gate detail available.'}`
+        ),
         ``,
         `**SYSTEM DECISION:** **${telemetry.system_execution.system_decision}**`,
         `**FINAL ACTION:** **${telemetry.system_execution.final_action}**`,
         ``,
-        `Data Provenance: **${telemetry.metadata.data_provenance || 'LIVE_INGESTED'}**`,
+        `Data Provenance: **${telemetry.metadata.data_provenance || marketProvenance}**`,
         ``,
         `Timestamps:`,
         `• UTC: ${timeData.utcTime}`,
@@ -355,15 +356,15 @@ export class ChatService {
 
     // 6. Default / Conversational Strategy Assistance
     const defaultResponse = [
-      `👋 আমি ComVision Strategy v2.0 Research Assistant।`,
+      `👋 আমি ComVision RDP Strategy V3.0 Research Assistant।`,
       ``,
-      `আমি আপনাকে Strategy v2.0-FROZEN সংক্রান্ত যেকোনো তথ্য এবং লাইভ টেলিমেট্রি বিশ্লেষণ জানাতে পারি:`,
+      `আমি আপনাকে RDP Strategy V3.0 (Frozen) সংক্রান্ত যেকোনো তথ্য এবং লাইভ টেলিমেট্রি বিশ্লেষণ জানাতে পারি:`,
       `1. **ঐতিহাসিক ফলাফল**: "গত ৩ দিনে কয়টা FAVORABLE এবং কয়টা UNFAVORABLE পর্যবেক্ষণ হয়েছিল?"`,
-      `2. **মার্কেট অবস্থা**: "EUR/USD-এর current market condition কী?" অথবা "9-stage pipeline breakdown"`,
+      `2. **মার্কেট অবস্থা**: "EUR/USD-এর current market condition কী?" অথবা "V3 gate breakdown"`,
       `3. **স্ট্র্যাটেজি কনসেপ্ট**: "CHoCH কি?", "IFVG এবং BPR কীভাবে কাজ করে?", "OTE রেঞ্জ কত?"`,
       `4. **কনফিগ হ্যাশ**: "What is the canonical config hash?"`,
       ``,
-      `*মনে রাখবেন: Strategy v2.0-এর সমস্ত নিয়ম ফ্রোজেন (LOCKED) এবং কোনো ট্রেড অটোমেটিক এক্সিকিউট করা হয় না।*`,
+      `*মনে রাখবেন: RDP Strategy V3.0-এর সমস্ত নিয়ম ফ্রোজেন (LOCKED) এবং কোনো ট্রেড অটোমেটিক এক্সিকিউট করা হয় না।*`,
     ].join('\n');
 
     durableStorage.recordChatMessage({

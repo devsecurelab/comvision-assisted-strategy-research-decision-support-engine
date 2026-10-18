@@ -7,7 +7,7 @@ import path from 'node:path';
 import { MasterTelemetry, UserAccount, UserRecordedAction } from '../engine/types';
 
 // Research Outcome Semantics:
-// v2.0-FROZEN: NEXT_CANDLE_FAVORABLE | NEXT_CANDLE_UNFAVORABLE | NEXT_CANDLE_NEUTRAL | NEXT_CANDLE_INCONCLUSIVE
+// Frozen compatibility outcomes: NEXT_CANDLE_FAVORABLE | NEXT_CANDLE_UNFAVORABLE | NEXT_CANDLE_NEUTRAL | NEXT_CANDLE_INCONCLUSIVE
 // Historical v1.0 legacy compatibility: WIN | LOSS | INVALIDATED | UNRESOLVED
 export type SignalOutcome =
   | 'NEXT_CANDLE_FAVORABLE'
@@ -108,6 +108,7 @@ export class DurableStorage {
   private chatFile!: string;
   private experimentFile!: string;
   private settingsFile!: string;
+  private readonly jsonCache = new Map<string, { signature: string; value: unknown }>();
 
   constructor(customDir?: string) {
     this.setDataDir(customDir || process.env.DATA_DIR || path.join(process.cwd(), 'data'));
@@ -156,8 +157,13 @@ export class DurableStorage {
   private readJson<T>(filePath: string, fallback: T): T {
     try {
       if (fs.existsSync(filePath)) {
+        const signature = this.fileSignature(filePath);
+        const cached = this.jsonCache.get(filePath);
+        if (cached?.signature === signature) return cached.value as T;
         const raw = fs.readFileSync(filePath, 'utf-8');
-        return JSON.parse(raw) as T;
+        const value = JSON.parse(raw) as T;
+        this.jsonCache.set(filePath, { signature, value });
+        return value;
       }
     } catch (err) {
       console.error(`[Storage] Failed to read ${filePath}, using fallback:`, err);
@@ -166,13 +172,31 @@ export class DurableStorage {
   }
 
   private writeJson<T>(filePath: string, data: T) {
+    let tempPath: string | undefined;
+    let fd: number | undefined;
     try {
-      const tempPath = `${filePath}.tmp.${Date.now()}`;
-      fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf-8');
+      tempPath = `${filePath}.tmp.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}`;
+      fd = fs.openSync(tempPath, 'wx', 0o600);
+      fs.writeFileSync(fd, JSON.stringify(data, null, 2), 'utf-8');
+      fs.fsyncSync(fd);
+      fs.closeSync(fd);
+      fd = undefined;
       fs.renameSync(tempPath, filePath);
+      tempPath = undefined;
+      this.jsonCache.delete(filePath);
+      const dirFd = fs.openSync(path.dirname(filePath), 'r');
+      try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
     } catch (err) {
       console.error(`[Storage] Failed to write ${filePath}:`, err);
+    } finally {
+      if (fd !== undefined) try { fs.closeSync(fd); } catch {}
+      if (tempPath) try { fs.unlinkSync(tempPath); } catch {}
     }
+  }
+
+  private fileSignature(filePath: string): string {
+    const stat = fs.statSync(filePath);
+    return `${stat.size}:${stat.mtimeMs}`;
   }
 
   // --- USERS ---

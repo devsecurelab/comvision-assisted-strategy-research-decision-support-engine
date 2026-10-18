@@ -1,10 +1,12 @@
 // Controlled Experiment Tracker (EXP-2026-V2-001)
-// Strategy v2.0-FROZEN Master Specification: First 100 Valid Setups Controlled Experiment
+// RDP Strategy V3.0 (Frozen) Master Specification: First 100 Valid Setups Controlled Experiment
 // Integrated with Durable Persistence Storage (survives server restart & redeployment)
 
 import { MasterTelemetry, UserRecordedAction, NextCandleObservation } from './types';
-import { ACTIVE_STRATEGY_VERSION, ACTIVE_EXPERIMENT_ID, CONFIG_HASH, STRATEGY_MANIFEST } from './manifest';
+import { ACTIVE_STRATEGY_VERSION, ACTIVE_EXPERIMENT_ID, CONFIG_HASH, CONFIG_HASH_EPOCH, STRATEGY_MANIFEST } from './manifest';
 import { durableStorage, SignalOutcome, SignalOutcomeRecord } from '../server/storage';
+import { canonicalJson } from '../utils/canonicalJson';
+import { sha256 } from '../utils/sha256';
 
 export interface ExperimentStats {
   experimentId: string;
@@ -51,7 +53,7 @@ export class ExperimentManager {
   /**
    * Cryptographic SHA-256 Hash Computation
    */
-  public computeHash(str: string): string {
+  private computeLegacyHash(str: string): string {
     function rightRotate(val: number, amt: number) {
       return (val >>> amt) | (val << (32 - amt));
     }
@@ -120,11 +122,15 @@ export class ExperimentManager {
     return result;
   }
 
+  private computeCanonicalHash(payload: Record<string, unknown>): string {
+    return sha256(canonicalJson(payload));
+  }
+
   private initializeFromStorage() {
     // 1. Load experiment state
     const state = durableStorage.loadExperimentState();
     if (state) {
-      this.experimentId = ACTIVE_EXPERIMENT_ID; // Force v2.0 experiment ID
+      this.experimentId = ACTIVE_EXPERIMENT_ID; // Force the active experiment ID
       this.strategyVersion = ACTIVE_STRATEGY_VERSION;
       this.configHash = CONFIG_HASH;
       this.isLocked = state.isLocked !== undefined ? state.isLocked : true;
@@ -227,7 +233,7 @@ export class ExperimentManager {
     if (this.isLocked) {
       return {
         allowed: false,
-        reason: `Scope Freeze Active: Controlled Experiment ${this.experimentId} is locked for first ${STRATEGY_MANIFEST.scope_freeze.target_valid_setups} setups. Strategy v2.0 parameters are immutable. Attempted change: ${paramChange || 'unknown'}`,
+        reason: `Scope Freeze Active: Controlled Experiment ${this.experimentId} is locked for first ${STRATEGY_MANIFEST.scope_freeze.target_valid_setups} setups. RDP Strategy V3.0 parameters are immutable. Attempted change: ${paramChange || 'unknown'}`,
       };
     }
     return { allowed: true, reason: 'Unlocked' };
@@ -262,7 +268,7 @@ export class ExperimentManager {
       if (mutations[field] !== undefined) {
         return {
           allowed: false,
-          reason: `EXPERIMENT_SCOPE_FROZEN: Parameter '${field}' is locked and immutable under Strategy v2.0 controlled experiment ${this.experimentId}.`,
+          reason: `EXPERIMENT_SCOPE_FROZEN: Parameter '${field}' is locked and immutable under RDP Strategy V3.0 controlled experiment ${this.experimentId}.`,
           field,
         };
       }
@@ -272,7 +278,7 @@ export class ExperimentManager {
   }
 
   /**
-   * Generates sequential v2.0 Setup ID: V2-000001, V2-000002...
+   * Generates sequential compatibility Setup ID: V2-000001, V2-000002...
    */
   public generateNextSetupId(): string {
     const pad = String(this.setupCounter++).padStart(6, '0');
@@ -283,10 +289,11 @@ export class ExperimentManager {
    * Records candidate frame with SHA-256 hash chaining and durable persistence.
    */
   public recordCandidate(telemetry: MasterTelemetry): MasterTelemetry {
-    // Ensure v2.0 metadata defaults
+    // Ensure frozen metadata defaults
     telemetry.metadata.strategy_version = ACTIVE_STRATEGY_VERSION;
     telemetry.metadata.experiment_id = ACTIVE_EXPERIMENT_ID;
     telemetry.metadata.config_hash = CONFIG_HASH;
+    telemetry.metadata.config_hash_epoch = CONFIG_HASH_EPOCH;
 
     if (!telemetry.metadata.setup_id || !telemetry.metadata.setup_id.startsWith('V2-')) {
       telemetry.metadata.setup_id = this.generateNextSetupId();
@@ -308,20 +315,21 @@ export class ExperimentManager {
     // Hash Chain Cryptographic Linkage
     telemetry.metadata.prev_hash = this.lastHash;
 
-    const canonicalPayload = JSON.stringify({
+    const canonicalPayload = {
       prev_hash: telemetry.metadata.prev_hash,
       setup_id: telemetry.metadata.setup_id,
       strategy_version: telemetry.metadata.strategy_version,
       config_hash: telemetry.metadata.config_hash,
+      config_hash_epoch: telemetry.metadata.config_hash_epoch,
       timestamp: telemetry.metadata.timestamp_utc,
       data_quality: telemetry.metadata.data_quality,
       timeframe: telemetry.market_context.selected_timeframe,
       decision: telemetry.system_execution.system_decision,
       final_action: telemetry.system_execution.final_action,
       validation: telemetry.validation_metrics,
-    });
+    };
 
-    const currentHash = this.computeHash(canonicalPayload);
+    const currentHash = this.computeCanonicalHash(canonicalPayload);
     telemetry.metadata.sha256_hash = currentHash;
     this.lastHash = currentHash;
 
@@ -364,20 +372,23 @@ export class ExperimentManager {
         };
       }
 
-      const canonicalPayload = JSON.stringify({
+      const canonicalPayload = {
         prev_hash: record.metadata.prev_hash,
         setup_id: record.metadata.setup_id,
         strategy_version: record.metadata.strategy_version,
         config_hash: record.metadata.config_hash,
+        ...(record.metadata.config_hash_epoch ? { config_hash_epoch: record.metadata.config_hash_epoch } : {}),
         timestamp: record.metadata.timestamp_utc,
         data_quality: record.metadata.data_quality,
         timeframe: record.market_context.selected_timeframe,
         decision: record.system_execution.system_decision,
         final_action: record.system_execution.final_action,
         validation: record.validation_metrics,
-      });
+      };
 
-      const recomputedHash = this.computeHash(canonicalPayload);
+      const recomputedHash = record.metadata.config_hash_epoch
+        ? this.computeCanonicalHash(canonicalPayload)
+        : this.computeLegacyHash(JSON.stringify(canonicalPayload));
       if (recomputedHash !== record.metadata.sha256_hash) {
         return {
           valid: false,
@@ -412,7 +423,7 @@ export class ExperimentManager {
   public recordSignalOutcome(
     setupId: string,
     outcome: SignalOutcome,
-    nextCandle: { open: number; high: number; low: number; close: number },
+    nextCandle: { open: number; high: number; low: number; close: number; volume?: number | null } | undefined,
     notes?: string
   ): SignalOutcomeRecord | null {
     const candidate = this.candidatesHistory.find((c) => c.metadata.setup_id === setupId);
@@ -430,7 +441,7 @@ export class ExperimentManager {
       researchObservation = 'NEXT_CANDLE_NEUTRAL';
     }
 
-    // Standardize v2.0 stored outcome format
+    // Standardize stored outcome format
     const standardizedOutcome: SignalOutcome =
       outcome === 'WIN'
         ? 'NEXT_CANDLE_FAVORABLE'
@@ -446,11 +457,13 @@ export class ExperimentManager {
     } else {
       candidate.next_candle_observation.status = researchObservation;
       candidate.next_candle_observation.observation_timestamp = new Date().toISOString();
-      candidate.next_candle_observation.observed_candle = {
-        timestamp: new Date().toISOString(),
-        ...nextCandle,
-        volume: 0,
-      };
+      if (nextCandle) {
+        candidate.next_candle_observation.observed_candle = {
+          timestamp: new Date().toISOString(),
+          ...nextCandle,
+          volume: nextCandle.volume ?? null,
+        };
+      }
     }
 
     const record: SignalOutcomeRecord = {
@@ -464,11 +477,13 @@ export class ExperimentManager {
       outcome: standardizedOutcome,
       user_recorded_action: candidate.system_execution.user_recorded_action || 'NOT_RECORDED',
       userAction: candidate.system_execution.user_recorded_action || 'NOT_RECORDED',
-      next_candle: nextCandle,
-      nextCandleOpen: nextCandle.open,
-      nextCandleClose: nextCandle.close,
       notes,
     };
+    if (nextCandle) {
+      record.next_candle = nextCandle;
+      record.nextCandleOpen = nextCandle.open;
+      record.nextCandleClose = nextCandle.close;
+    }
 
     durableStorage.recordOutcome(record);
     this.persist();

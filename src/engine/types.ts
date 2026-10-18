@@ -1,5 +1,5 @@
 // Master Type Definitions for ComVision-Assisted Strategy Research & Decision-Support Engine
-// Strategy v2.0-FROZEN Master Specification
+// RDP Strategy V3.0 (Frozen) Master Specification
 
 /** NOT_LIVE replaces the misleading REPLAY default (N4). REPLAY is kept only so legacy stored records still type-check. */
 export type DataProvenance = 'LIVE_INGESTED' | 'NOT_LIVE' | 'REPLAY' | 'TEST' | 'SYNTHETIC_OVERRIDE';
@@ -266,10 +266,11 @@ export interface MasterTelemetry {
   decision_engine_v3?: V3DecisionTelemetry;
   metadata: {
     project_name: string;
-    strategy_version: string; // e.g. "v2.0-FROZEN"
+    strategy_version: string; // active engine version, e.g. "RDP_STRATEGY_V3.0"
     experiment_id: string; // e.g. "EXP-2026-V2-001"
     setup_id: string; // e.g. "V2-000001"
-    config_hash?: string; // SHA-256 of frozen v2.0 rule parameters
+    config_hash?: string; // SHA-256 of frozen rule parameters
+    config_hash_epoch?: string; // Canonical hash scheme identifier; absent on legacy records
     timestamp_utc: string;
     signal_timestamp_utc?: string;
     pair?: string;

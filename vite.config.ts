@@ -14,7 +14,7 @@ export default defineConfig(() => {
           id: '/',
           name: 'ComVision Strategy Engine',
           short_name: 'ComVision',
-          description: 'Strategy v2.0 Decision-Support & Market Research Engine',
+          description: 'RDP Strategy V3.0 Decision-Support & Market Research Engine',
           theme_color: '#090d16',
           background_color: '#090d16',
           display: 'standalone',
@@ -57,10 +57,7 @@ export default defineConfig(() => {
       },
     },
     server: {
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâ€”file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
-      // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },
     build: {

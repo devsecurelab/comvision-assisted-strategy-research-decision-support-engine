@@ -285,10 +285,10 @@ If the server is not at `http://127.0.0.1:3000`, set `COMVISION_BASE_URL` before
 
 ---
 
-## 7. Strategy v2.0-FROZEN Specifications & Verification
+## 7. RDP Strategy V3.0 (Frozen) Specifications & Verification
 
 ### 7.1 Master Manifest Verification
-- **Strategy Version:** `v2.0-FROZEN`
+- **Strategy Version:** `RDP_STRATEGY_V3.0`
 - **Active Experiment:** `EXP-2026-V2-001` (100 Valid Setups)
 - **Canonical Configuration Hash:**
   ```
@@ -312,6 +312,6 @@ The current verification suite covers the 19-stage pipeline, boundary edge cases
 | `npm run dev` | `tsx server.ts` | Starts full-stack dev server with live Vite middleware |
 | `npm run build` | `vite build && esbuild server.ts ...` | Compiles frontend to `dist/` and backend to `dist/server.cjs` |
 | `npm run start` | `node dist/server.cjs` | Launches standalone compiled production server |
-| `npm test` | `tsx test/strategy_pipeline.test.ts` | Runs the automated strategy, safety, and provider verification suite |
+| `npm test` | Configured TypeScript test suite | Runs the automated V3 strategy, safety, R8, and provider verification suite |
 | `npm run lint` | `tsc --noEmit` | Validates TypeScript types across whole codebase |
 | `npm run clean` | `rm -rf dist server.js` | Cleans production build output directory |

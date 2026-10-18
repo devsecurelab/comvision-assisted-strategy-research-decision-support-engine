@@ -20,7 +20,7 @@ const closedOpen = '2026-10-16T20:45:00.000Z'; // 15m candle closes exactly at F
 const openSetup = idealPriceOnlySetup(1.085, '15m', 'BULLISH', SIGNAL_TS);
 const htf = htfCandlesFor('BULLISH', new Date(Date.parse(SIGNAL_TS) + 900_000).toISOString());
 const pipeline = (candles: Candle[]) => executeStrategyPipeline({
-  decisionEngineVersion: 'V3', candles, currentCandleIndex: candles.length - 1, selectedTimeframe: '15m',
+  candles, currentCandleIndex: candles.length - 1, selectedTimeframe: '15m',
   htfCandles: htf, newsEvents: [], newsSourceOnline: true, dataProvenance: 'LIVE_INGESTED', provider: 'TWELVE_DATA',
   pair: 'EUR/USD', asset: 'EUR/USD', payoutPct: 90, nowMs: Date.parse(candles.at(-1)!.timestamp) + 900_000,
 });
