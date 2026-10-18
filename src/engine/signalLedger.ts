@@ -32,6 +32,7 @@ export interface SignalPayload {
   setup_id: string;
   experiment_id: string;
   config_hash?: string;
+  config_hash_epoch?: string;
   session?: string;
   kill_zone?: string;
 }

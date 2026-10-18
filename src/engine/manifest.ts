@@ -167,10 +167,15 @@ export const V2_CONFIG_SNAPSHOT = {
 } as const;
 
 import { sha256 } from '../utils/sha256';
+import { canonicalJson } from '../utils/canonicalJson';
+
+export const CONFIG_HASH_EPOCH = 'V3_CANONICAL_2026-10-18';
+export const LEGACY_CONFIG_HASH = '1fc0ff3b17b2a077fdaf532615e7ca4ae2b38b36cdfc781059aeda3e7977b9b8';
 
 // Authoritative active V3 parameters. The hash is derived from this object at runtime;
 // it is not a copied V2-era string and it contains no Asia kill-zone rule.
 export const V3_CONFIG_SNAPSHOT = {
+  hash_epoch: CONFIG_HASH_EPOCH,
   strategy_version: ACTIVE_STRATEGY_VERSION,
   experiment_id: ACTIVE_EXPERIMENT_ID,
   engine: 'strategyV3Engine',
@@ -200,12 +205,13 @@ export const V3_CONFIG_SNAPSHOT = {
   news_guard: { restriction_window_minutes: 30, offline: 'INCONCLUSIVE' },
 } as const;
 
-export const CONFIG_HASH = sha256(JSON.stringify(V3_CONFIG_SNAPSHOT));
+export const CONFIG_HASH = sha256(canonicalJson(V3_CONFIG_SNAPSHOT));
 
 export const STRATEGY_MANIFEST = {
   version: ACTIVE_STRATEGY_VERSION,
   experiment_id: ACTIVE_EXPERIMENT_ID,
   config_hash: CONFIG_HASH,
+  config_hash_epoch: CONFIG_HASH_EPOCH,
   specification_document: 'RDP STRATEGY V3.0 FROZEN RESEARCH & DECISION-SUPPORT SPECIFICATION',
   historical_baseline: {
     version: HISTORICAL_STRATEGY_VERSION,
@@ -244,6 +250,7 @@ export const STRATEGY_MANIFEST = {
   parameters: V3_CONFIG_SNAPSHOT,
   legacy_compatibility: {
     config_snapshot: V2_CONFIG_SNAPSHOT,
-    note: 'Retained for reading historical records only; not used for active decisions or CONFIG_HASH.',
+    config_hash: LEGACY_CONFIG_HASH,
+    note: 'Retained for reading and verifying historical records only; not used for active decisions or the current CONFIG_HASH.',
   },
 } as const;

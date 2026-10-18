@@ -270,6 +270,7 @@ export interface MasterTelemetry {
     experiment_id: string; // e.g. "EXP-2026-V2-001"
     setup_id: string; // e.g. "V2-000001"
     config_hash?: string; // SHA-256 of frozen rule parameters
+    config_hash_epoch?: string; // Canonical hash scheme identifier; absent on legacy records
     timestamp_utc: string;
     signal_timestamp_utc?: string;
     pair?: string;

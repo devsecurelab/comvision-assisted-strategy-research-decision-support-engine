@@ -29,7 +29,7 @@ import {
   KillZoneState,
   NextCandleObservation,
 } from './types';
-import { ACTIVE_STRATEGY_VERSION, ACTIVE_EXPERIMENT_ID, CONFIG_HASH } from './manifest';
+import { ACTIVE_STRATEGY_VERSION, ACTIVE_EXPERIMENT_ID, CONFIG_HASH, CONFIG_HASH_EPOCH } from './manifest';
 import { formatSignalTime } from '../utils/timeFormat';
 import { evaluateStrategyV3 } from './strategyV3Engine';
 import { classifySessionAndKillZone } from './session';
@@ -1447,6 +1447,7 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
       experiment_id: ACTIVE_EXPERIMENT_ID,
       setup_id: deterministicSetupId(pair, selectedTimeframe, c3.timestamp, 'V3'),
       config_hash: CONFIG_HASH,
+      config_hash_epoch: CONFIG_HASH_EPOCH,
       timestamp_utc: nowIso,
       signal_timestamp_utc: c3.timestamp,
       pair,
@@ -1584,6 +1585,7 @@ function createInconclusiveTelemetry(
       experiment_id: ACTIVE_EXPERIMENT_ID,
       setup_id: deterministicSetupId(pair, timeframe, nowIso, 'V3_FAIL_CLOSED'),
       config_hash: CONFIG_HASH,
+      config_hash_epoch: CONFIG_HASH_EPOCH,
       timestamp_utc: nowIso,
       pair,
       asset,
