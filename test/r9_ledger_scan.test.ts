@@ -113,6 +113,14 @@ const run = async () => {
   assert.equal(scanLedger.signals().length, 1);
   console.log('[scan_payout_and_same_candle] PASS');
 
+  // A stop during an in-flight AUTO scan must not dispatch a late alert.
+  let autoAlerts = 0;
+  const stoppedAuto = new ScanService({ ...deps, ledger: new SignalLedger(path.join(dir, 'ledger-stopped-auto.jsonl')), onScan: () => { autoAlerts++; } });
+  const stoppedResult = await stoppedAuto.scanPair('EURUSD', '15m', 'AUTO', () => false);
+  assert.equal(stoppedResult.status, 'CALL');
+  assert.equal(autoAlerts, 0, 'stopped AUTO scan must not dispatch an alert after provider work completes');
+  console.log('[scanner_stop_race] PASS');
+
   // Auto cycle: favourites in order, payout filter, per-timeframe cap and BUDGET_LIMIT reporting.
   now += 900_000; // next candle: provider now also returns the entry candle, which is evaluated as the new signal candle
   const cycle = await service.runAutoCycle('15m', async () => undefined);

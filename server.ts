@@ -16,7 +16,7 @@ import { newsGuard } from './src/engine/newsGuard';
 import { experimentTracker } from './src/engine/experimentTracker';
 import { executeStrategyPipeline } from './src/engine/pipeline';
 import { STRATEGY_MANIFEST, ACTIVE_EXPERIMENT_ID } from './src/engine/manifest';
-import { EngineSettings, Timeframe, UserAccount, UserRole } from './src/engine/types';
+import { EngineSettings, Timeframe, UserAccount, UserRole, UserRecordedAction } from './src/engine/types';
 import { durableStorage, type SignalOutcome as StoredSignalOutcome } from './src/server/storage';
 import { notificationService } from './src/server/notificationService';
 import { formatProviderSwitchWarning } from './src/server/providerSwitchFormatter';
@@ -349,8 +349,12 @@ app.post('/api/engine/record-action', requireResearcher, (req: AuthenticatedRequ
   if (!setupId || !action) {
     return res.status(400).json({ error: 'Missing setupId or action' });
   }
+  const validActions = ['PENDING', 'TAKEN', 'NOT_TAKEN', 'NOT_RECORDED', 'SKIPPED'];
+  if (typeof setupId !== 'string' || setupId.length > 128 || typeof action !== 'string' || !validActions.includes(action)) {
+    return res.status(400).json({ error: 'INVALID_ACTION', message: `Action must be one of: ${validActions.join(', ')}.` });
+  }
 
-  const success = experimentTracker.recordUserAction(setupId, action);
+  const success = experimentTracker.recordUserAction(setupId, action as UserRecordedAction);
   if (!success) {
     return res.status(404).json({ error: 'Candidate setup not found in active telemetry' });
   }
@@ -514,6 +518,15 @@ app.get('/api/audit/verify-chain', requireApprovedUser, (_req, res) => {
 
 app.get('/api/audit/verify-signal-ledger', requireAdmin, (_req, res) => {
   res.json({ path: signalLedger.path, verification: signalLedger.verify() });
+});
+
+app.post('/api/audit/repair-signal-ledger', requireAdmin, (req: AuthenticatedRequest, res) => {
+  const repair = signalLedger.repairPartialTail();
+  durableStorage.recordAuditEvent({
+    event_type: 'SIGNAL_LEDGER_REPAIR', actor_id: req.user?.id, actor_email: req.user?.email,
+    details: { repaired: repair.repaired, reason: repair.reason, verification: repair.verification },
+  });
+  res.json({ path: signalLedger.path, ...repair });
 });
 
 app.get('/api/audit/logs', requireAdmin, (_req, res) => {
@@ -755,6 +768,9 @@ app.post('/api/admin/settings', requireAdmin, (req: AuthenticatedRequest, res) =
     experimentTracker.setExperimentLocked(experimentLocked);
   }
 
+  if (selectedTimeframe && !['5m', '15m', '30m'].includes(selectedTimeframe)) {
+    return res.status(400).json({ error: 'INVALID_TIMEFRAME', message: 'Valid scan timeframes are 5m, 15m, 30m.' });
+  }
   if (selectedTimeframe && !experimentTracker.isExperimentLocked()) {
     currentSettings.selectedTimeframe = selectedTimeframe as Timeframe;
   }
