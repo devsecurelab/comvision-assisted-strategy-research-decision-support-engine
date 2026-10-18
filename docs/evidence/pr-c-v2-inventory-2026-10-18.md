@@ -36,7 +36,7 @@ grep -RInE 'v2Baseline|v3Refinement|tick_sequence|tick_baseline|pressure_observa
 | V3 stage compatibility labels | `V3Stage.v2Baseline`, `V3Stage.v3Refinement` and stage factory output | Grep finds no UI, analytics, chat, export, or test consumer; only declaration/production construction | **Remove in a separate telemetry-shape commit** |
 | Frozen configuration snapshot | `V2_CONFIG_SNAPSHOT` in `src/engine/manifest.ts`, exported through `STRATEGY_MANIFEST.parameters`, `CONFIG_HASH` | Active experiment tracker and metadata use the frozen object/hash | **Keep data; rename/relabel only if hash and records remain stable** |
 | Experiment IDs/counters | `generateNextSetupId()` emits `V2-...`; startup scans `V2-` records | Active `experimentTracker.recordCandidate()` uses this for live candidates; old records may contain it | **Suspect — do not delete without migration decision** |
-| Experiment freeze wording | `EXP-2026-V2-001`, “Strategy v2.0” strings in `experimentTracker`, chat, UI | UI/chat/export-facing strings and stored experiment metadata depend on these labels | **Suspect — update to V3 wording only after owner confirms compatibility label** |
+| Experiment identifier compatibility | `EXP-2026-V2-001`, `V2-...` setup IDs, and hash-bearing snapshot text | Active stored experiment metadata and old-record compatibility depend on these identifiers/text; user-facing wording is now V3-labelled | **Keep compatibility data; do not rename without migration** |
 | Stored outcome compatibility | `WIN`, `LOSS`, `INVALIDATED`, `UNRESOLVED` in `storage.ts`, analytics, tracker, signal ledger | Analytics, chat, notifications, ledger and old records read these values | **Keep; explicitly protected by requirement** |
 | Legacy telemetry aliases | `strategy_version`, `experiment_id`, `setup_id`, `config_hash`, `DataProvenance.REPLAY`, legacy `tick_*`, pressure observation | Stored `MasterTelemetry` and UI/chat/export read parts of these; some old records need compatibility | **Keep unless field-by-field migration proves safe** |
 | `input_snapshot` fallback | `src/App.tsx`, analytics fallback | Reads old candidate records | **Keep for old-record readability** |
@@ -52,7 +52,7 @@ grep -RInE 'v2Baseline|v3Refinement|tick_sequence|tick_baseline|pressure_observa
 
 ## Suspicion list (not deleted without confirmation)
 
-- `V2_CONFIG_SNAPSHOT` name and its specification text: the object is the active frozen parameter source and its hash is part of stored telemetry.
+- `V2_CONFIG_SNAPSHOT` name and its hash-bearing specification text: the object is the active frozen parameter source and its hash is part of stored telemetry; active UI/chat wording is not retained.
 - `V2-...` setup IDs and `EXP-2026-V2-001`: active production tracker behavior and old record compatibility are coupled to them.
 - `WIN`/`LOSS`/legacy outcome aliases and `REPLAY` provenance: required to read historical records and are used by analytics/chat/notifications.
 - `tick_proxy`, pressure observation, and old pipeline validation fields: UI and chat still display them.

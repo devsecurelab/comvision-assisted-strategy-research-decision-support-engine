@@ -1,5 +1,5 @@
 // Primary Manual Setup Decision Alert Card Component
-// Strategy v1.0 Frozen Specification
+// RDP Strategy V3.0 Frozen Specification
 import React from 'react';
 import {
   AlertTriangle,
@@ -52,7 +52,7 @@ export const DecisionAlertCard: React.FC<DecisionAlertCardProps> = ({
         </h3>
         <p className="text-xs text-slate-500 max-w-md mx-auto">
           The 9-stage validation pipeline is continuously filtering incoming
-          frames according to Strategy v1.0 Frozen Specification.
+          frames according to RDP Strategy V3.0 Frozen Specification.
         </p>
       </div>
     );
@@ -236,7 +236,7 @@ export const DecisionAlertCard: React.FC<DecisionAlertCardProps> = ({
         </div>
       </div>
 
-      {/* Validation Checklist Grid (Strategy v2.0-FROZEN 19-Stage Pipeline) */}
+      {/* Validation Checklist Grid (RDP Strategy V3.0 (Frozen) 19-Stage Pipeline) */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 mb-5">
         <ValidationBadge
           label="1. Market Structure"

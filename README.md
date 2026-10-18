@@ -285,10 +285,10 @@ If the server is not at `http://127.0.0.1:3000`, set `COMVISION_BASE_URL` before
 
 ---
 
-## 7. Strategy v2.0-FROZEN Specifications & Verification
+## 7. RDP Strategy V3.0 (Frozen) Specifications & Verification
 
 ### 7.1 Master Manifest Verification
-- **Strategy Version:** `v2.0-FROZEN`
+- **Strategy Version:** `RDP_STRATEGY_V3.0`
 - **Active Experiment:** `EXP-2026-V2-001` (100 Valid Setups)
 - **Canonical Configuration Hash:**
   ```

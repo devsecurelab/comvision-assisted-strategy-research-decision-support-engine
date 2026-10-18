@@ -1,5 +1,5 @@
 // Experiment Mode View Component (EXP-2026-V2-001: 100 Valid Setups)
-// Strategy v2.0-FROZEN Master Specification
+// RDP Strategy V3.0 (Frozen) Master Specification
 import React, { useState } from 'react';
 import { FlaskConical, Lock, ShieldAlert, Check, Copy, Hash } from 'lucide-react';
 import { MasterTelemetry } from '../../engine/types';
@@ -182,7 +182,7 @@ export const ExperimentView: React.FC<ExperimentViewProps> = ({ candidates }) =>
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-3 text-xs">
         <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2">
           <ShieldAlert className="w-4 h-4 text-amber-400" />
-          Strategy v2.0 Scope Freeze Protocol Rules (Section 57)
+          RDP Strategy V3.0 Scope Freeze Protocol Rules (Section 57)
         </h3>
         <ul className="space-y-2 text-slate-400 font-mono text-[11px] list-disc list-inside">
           <li>

@@ -1,5 +1,5 @@
-// Strategy Manifest — Active Strategy v2.0-FROZEN & Archived v1.0
-// Target Scope: Strategy v2.0 Research & Agent Architecture
+// Strategy Manifest — Active RDP Strategy V3.0 (Frozen) & Archived v1.0
+// Target Scope: RDP Strategy V3.0 Research & Decision Support Architecture
 // Master Specification: Developer Implementation Specification
 // Mode: Research / Decision-Support / Manual Alert Only
 // Architectural Boundary: Strictly Non-Execution
@@ -8,7 +8,7 @@ export const ACTIVE_STRATEGY_VERSION = 'RDP_STRATEGY_V3.0';
 export const HISTORICAL_STRATEGY_VERSION = 'v1.0-ARCHIVED';
 export const ACTIVE_EXPERIMENT_ID = 'EXP-2026-V3-REAL-001';
 
-// Canonical Frozen Configuration Snapshot for v2.0
+// Canonical Frozen Configuration Snapshot (hash-preserving compatibility record)
 export const V2_CONFIG_SNAPSHOT = {
   strategy_version: ACTIVE_STRATEGY_VERSION,
   experiment_id: ACTIVE_EXPERIMENT_ID,
@@ -166,14 +166,14 @@ export const V2_CONFIG_SNAPSHOT = {
   },
 } as const;
 
-// Deterministic SHA-256 Hash of canonical frozen configuration snapshot (sha256 of JSON.stringify(V2_CONFIG_SNAPSHOT))
+// Deterministic SHA-256 Hash of canonical frozen configuration snapshot (hash-preserving compatibility record)
 export const CONFIG_HASH = '1fc0ff3b17b2a077fdaf532615e7ca4ae2b38b36cdfc781059aeda3e7977b9b8';
 
 export const STRATEGY_MANIFEST = {
   version: ACTIVE_STRATEGY_VERSION,
   experiment_id: ACTIVE_EXPERIMENT_ID,
   config_hash: CONFIG_HASH,
-  specification_document: 'STRATEGY v2.0 RESEARCH & AGENT ARCHITECTURE Master Specification',
+  specification_document: 'RDP STRATEGY V3.0 FROZEN RESEARCH & DECISION-SUPPORT SPECIFICATION',
   historical_baseline: {
     version: HISTORICAL_STRATEGY_VERSION,
     status: 'ARCHIVED',

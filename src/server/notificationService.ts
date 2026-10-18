@@ -427,7 +427,7 @@ export class NotificationService {
   }
 
   /**
-   * Formats Message #1: VALID SIGNAL ALERT payload (Strategy v2.0-FROZEN Specification Section 35)
+   * Formats Message #1: VALID SIGNAL ALERT payload (RDP Strategy V3.0 (Frozen) Specification Section 35)
    */
   public formatSignalAlert(telemetry: MasterTelemetry, extra: { signalId?: string; validUntil?: string } = {}): string {
     const v3 = telemetry.decision_engine_v3;
@@ -459,7 +459,7 @@ export class NotificationService {
   }
 
   /**
-   * Formats Message #2: NEXT-CANDLE RESULT ALERT payload (Strategy v2.0-FROZEN Specification Section 36)
+   * Formats Message #2: NEXT-CANDLE RESULT ALERT payload (RDP Strategy V3.0 (Frozen) Specification Section 36)
    */
   public formatResultAlert(telemetry: MasterTelemetry, outcome: any): string {
     const timeSig = formatSignalTime(telemetry.metadata?.signal_timestamp_utc || telemetry.metadata?.timestamp_utc);

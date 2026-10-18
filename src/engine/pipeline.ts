@@ -572,7 +572,7 @@ export function evaluateLiquiditySweep(
 }
 
 /**
- * Stage 10 & 11: BSL / SSL Liquidity Pools & Target Mapping (Strategy v2.0-FROZEN)
+ * Stage 10 & 11: BSL / SSL Liquidity Pools & Target Mapping (RDP Strategy V3.0 (Frozen))
  * 
  * Exact Deterministic Rules:
  * 1. Equality Tolerance: ΔP = abs(P1 - P2) / currentPrice <= 0.0008 (8 pips relative per EUR/USD 1.0000 base).
@@ -943,7 +943,7 @@ export function evaluateWickPushback(
 }
 
 /**
- * Stage 15: Candle Momentum & Imbalance (Strategy v2.0-FROZEN)
+ * Stage 15: Candle Momentum & Imbalance (RDP Strategy V3.0 (Frozen))
  * 
  * Exact Numerical Formulas & Deterministic Rules:
  * 1. Candle Formulas:

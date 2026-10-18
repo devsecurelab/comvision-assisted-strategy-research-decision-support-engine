@@ -1,5 +1,5 @@
 // Controlled Experiment Tracker (EXP-2026-V2-001)
-// Strategy v2.0-FROZEN Master Specification: First 100 Valid Setups Controlled Experiment
+// RDP Strategy V3.0 (Frozen) Master Specification: First 100 Valid Setups Controlled Experiment
 // Integrated with Durable Persistence Storage (survives server restart & redeployment)
 
 import { MasterTelemetry, UserRecordedAction, NextCandleObservation } from './types';
@@ -124,7 +124,7 @@ export class ExperimentManager {
     // 1. Load experiment state
     const state = durableStorage.loadExperimentState();
     if (state) {
-      this.experimentId = ACTIVE_EXPERIMENT_ID; // Force v2.0 experiment ID
+      this.experimentId = ACTIVE_EXPERIMENT_ID; // Force the active experiment ID
       this.strategyVersion = ACTIVE_STRATEGY_VERSION;
       this.configHash = CONFIG_HASH;
       this.isLocked = state.isLocked !== undefined ? state.isLocked : true;
@@ -227,7 +227,7 @@ export class ExperimentManager {
     if (this.isLocked) {
       return {
         allowed: false,
-        reason: `Scope Freeze Active: Controlled Experiment ${this.experimentId} is locked for first ${STRATEGY_MANIFEST.scope_freeze.target_valid_setups} setups. Strategy v2.0 parameters are immutable. Attempted change: ${paramChange || 'unknown'}`,
+        reason: `Scope Freeze Active: Controlled Experiment ${this.experimentId} is locked for first ${STRATEGY_MANIFEST.scope_freeze.target_valid_setups} setups. RDP Strategy V3.0 parameters are immutable. Attempted change: ${paramChange || 'unknown'}`,
       };
     }
     return { allowed: true, reason: 'Unlocked' };
@@ -262,7 +262,7 @@ export class ExperimentManager {
       if (mutations[field] !== undefined) {
         return {
           allowed: false,
-          reason: `EXPERIMENT_SCOPE_FROZEN: Parameter '${field}' is locked and immutable under Strategy v2.0 controlled experiment ${this.experimentId}.`,
+          reason: `EXPERIMENT_SCOPE_FROZEN: Parameter '${field}' is locked and immutable under RDP Strategy V3.0 controlled experiment ${this.experimentId}.`,
           field,
         };
       }
@@ -272,7 +272,7 @@ export class ExperimentManager {
   }
 
   /**
-   * Generates sequential v2.0 Setup ID: V2-000001, V2-000002...
+   * Generates sequential compatibility Setup ID: V2-000001, V2-000002...
    */
   public generateNextSetupId(): string {
     const pad = String(this.setupCounter++).padStart(6, '0');
@@ -283,7 +283,7 @@ export class ExperimentManager {
    * Records candidate frame with SHA-256 hash chaining and durable persistence.
    */
   public recordCandidate(telemetry: MasterTelemetry): MasterTelemetry {
-    // Ensure v2.0 metadata defaults
+    // Ensure frozen metadata defaults
     telemetry.metadata.strategy_version = ACTIVE_STRATEGY_VERSION;
     telemetry.metadata.experiment_id = ACTIVE_EXPERIMENT_ID;
     telemetry.metadata.config_hash = CONFIG_HASH;
@@ -430,7 +430,7 @@ export class ExperimentManager {
       researchObservation = 'NEXT_CANDLE_NEUTRAL';
     }
 
-    // Standardize v2.0 stored outcome format
+    // Standardize stored outcome format
     const standardizedOutcome: SignalOutcome =
       outcome === 'WIN'
         ? 'NEXT_CANDLE_FAVORABLE'

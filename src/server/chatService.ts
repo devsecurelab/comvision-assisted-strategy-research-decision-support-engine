@@ -1,6 +1,6 @@
 // ComVision Assistant & Quantitative Research Chat Engine
-// Strategy v2.0-FROZEN Master Specification (EXP-2026-V2-001)
-// Natural Language Queries + Deterministic Strategy v2.0 Pipeline Separation
+// RDP Strategy V3.0 (Frozen) Master Specification (EXP-2026-V2-001)
+// Natural Language Queries + Deterministic RDP Strategy V3.0 Pipeline Separation
 // STRICT NON-EXECUTION BOUNDARY: Informational decision-support only. No trade execution.
 
 import { GoogleGenAI } from '@google/genai';
@@ -37,7 +37,7 @@ export class ChatService {
     const trimmed = userQuery.trim();
     const lower = trimmed.toLowerCase();
 
-    // 1. Guard against Strategy v2.0 mutation attempts (Scope Freeze Enforcement)
+    // 1. Guard against RDP Strategy V3.0 mutation attempts (Scope Freeze Enforcement)
     const mutationMatch =
       lower.match(/(?:change|modify|update|set|alter|disable|override)\s*(?:wick|fib|threshold|parameter|strategy|ratio|setting|choch|bos|fvg|ifvg|bpr|breaker|ote|session)/i) ||
       lower.match(/(?:wick|fib|threshold|parameter|choch|bos|fvg|bpr|ote).*(?:change|বদল|পরিবর্তন|সংশোধন)/i);
@@ -77,7 +77,7 @@ export class ChatService {
     // 2. Config Hash & Manifest Queries
     if (lower.includes('config hash') || lower.includes('hash') || lower.includes('manifest') || lower.includes('হ্যাশ')) {
       const hashResponse = [
-        `🛡️ **Strategy v2.0-FROZEN Master Manifest & Snapshot**`,
+        `🛡️ **RDP Strategy V3.0 (Frozen) Master Manifest & Snapshot**`,
         ``,
         `• **Active Version**: \`${ACTIVE_STRATEGY_VERSION}\``,
         `• **Experiment ID**: \`${ACTIVE_EXPERIMENT_ID}\``,
@@ -122,7 +122,7 @@ export class ChatService {
       let conceptText = '';
       if (lower.includes('choch')) {
         conceptText = [
-          `📖 **Change of Character (CHoCH) in Strategy v2.0-FROZEN:**`,
+          `📖 **Change of Character (CHoCH) in RDP Strategy V3.0 (Frozen):**`,
           ``,
           `• **Definition**: Early structural transition signaling potential shift in trend character.`,
           `• **Bullish CHoCH**: When prior structure was bearish (Lower Highs, Lower Lows) and current candle produces a decisive **Body Close** above the confirmed Lower High.`,
@@ -132,7 +132,7 @@ export class ChatService {
         ].join('\n');
       } else if (lower.includes('ifvg')) {
         conceptText = [
-          `📖 **Inverse Fair Value Gap (IFVG) in Strategy v2.0-FROZEN:**`,
+          `📖 **Inverse Fair Value Gap (IFVG) in RDP Strategy V3.0 (Frozen):**`,
           ``,
           `• **Definition**: An existing FVG that transitions into an inversion zone once price closes decisively through its opposing boundary.`,
           `• **Bullish Invalidation**: Bullish FVG broken downward by body close (\`Close < FVG_LOW\`) transitions into Bearish IFVG resistance.`,
@@ -141,7 +141,7 @@ export class ChatService {
         ].join('\n');
       } else if (lower.includes('bpr')) {
         conceptText = [
-          `📖 **Balanced Price Range (BPR) in Strategy v2.0-FROZEN:**`,
+          `📖 **Balanced Price Range (BPR) in RDP Strategy V3.0 (Frozen):**`,
           ``,
           `• **Definition**: Deterministic overlap zone formed between opposing bullish and bearish Fair Value Gaps.`,
           `• **Formula**: \`[max(BullishFVG.bottom, BearishFVG.bottom), min(BullishFVG.top, BearishFVG.top)]\`.`,
@@ -150,7 +150,7 @@ export class ChatService {
         ].join('\n');
       } else if (lower.includes('breaker')) {
         conceptText = [
-          `📖 **Breaker Block in Strategy v2.0-FROZEN:**`,
+          `📖 **Breaker Block in RDP Strategy V3.0 (Frozen):**`,
           ``,
           `• **Definition**: An Order Block that failed after sweeping liquidity and breaking market structure in the opposite direction.`,
           `• **Bullish Breaker**: A bearish OB that price subsequently displaced above via decisive body close.`,
@@ -159,7 +159,7 @@ export class ChatService {
         ].join('\n');
       } else if (lower.includes('ote')) {
         conceptText = [
-          `📖 **Optimal Trade Entry (OTE) in Strategy v2.0-FROZEN:**`,
+          `📖 **Optimal Trade Entry (OTE) in RDP Strategy V3.0 (Frozen):**`,
           ``,
           `• **Definition**: High-probability Fibonacci retracement pocket between **61.8% and 78.6%** of the structural swing.`,
           `• **Bullish Setup**: Retracement into [61.8%, 78.6%] discount zone from recent swing low to swing high.`,
@@ -168,7 +168,7 @@ export class ChatService {
         ].join('\n');
       } else {
         conceptText = [
-          `📖 **Break of Structure (BOS) in Strategy v2.0-FROZEN:**`,
+          `📖 **Break of Structure (BOS) in RDP Strategy V3.0 (Frozen):**`,
           ``,
           `• **Definition**: Structural trend continuation confirmed exclusively by candle body close.`,
           `• **Bullish BOS**: Current candle \`Close > PreviousConfirmedSwingHigh\`.`,
@@ -216,10 +216,10 @@ export class ChatService {
       });
 
       const responseLines = [
-        `📊 **ComVision Strategy v2.0 Research Summary / গবেষণা ফলাফল (${window.label} / Asia: Asia/Dhaka)**`,
+        `📊 **ComVision RDP Strategy V3.0 Research Summary / গবেষণা ফলাফল (${window.label} / Asia: Asia/Dhaka)**`,
         ``,
         `• **Strategy Version**: \`${ACTIVE_STRATEGY_VERSION}\` (\`${ACTIVE_EXPERIMENT_ID}\`)`,
-        `• **Valid Setups (Strategy v2.0 PASS)**: **${analytics.validSignalsCount}**`,
+        `• **Valid Setups (RDP Strategy V3.0 PASS)**: **${analytics.validSignalsCount}**`,
         ``,
         `• **Next-Candle Research Observations (Research WIN / LOSS)**:`,
         `   - NEXT_CANDLE_FAVORABLE (WIN): **${analytics.researchWins}**`,
@@ -355,15 +355,15 @@ export class ChatService {
 
     // 6. Default / Conversational Strategy Assistance
     const defaultResponse = [
-      `👋 আমি ComVision Strategy v2.0 Research Assistant।`,
+      `👋 আমি ComVision RDP Strategy V3.0 Research Assistant।`,
       ``,
-      `আমি আপনাকে Strategy v2.0-FROZEN সংক্রান্ত যেকোনো তথ্য এবং লাইভ টেলিমেট্রি বিশ্লেষণ জানাতে পারি:`,
+      `আমি আপনাকে RDP Strategy V3.0 (Frozen) সংক্রান্ত যেকোনো তথ্য এবং লাইভ টেলিমেট্রি বিশ্লেষণ জানাতে পারি:`,
       `1. **ঐতিহাসিক ফলাফল**: "গত ৩ দিনে কয়টা FAVORABLE এবং কয়টা UNFAVORABLE পর্যবেক্ষণ হয়েছিল?"`,
       `2. **মার্কেট অবস্থা**: "EUR/USD-এর current market condition কী?" অথবা "9-stage pipeline breakdown"`,
       `3. **স্ট্র্যাটেজি কনসেপ্ট**: "CHoCH কি?", "IFVG এবং BPR কীভাবে কাজ করে?", "OTE রেঞ্জ কত?"`,
       `4. **কনফিগ হ্যাশ**: "What is the canonical config hash?"`,
       ``,
-      `*মনে রাখবেন: Strategy v2.0-এর সমস্ত নিয়ম ফ্রোজেন (LOCKED) এবং কোনো ট্রেড অটোমেটিক এক্সিকিউট করা হয় না।*`,
+      `*মনে রাখবেন: RDP Strategy V3.0-এর সমস্ত নিয়ম ফ্রোজেন (LOCKED) এবং কোনো ট্রেড অটোমেটিক এক্সিকিউট করা হয় না।*`,
     ].join('\n');
 
     durableStorage.recordChatMessage({

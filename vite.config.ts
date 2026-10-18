@@ -14,7 +14,7 @@ export default defineConfig(() => {
           id: '/',
           name: 'ComVision Strategy Engine',
           short_name: 'ComVision',
-          description: 'Strategy v2.0 Decision-Support & Market Research Engine',
+          description: 'RDP Strategy V3.0 Decision-Support & Market Research Engine',
           theme_color: '#090d16',
           background_color: '#090d16',
           display: 'standalone',

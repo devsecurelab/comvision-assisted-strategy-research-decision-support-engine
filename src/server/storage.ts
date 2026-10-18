@@ -7,7 +7,7 @@ import path from 'node:path';
 import { MasterTelemetry, UserAccount, UserRecordedAction } from '../engine/types';
 
 // Research Outcome Semantics:
-// v2.0-FROZEN: NEXT_CANDLE_FAVORABLE | NEXT_CANDLE_UNFAVORABLE | NEXT_CANDLE_NEUTRAL | NEXT_CANDLE_INCONCLUSIVE
+// Frozen compatibility outcomes: NEXT_CANDLE_FAVORABLE | NEXT_CANDLE_UNFAVORABLE | NEXT_CANDLE_NEUTRAL | NEXT_CANDLE_INCONCLUSIVE
 // Historical v1.0 legacy compatibility: WIN | LOSS | INVALIDATED | UNRESOLVED
 export type SignalOutcome =
   | 'NEXT_CANDLE_FAVORABLE'

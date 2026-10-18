@@ -296,7 +296,7 @@ export default function App() {
         body: JSON.stringify({ setupId, action }),
       });
 
-      // 2. If research observation was also specified, record outcome via v2.0 endpoint
+      // 2. If research observation was also specified, record outcome via research outcome endpoint
       if (observation && observation !== 'PENDING') {
         const candidate = candidateHistory.find((c) => c.metadata.setup_id === setupId);
         const inputCandles = (candidate as any)?.input_snapshot?.candles;

@@ -48,7 +48,7 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
               ComVision-Assisted Strategy Engine
             </h1>
             <p className="text-[10px] text-indigo-400 font-mono">
-              Strategy v1.0 Frozen Specification
+              RDP Strategy V3.0 Frozen Specification
             </p>
           </div>
         </div>
@@ -211,7 +211,7 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
         <section className="space-y-6">
           <div className="text-center space-y-2">
             <h3 className="text-xl font-bold text-white tracking-wide">
-              The 9-Stage Strategy v1.0 Sequential Pipeline
+              The 9-Gate / 19-Stage RDP Strategy V3.0 Pipeline
             </h3>
             <p className="text-xs text-slate-400 max-w-xl mx-auto">
               Every candidate setup must pass through each stage in exact sequence.

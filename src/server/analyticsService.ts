@@ -20,7 +20,7 @@ export interface AnalyticsSummary {
   endDateUtc: string;
   totalCandidatesEvaluated: number;
   validSignalsCount: number;
-  // v2.0 Research Observation Semantics
+  // V3.0 Research Observation Semantics
   nextCandleFavorableCount: number;
   nextCandleUnfavorableCount: number;
   nextCandleNeutralCount: number;
@@ -144,7 +144,7 @@ export class AnalyticsService {
     timestamp?: string;
   }) {
     const existing = durableStorage.loadOutcomes();
-    // Normalize outcome to v2.0 research semantics
+    // Normalize outcome to frozen research semantics
     let standardized: SignalOutcome = record.outcome as SignalOutcome;
     if (record.outcome === 'WIN') standardized = 'NEXT_CANDLE_FAVORABLE';
     else if (record.outcome === 'LOSS') standardized = 'NEXT_CANDLE_UNFAVORABLE';
@@ -251,7 +251,7 @@ export class AnalyticsService {
     > = {};
     const validSignalList: AnalyticsSummary['validSignals'] = [];
 
-    // Helper to normalize outcome to v2.0 semantics
+    // Helper to normalize outcome to frozen semantics
     const normalizeOutcome = (raw?: string): 'NEXT_CANDLE_FAVORABLE' | 'NEXT_CANDLE_UNFAVORABLE' | 'NEXT_CANDLE_NEUTRAL' | 'NEXT_CANDLE_INCONCLUSIVE' => {
       if (!raw) return 'NEXT_CANDLE_INCONCLUSIVE';
       if (raw === 'NEXT_CANDLE_FAVORABLE' || raw === 'WIN') return 'NEXT_CANDLE_FAVORABLE';
@@ -372,7 +372,7 @@ export class AnalyticsService {
       endDateUtc: new Date(endMillis).toISOString(),
       totalCandidatesEvaluated: matchedCandidates.length,
       validSignalsCount: validCandidates.length,
-      // v2.0 Research Observation Semantics
+      // V3.0 Research Observation Semantics
       nextCandleFavorableCount: favorable,
       nextCandleUnfavorableCount: unfavorable,
       nextCandleNeutralCount: neutral,
