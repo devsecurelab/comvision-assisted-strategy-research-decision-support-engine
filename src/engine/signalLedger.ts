@@ -115,6 +115,15 @@ export class SignalLedger {
     }
   }
 
+  /** Explicit, idempotent repair hook for an administrator/audit job. */
+  public repairPartialTail(): { repaired: boolean; reason?: string; verification: ReturnType<SignalLedger['verify']> } {
+    const result = this.recoverPartialTail();
+    this.cachedEntries = undefined;
+    this.cachedSignature = undefined;
+    this.cacheVerified = false;
+    return { repaired: result.recovered, reason: result.reason, verification: this.verify() };
+  }
+
   public readAll(): LedgerEntry[] {
     this.refreshCache();
     return this.cachedEntries!.map((entry) => entry);

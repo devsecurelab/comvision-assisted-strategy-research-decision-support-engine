@@ -171,12 +171,12 @@ export class ScanService {
     return notice;
   }
 
-  public async scanPair(pairInput: string, timeframe: ScanTimeframe, trigger: ScanTrigger = 'MANUAL'): Promise<ScanResult> {
+  public async scanPair(pairInput: string, timeframe: ScanTimeframe, trigger: ScanTrigger = 'MANUAL', shouldContinue: () => boolean = () => true): Promise<ScanResult> {
     const scanStartedAt = new Date(this.deps.now()).toISOString();
     let candleAvailableAt: string | null = null;
     let result: ScanResult;
     try {
-      result = await this.scanPairCore(pairInput, timeframe, trigger, (timestamp) => { candleAvailableAt = timestamp; });
+      result = await this.scanPairCore(pairInput, timeframe, trigger, (timestamp) => { candleAvailableAt = timestamp; }, shouldContinue);
     } catch (error) {
       const deliveredAt = new Date(this.deps.now()).toISOString();
       const pair = displayScanPair(pairInput);
@@ -199,7 +199,7 @@ export class ScanService {
     return timedResult;
   }
 
-  private async scanPairCore(pairInput: string, timeframe: ScanTimeframe, trigger: ScanTrigger, markCandleAvailable: (timestamp: string | null) => void): Promise<ScanResult> {
+  private async scanPairCore(pairInput: string, timeframe: ScanTimeframe, trigger: ScanTrigger, markCandleAvailable: (timestamp: string | null) => void, shouldContinue: () => boolean): Promise<ScanResult> {
     const pair = normalizeScanPair(pairInput);
     if (!PAIR_RE.test(pair)) return this.noTrade(pairInput, timeframe, trigger, 'UNSUPPORTED_SYMBOL');
     if (!SCAN_TIMEFRAMES.includes(timeframe)) return this.noTrade(pair, timeframe, trigger, 'UNSUPPORTED_TIMEFRAME');
@@ -275,6 +275,9 @@ export class ScanService {
         result = { ...result, signal_id: signalId, valid_until: new Date(validUntil).toISOString() };
       }
     }
+    // A stop may arrive while the provider request is in flight. Do not dispatch
+    // an AUTO alert after that stop; the scan record remains auditable.
+    if (trigger === 'AUTO' && !shouldContinue()) return result;
     this.cache.set(cacheKey, result);
     if (this.cache.size > 500) this.cache.delete(this.cache.keys().next().value as string);
     await this.deps.onScan?.(result);
@@ -297,12 +300,12 @@ export class ScanService {
       if (scanned >= MAX_AUTO_PAIRS[timeframe]) { results.push(this.recordUnfetchedScan(this.noTrade(pair, timeframe, 'AUTO', `BUDGET_LIMIT: ${timeframe} auto-scan cap is ${MAX_AUTO_PAIRS[timeframe]} pair(s) per candle.`))); continue; }
       if (this.deps.autoBudgetRemaining() < 2) { results.push(this.recordUnfetchedScan(this.noTrade(pair, timeframe, 'AUTO', 'BUDGET_LIMIT: daily auto-scan budget (70%) exhausted.'))); continue; }
       scanned++;
-      let result = await this.scanPair(pair, timeframe, 'AUTO');
+      let result = await this.scanPair(pair, timeframe, 'AUTO', shouldContinue);
       for (let attempt = 0; attempt < RETRY_BACKOFF_MS.length && /LATEST_CLOSED_CANDLE_MISSING|PROVIDER_HTTP_ERROR|PROVIDER_ERROR|STALE_MARKET_DATA/.test(result.reason) && this.deps.autoBudgetRemaining() >= 1; attempt++) {
         if (!shouldContinue()) break;
         await sleep(RETRY_BACKOFF_MS[attempt]);
         if (!shouldContinue()) break;
-        result = await this.scanPair(pair, timeframe, 'AUTO');
+        result = await this.scanPair(pair, timeframe, 'AUTO', shouldContinue);
       }
       results.push(result);
     }
