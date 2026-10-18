@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import assert from 'node:assert/strict';
 import { MarketFeedManager } from '../src/engine/dataProviders';
 import { executeStrategyPipeline } from '../src/engine/pipeline';
