@@ -3,7 +3,6 @@
 // Natural Language Queries + Deterministic RDP Strategy V3.0 Pipeline Separation
 // STRICT NON-EXECUTION BOUNDARY: Informational decision-support only. No trade execution.
 
-import { GoogleGenAI } from '@google/genai';
 import { executeStrategyPipeline, detectFractalSwings, evaluateMarketStructure } from '../engine/pipeline';
 import { feedManager } from '../engine/dataProviders';
 import { newsGuard } from '../engine/newsGuard';
@@ -20,18 +19,6 @@ export interface ChatResponse {
 }
 
 export class ChatService {
-  private ai: GoogleGenAI | null = null;
-
-  constructor() {
-    if (process.env.GEMINI_API_KEY) {
-      try {
-        this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      } catch (err) {
-        console.warn('[ChatService] Failed to initialize GoogleGenAI client:', err);
-      }
-    }
-  }
-
   public async processQuery(userOrId: any, userQuery: string): Promise<ChatResponse> {
     const userId = typeof userOrId === 'string' ? userOrId : userOrId?.id || userOrId?.email || 'operator';
     const trimmed = userQuery.trim();
@@ -258,10 +245,10 @@ export class ChatService {
     // 5. Current Market Condition & Pair Analysis Queries (19 Stages)
     let pair = 'EUR/USD';
     if (lower.includes('btc') || lower.includes('bitcoin')) pair = 'BTC/USD';
-    else if (lower.includes('nq') || lower.includes('nasdaq')) pair = 'NQ';
-    else if (lower.includes('es') || lower.includes('s&p') || lower.includes('spx')) pair = 'ES';
-    else if (lower.includes('gbp') || lower.includes('gu')) pair = 'GBP/USD';
-    else if (lower.includes('eur')) pair = 'EUR/USD';
+    else if (/(^|\s)(nq|nasdaq)(\s|$)/.test(lower)) pair = 'NQ';
+    else if (/(^|\s)(es|s&p|spx)(\s|$)/.test(lower)) pair = 'ES';
+    else if (/(^|\s)(gbp|gbp\/usd)(\s|$)/.test(lower)) pair = 'GBP/USD';
+    else if (/(^|\s)(eur|eur\/usd)(\s|$)/.test(lower)) pair = 'EUR/USD';
 
     const isMarketAnalysis =
       lower.includes('condition') ||
@@ -309,19 +296,13 @@ export class ChatService {
       const timeData = formatSignalTime(telemetry.metadata.timestamp_utc);
 
       const responseLines = [
-        `🔍 **[DETERMINISTIC MARKET ANALYSIS] ${pair} — 9-Stage Frozen Strategy Pipeline**`,
-        `Timeframe: **5m** | Setup: **${telemetry.metadata.setup_id}**`,
+        `🔍 **[DETERMINISTIC MARKET ANALYSIS] ${pair} — RDP Strategy V3.0 Nine-Gate Decision**`,
+        `Timeframe: **${telemetry.market_context.selected_timeframe}** | Setup: **${telemetry.metadata.setup_id}**`,
         ``,
-        `**Sequential 9-Stage Validation Order:**`,
-        `Stage 1 (Structure): **${telemetry.validation_metrics.structure.status}** (${telemetry.market_context.local_bias})`,
-        `Stage 2 (Fair Value Gap): **${telemetry.validation_metrics.fvg.fvg_status}** (${telemetry.validation_metrics.fvg.fvg_mitigation_state})`,
-        `Stage 3 (3-Candle Pattern): **${telemetry.validation_metrics.pattern_3_candle.status}** (Inside Candle: ${telemetry.validation_metrics.inside_candle?.inside_candle_detected ? 'Yes' : 'No'})`,
-        `Stage 4 (Tick Proxy): **${telemetry.validation_metrics.tick_proxy.status}** (${telemetry.validation_metrics.tick_proxy.tick_sequence})`,
-        `Stage 5 (Wick Validation): **${telemetry.validation_metrics.wick_check.status}** (Ratio: ${telemetry.validation_metrics.wick_check.wick_ratio.toFixed(3)})`,
-        `Stage 6 (Fib 50% Equilibrium): **${telemetry.validation_metrics.fib_zone.status}** (Level: ${telemetry.validation_metrics.fib_zone.fib_50_level?.toFixed(5) ?? 'N/A'})`,
-        `NEWS: NOT CHECKED (manual)`,
-        `Stage 8 (T-10s Observation): **${telemetry.pressure_observation.classification}** (Magnitude: ${telemetry.pressure_observation.magnitude})`,
-        `Stage 9 (Pressure): Pushback Wick **${telemetry.validation_metrics.wick_check.status}** (Ratio: ${telemetry.validation_metrics.wick_check.wick_ratio.toFixed(3)})`,
+        `**Authoritative V3 Gates:**`,
+        ...(telemetry.decision_engine_v3?.gates ?? []).map((gate: any) =>
+          `Gate ${gate.gate} (${gate.name}): **${gate.status ?? 'UNAVAILABLE'}** — ${gate.reason ?? 'No gate detail available.'}`
+        ),
         ``,
         `**SYSTEM DECISION:** **${telemetry.system_execution.system_decision}**`,
         `**FINAL ACTION:** **${telemetry.system_execution.final_action}**`,

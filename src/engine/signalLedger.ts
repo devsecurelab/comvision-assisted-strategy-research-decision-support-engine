@@ -31,6 +31,7 @@ export interface SignalPayload {
   htf_provider?: string;
   setup_id: string;
   experiment_id: string;
+  config_hash: string;
   session?: string;
   kill_zone?: string;
 }

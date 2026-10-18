@@ -1,7 +1,7 @@
 import type { MarketDataResult, MarketDataProvider } from './dataProviders';
 import { MarketDataError } from './dataProviders';
 import { executeStrategyPipeline, MIN_PAYOUT_PCT } from './pipeline';
-import { ACTIVE_EXPERIMENT_ID } from './manifest';
+import { ACTIVE_EXPERIMENT_ID, CONFIG_HASH } from './manifest';
 import type { Candle, MasterTelemetry, NewsEvent, Timeframe } from './types';
 import { timeframeMs } from './dataIntegrity';
 import { breakevenFor, EdgeMonitor } from './edgeMonitor';
@@ -270,7 +270,7 @@ export class ScanService {
           valid_until: new Date(validUntil).toISOString(), payout_pct: payout.pct, breakeven: breakevenFor(payout.pct),
           mfci_total: v3.mfci.totalMfci, mfci_band: v3.mfciBand, engine_mode: v3.engineMode ?? 'PRICE_ONLY', provider: primary.provider,
           ltf_provider: primary.provider, htf_provider: htf.provider,
-          setup_id: telemetry.metadata.setup_id, experiment_id: ACTIVE_EXPERIMENT_ID, session: telemetry.market_context.session, kill_zone: telemetry.market_context.kill_zone,
+          setup_id: telemetry.metadata.setup_id, experiment_id: ACTIVE_EXPERIMENT_ID, config_hash: CONFIG_HASH, session: telemetry.market_context.session, kill_zone: telemetry.market_context.kill_zone,
         });
         result = { ...result, signal_id: signalId, valid_until: new Date(validUntil).toISOString() };
       }

@@ -412,7 +412,7 @@ export class ExperimentManager {
   public recordSignalOutcome(
     setupId: string,
     outcome: SignalOutcome,
-    nextCandle: { open: number; high: number; low: number; close: number },
+    nextCandle: { open: number; high: number; low: number; close: number; volume?: number | null } | undefined,
     notes?: string
   ): SignalOutcomeRecord | null {
     const candidate = this.candidatesHistory.find((c) => c.metadata.setup_id === setupId);
@@ -446,11 +446,13 @@ export class ExperimentManager {
     } else {
       candidate.next_candle_observation.status = researchObservation;
       candidate.next_candle_observation.observation_timestamp = new Date().toISOString();
-      candidate.next_candle_observation.observed_candle = {
-        timestamp: new Date().toISOString(),
-        ...nextCandle,
-        volume: 0,
-      };
+      if (nextCandle) {
+        candidate.next_candle_observation.observed_candle = {
+          timestamp: new Date().toISOString(),
+          ...nextCandle,
+          volume: nextCandle.volume ?? null,
+        };
+      }
     }
 
     const record: SignalOutcomeRecord = {
@@ -464,11 +466,13 @@ export class ExperimentManager {
       outcome: standardizedOutcome,
       user_recorded_action: candidate.system_execution.user_recorded_action || 'NOT_RECORDED',
       userAction: candidate.system_execution.user_recorded_action || 'NOT_RECORDED',
-      next_candle: nextCandle,
-      nextCandleOpen: nextCandle.open,
-      nextCandleClose: nextCandle.close,
       notes,
     };
+    if (nextCandle) {
+      record.next_candle = nextCandle;
+      record.nextCandleOpen = nextCandle.open;
+      record.nextCandleClose = nextCandle.close;
+    }
 
     durableStorage.recordOutcome(record);
     this.persist();

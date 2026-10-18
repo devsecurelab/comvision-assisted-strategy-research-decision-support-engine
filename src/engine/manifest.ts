@@ -1,4 +1,4 @@
-// Strategy Manifest — Active RDP Strategy V3.0 (Frozen) & Archived v1.0
+// Strategy Manifest — Active RDP Strategy V3.0 (Frozen) & Archived compatibility records
 // Target Scope: RDP Strategy V3.0 Research & Decision Support Architecture
 // Master Specification: Developer Implementation Specification
 // Mode: Research / Decision-Support / Manual Alert Only
@@ -8,7 +8,7 @@ export const ACTIVE_STRATEGY_VERSION = 'RDP_STRATEGY_V3.0';
 export const HISTORICAL_STRATEGY_VERSION = 'v1.0-ARCHIVED';
 export const ACTIVE_EXPERIMENT_ID = 'EXP-2026-V3-REAL-001';
 
-// Canonical Frozen Configuration Snapshot (hash-preserving compatibility record)
+// Archived configuration snapshot retained only so old records remain readable.
 export const V2_CONFIG_SNAPSHOT = {
   strategy_version: ACTIVE_STRATEGY_VERSION,
   experiment_id: ACTIVE_EXPERIMENT_ID,
@@ -166,8 +166,41 @@ export const V2_CONFIG_SNAPSHOT = {
   },
 } as const;
 
-// Deterministic SHA-256 Hash of canonical frozen configuration snapshot (hash-preserving compatibility record)
-export const CONFIG_HASH = '1fc0ff3b17b2a077fdaf532615e7ca4ae2b38b36cdfc781059aeda3e7977b9b8';
+import { sha256 } from '../utils/sha256';
+
+// Authoritative active V3 parameters. The hash is derived from this object at runtime;
+// it is not a copied V2-era string and it contains no Asia kill-zone rule.
+export const V3_CONFIG_SNAPSHOT = {
+  strategy_version: ACTIVE_STRATEGY_VERSION,
+  experiment_id: ACTIVE_EXPERIMENT_ID,
+  engine: 'strategyV3Engine',
+  minimum_candles: 30,
+  analysis_window: 120,
+  fractal_n: 2,
+  event_lookback: 20,
+  sweep_lookback: 10,
+  pool_lookback: 20,
+  breaker_delta_sample: 50,
+  gates: 9,
+  stages: 19,
+  mfci: {
+    threshold: 0.85,
+    full_weights: { structure: 0.35, order_flow: 0.25, liquidity: 0.20 },
+    price_only_weights: { structure: 0.35, liquidity: 0.20 },
+  },
+  wick_ratio_max: 0.50,
+  fib_equilibrium_level: 0.50,
+  ote: { start: 0.618, end: 0.786 },
+  session: {
+    london_timezone: 'Europe/London',
+    new_york_timezone: 'America/New_York',
+    kill_zone_local_start: '07:00',
+    kill_zone_local_end: '10:00',
+  },
+  news_guard: { restriction_window_minutes: 30, offline: 'INCONCLUSIVE' },
+} as const;
+
+export const CONFIG_HASH = sha256(JSON.stringify(V3_CONFIG_SNAPSHOT));
 
 export const STRATEGY_MANIFEST = {
   version: ACTIVE_STRATEGY_VERSION,
@@ -208,5 +241,9 @@ export const STRATEGY_MANIFEST = {
     'Stage 8: T-10s Pressure Observation (Non-Filtering)',
     'Stage 9: Telemetry Schema & Manual Alert Output',
   ],
-  parameters: V2_CONFIG_SNAPSHOT,
+  parameters: V3_CONFIG_SNAPSHOT,
+  legacy_compatibility: {
+    config_snapshot: V2_CONFIG_SNAPSHOT,
+    note: 'Retained for reading historical records only; not used for active decisions or CONFIG_HASH.',
+  },
 } as const;

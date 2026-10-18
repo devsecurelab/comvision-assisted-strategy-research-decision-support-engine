@@ -296,14 +296,8 @@ export default function App() {
         body: JSON.stringify({ setupId, action }),
       });
 
-      // 2. If research observation was also specified, record outcome via research outcome endpoint
+      // 2. Record only the operator's observation; never invent OHLC data in the client.
       if (observation && observation !== 'PENDING') {
-        const candidate = candidateHistory.find((c) => c.metadata.setup_id === setupId);
-        const inputCandles = (candidate as any)?.input_snapshot?.candles;
-        const openPrice = inputCandles?.[inputCandles.length - 1]?.close || 1.085;
-        const closeDelta = observation === 'NEXT_CANDLE_FAVORABLE' ? 0.0015 : observation === 'NEXT_CANDLE_UNFAVORABLE' ? -0.0015 : 0;
-        const closePrice = openPrice + closeDelta;
-
         await apiFetch('/api/engine/record-outcome', {
           method: 'POST',
           headers: {
@@ -313,12 +307,6 @@ export default function App() {
           body: JSON.stringify({
             setupId,
             outcome: observation,
-            nextCandle: {
-              open: openPrice,
-              high: Math.max(openPrice, closePrice) + 0.0005,
-              low: Math.min(openPrice, closePrice) - 0.0005,
-              close: closePrice,
-            },
             notes: `Operator empirical recording: Observation ${observation}, Action ${action}`,
           }),
         });

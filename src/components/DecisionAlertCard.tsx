@@ -58,7 +58,9 @@ export const DecisionAlertCard: React.FC<DecisionAlertCardProps> = ({
     );
   }
 
-  const isBullish = alert.market_context.local_bias === 'BULLISH';
+  const binarySignal = alert.decision_engine_v3?.binarySignal ?? 'NO_TRADE';
+  const directionLabel = binarySignal === 'CALL' ? 'BULLISH' : binarySignal === 'PUT' ? 'BEARISH' : 'UNAVAILABLE';
+  const isBullish = directionLabel === 'BULLISH';
   const setupId = alert.metadata.setup_id;
   const isPassed = alert.system_execution.system_decision === 'PASS';
   const recordedAction = alert.system_execution.user_recorded_action;
@@ -157,10 +159,10 @@ export const DecisionAlertCard: React.FC<DecisionAlertCardProps> = ({
             >
               {isBullish ? (
                 <TrendingUp className="w-3.5 h-3.5" />
-              ) : (
+              ) : directionLabel === 'BEARISH' ? (
                 <TrendingDown className="w-3.5 h-3.5" />
-              )}
-              {isBullish ? 'BULLISH' : 'BEARISH'}
+              ) : null}
+              {directionLabel}
             </span>
             {recordedAction !== 'PENDING' && (
               <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold">
@@ -236,103 +238,23 @@ export const DecisionAlertCard: React.FC<DecisionAlertCardProps> = ({
         </div>
       </div>
 
-      {/* Validation Checklist Grid (RDP Strategy V3.0 (Frozen) 19-Stage Pipeline) */}
+      {/* Authoritative V3 decision gates; stage-level details remain in telemetry inspection. */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 mb-5">
-        <ValidationBadge
-          label="1. Market Structure"
-          status={alert.validation_metrics.structure.status}
-          detail={`5-Candle Fractal (${alert.market_context.local_bias})`}
-        />
-        <ValidationBadge
-          label="2. BOS Breakout"
-          status={alert.validation_metrics.bos?.bos_detected ? 'PASS' : 'PASS'}
-          detail={alert.validation_metrics.bos?.bos_detected ? `${alert.validation_metrics.bos.bos_direction} (Body Close)` : 'Structural Continuity'}
-        />
-        <ValidationBadge
-          label="3. CHoCH Pivot"
-          status={alert.validation_metrics.choch?.choch_status !== 'UNCERTAIN' ? 'PASS' : 'REJECT'}
-          detail={alert.validation_metrics.choch?.choch_status || 'NO_CHoCH'}
-        />
-        <ValidationBadge
-          label="4. FVG Imbalance"
-          status={alert.validation_metrics.fvg.fvg_status}
-          detail={`State: ${alert.validation_metrics.fvg.fvg_mitigation_state}`}
-        />
-        <ValidationBadge
-          label="5. IFVG Inversion"
-          status={alert.validation_metrics.ifvg?.status || 'PASS'}
-          detail={alert.validation_metrics.ifvg?.ifvg_status || 'STANDARD_FVG'}
-        />
-        <ValidationBadge
-          label="6. Balanced Price (BPR)"
-          status={alert.validation_metrics.bpr?.status || 'PASS'}
-          detail={alert.validation_metrics.bpr?.bpr_status || 'NONE'}
-        />
-        <ValidationBadge
-          label="7. Order Block (OB)"
-          status={alert.validation_metrics.order_block.ob_confluence_status}
-          detail="Displacement Precursor"
-        />
-        <ValidationBadge
-          label="8. Breaker Block"
-          status={alert.validation_metrics.breaker_block?.status || 'PASS'}
-          detail={alert.validation_metrics.breaker_block?.breaker_status || 'NO_BREAKER'}
-        />
-        <ValidationBadge
-          label="9. Liquidity Sweep"
-          status={alert.validation_metrics.liquidity_sweep.status}
-          detail={
-            alert.validation_metrics.liquidity_sweep.tested_swing_level
-              ? `Level: ${alert.validation_metrics.liquidity_sweep.tested_swing_level.toFixed(4)}`
-              : 'Structural Level'
-          }
-        />
-        <ValidationBadge
-          label="10. BSL / SSL Target"
-          status={alert.validation_metrics.bsl_ssl?.status || 'PASS'}
-          detail={alert.validation_metrics.bsl_ssl?.selected_liquidity_target || 'BSL_TARGET'}
-        />
-        <ValidationBadge
-          label="11. Fib 50% Equilibrium"
-          status={alert.validation_metrics.fib_zone.status}
-          detail="Discount / Premium Rule"
-        />
-        <ValidationBadge
-          label="12. OTE Zone (61.8-78.6%)"
-          status={alert.validation_metrics.ote?.status || 'PASS'}
-          detail={alert.validation_metrics.ote?.zone_status || 'INSIDE_OTE'}
-        />
-        <ValidationBadge
-          label="13. Wick Pushback"
-          status={alert.validation_metrics.wick_check.status}
-          detail={`Ratio: ${alert.validation_metrics.wick_check.wick_ratio.toFixed(3)} (<=0.50)`}
-        />
-        <ValidationBadge
-          label="14. Candle Momentum"
-          status={alert.validation_metrics.momentum?.status || 'PASS'}
-          detail={alert.validation_metrics.momentum?.momentum_state || 'ALIGNED'}
-        />
-        <ValidationBadge
-          label="15. Session & Kill Zone"
-          status="PASS"
-          detail={`${alert.market_context.session || 'London'} (${alert.market_context.kill_zone === 'INSIDE_KILL_ZONE' ? 'ACTIVE' : 'OUTSIDE'})`}
-        />
+        {(alert.decision_engine_v3?.gates ?? []).map((gate: any) => (
+          <ValidationBadge
+            key={gate.gate}
+            label={`Gate ${gate.gate}: ${gate.name}`}
+            status={gate.status ?? 'UNAVAILABLE'}
+            detail={gate.reason ?? 'No gate detail available.'}
+          />
+        ))}
+        {!alert.decision_engine_v3?.gates?.length && (
+          <ValidationBadge label="V3 Gates" status="UNAVAILABLE" detail="Authoritative gate telemetry unavailable." />
+        )}
       </div>
 
-      {/* Risk Parameters Notice */}
+      {/* Only state the architectural boundary that is actually enforced. */}
       <div className="p-3 bg-slate-950/80 border border-slate-800 rounded-lg mb-5 text-xs text-slate-400 space-y-1.5">
-        <div className="flex flex-wrap justify-between font-mono text-[11px]">
-          <span>
-            Stake Rule:{' '}
-            <strong className="text-slate-200">
-              Fixed 1.0% (No Martingale)
-            </strong>
-          </span>
-          <span>
-            Daily Loss Limit:{' '}
-            <strong className="text-emerald-400">PASSED (0.0% / 3.0%)</strong>
-          </span>
-        </div>
         <div className="flex items-center gap-1 text-[11px] text-slate-500">
           <ShieldCheck className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
           <span>

@@ -93,6 +93,7 @@ const currentSettings: EngineSettings = {
   scannerActive: experimentTracker.isScannerActive(),
   alertsMuted: experimentTracker.isAlertsMuted(),
 };
+let scanLoop: ScanLoop;
 
 // Seed initial history of candidates into durable storage if clean environment
 function seedInitialCandidatesIfEmpty() {
@@ -249,6 +250,9 @@ app.post('/api/engine/toggle-scanner', requireApprovedUser, (req, res) => {
     currentSettings.scannerActive = !currentSettings.scannerActive;
     experimentTracker.setScannerActive(currentSettings.scannerActive);
   }
+  scanLoop.setEnabled(currentSettings.scannerActive);
+  if (currentSettings.scannerActive) scanLoop.start();
+  else scanLoop.stop();
   res.json({ scannerActive: currentSettings.scannerActive });
 });
 
@@ -342,8 +346,8 @@ app.post('/api/engine/record-action', requireApprovedUser, (req: AuthenticatedRe
 
 app.post('/api/engine/record-outcome', requireApprovedUser, async (req: AuthenticatedRequest, res) => {
   const { setupId, outcome, nextCandle, notes } = req.body;
-  if (!setupId || !outcome || !nextCandle) {
-    return res.status(400).json({ error: 'Missing setupId, outcome, or nextCandle data' });
+  if (!setupId || !outcome) {
+    return res.status(400).json({ error: 'Missing setupId or outcome' });
   }
 
   const outcomeRecord = experimentTracker.recordSignalOutcome(setupId, outcome, nextCandle, notes);
@@ -591,7 +595,7 @@ const scanService = new ScanService({
   loadState: loadScanState,
   saveState: saveScanState,
 });
-const scanLoop = new ScanLoop(scanService, { now: () => Date.now(), loadState: loadScanState, saveState: saveScanState }, {
+scanLoop = new ScanLoop(scanService, { now: () => Date.now(), loadState: loadScanState, saveState: saveScanState }, {
   timeframe: (SCAN_TIMEFRAMES as string[]).includes(process.env.AUTO_SCAN_TIMEFRAME || '') ? (process.env.AUTO_SCAN_TIMEFRAME as ScanTimeframe) : '15m',
   enabled: process.env.AUTO_SCAN_ENABLED === 'true',
 });
@@ -837,6 +841,10 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
+    app.use((req, res, next) => {
+      if (/^\/server\.cjs(?:\.map)?$/i.test(req.path)) return res.status(404).json({ error: 'NOT_FOUND' });
+      next();
+    });
     app.use(express.static(distPath));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
