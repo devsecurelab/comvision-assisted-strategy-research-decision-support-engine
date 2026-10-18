@@ -10,7 +10,7 @@ import { htfCandlesFor, idealPriceOnlySetup, SIGNAL_TS } from './fixtures/v3Reac
 const tf = '15m' as const;
 const close = Date.parse(SIGNAL_TS) + 15 * 60_000;
 const htf = htfCandlesFor('BULLISH', new Date(close).toISOString());
-const pipe = (candles: Candle[], idx = candles.length - 1, nowMs = close + 3_000) => executeStrategyPipeline({ decisionEngineVersion: 'V3', candles, currentCandleIndex: idx, selectedTimeframe: tf, htfCandles: htf, newsEvents: [], newsSourceOnline: true, dataProvenance: 'LIVE_INGESTED', provider: 'TWELVE_DATA', pair: 'EUR/USD', payoutPct: 90, nowMs });
+const pipe = (candles: Candle[], idx = candles.length - 1, nowMs = close + 3_000) => executeStrategyPipeline({ candles, currentCandleIndex: idx, selectedTimeframe: tf, htfCandles: htf, newsEvents: [], newsSourceOnline: true, dataProvenance: 'LIVE_INGESTED', provider: 'TWELVE_DATA', pair: 'EUR/USD', payoutPct: 90, nowMs });
 const strip = (t: ReturnType<typeof pipe>) => JSON.stringify({ ...t, metadata: { ...t.metadata, timestamp_utc: undefined }, provider_provenance: undefined });
 
 // same_candle_determinism: identical closed input -> byte-identical decision (excluding wall-clock fields).

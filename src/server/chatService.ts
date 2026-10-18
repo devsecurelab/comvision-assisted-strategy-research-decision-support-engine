@@ -293,7 +293,7 @@ export class ChatService {
 
       // Execute only on verified live provider candles.
       const telemetry = executeStrategyPipeline({
-        decisionEngineVersion: 'V3',
+        
         candles: currentCandles,
         currentCandleIndex: currentCandles.length - 1,
         selectedTimeframe: '15m',

@@ -5,7 +5,7 @@ import { htfCandlesFor, idealPriceOnlySetup, SIGNAL_TS } from './fixtures/v3Reac
 const candles = idealPriceOnlySetup(1.085, '15m', 'BULLISH');
 const signalClose = Date.parse(SIGNAL_TS) + 15 * 60_000;
 const input = {
-  decisionEngineVersion: 'V3' as const, candles, currentCandleIndex: candles.length - 1, selectedTimeframe: '15m' as const,
+  candles, currentCandleIndex: candles.length - 1, selectedTimeframe: '15m' as const,
   htfCandles: htfCandlesFor('BULLISH', new Date(signalClose).toISOString()), newsEvents: [], newsSourceOnline: true,
   dataProvenance: 'LIVE_INGESTED' as const, provider: 'TWELVE_DATA' as const, pair: 'EUR/USD', payoutPct: 87, payoutSetAt: '2026-01-14T07:00:00.000Z', nowMs: signalClose + 3_000,
 };

@@ -244,7 +244,7 @@ export class ScanService {
     }
 
     const telemetry = executeStrategyPipeline({
-      decisionEngineVersion: 'V3', candles, currentCandleIndex: candles.length - 1, selectedTimeframe: timeframe,
+      candles, currentCandleIndex: candles.length - 1, selectedTimeframe: timeframe,
       htfCandles, newsEvents: this.deps.newsEvents(), newsSourceOnline: this.deps.newsSourceOnline(),
       dataProvenance: primary.dataProvenance, provider: primary.provider, pair: displayScanPair(pair), asset: displayScanPair(pair),
       payoutPct: payout.pct, payoutSetAt: payout.setAt, nowMs,

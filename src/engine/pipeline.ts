@@ -38,8 +38,6 @@ import { timeframeMs, validateCandleSeries } from './dataIntegrity';
 import { isFxMarketClosed } from './marketHours';
 
 export interface PipelineInput {
-  /** V3 is authoritative; V2 is retained only for explicit historical fixtures. */
-  decisionEngineVersion?: 'V2' | 'V3';
   candles: Candle[]; // historical candle sequence, ordered oldest to newest
   currentCandleIndex: number; // index of currently forming / closed confirmation candle (C3)
   selectedTimeframe: Timeframe;
@@ -1071,13 +1069,12 @@ export function evaluateTickProxy(
 }
 
 /**
- * MASTER EVALUATION PIPELINE: Strategy v2.0-FROZEN
+ * MASTER EVALUATION PIPELINE: V3 authoritative adapter with legacy telemetry fields.
  * Executes the 19 stages deterministically.
  * Returns single unified MasterTelemetry record.
  */
 export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
   const {
-    decisionEngineVersion = process.env.LEGACY_V2_FIXTURES === '1' ? 'V2' : 'V3',
     candles: inputCandles,
     currentCandleIndex,
     selectedTimeframe,
@@ -1088,8 +1085,8 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
     asset = 'EUR/USD',
     customSettings,
   } = input;
-  // Zero lookahead: the V3 path never sees candles after the decision candle.
-  const candles = decisionEngineVersion === 'V3' && Array.isArray(inputCandles) ? inputCandles.slice(0, Math.max(0, currentCandleIndex + 1)) : inputCandles;
+  // Zero lookahead: the authoritative engine never sees candles after the decision candle.
+  const candles = Array.isArray(inputCandles) ? inputCandles.slice(0, Math.max(0, currentCandleIndex + 1)) : inputCandles;
   const dataProvenance: DataProvenance = input.dataProvenance ?? 'NOT_LIVE';
   const failContext = { dataProvenance, provider: input.provider, payoutPct: input.payoutPct, signalCandleOpenTs: candles?.[currentCandleIndex]?.timestamp ?? null };
   const decisionCandle = candles?.[currentCandleIndex];
@@ -1099,22 +1096,20 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
   if (dataProvenance !== 'LIVE_INGESTED') {
     return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'DEGRADED', `NOT_LIVE_DATA: ${dataProvenance} is not verified live provider data. NO_TRADE.`, new Date().toISOString(), failContext);
   }
-  if (decisionEngineVersion === 'V3') {
-    if (input.payoutPct === undefined || input.payoutPct === null || !Number.isFinite(input.payoutPct)) {
-      return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'DEGRADED', 'PAYOUT_UNSET: payout not set via Telegram. NO_TRADE.', new Date().toISOString(), failContext);
-    }
-    if (input.payoutPct < MIN_PAYOUT_PCT) {
-      return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'DEGRADED', `PAYOUT_BELOW_MIN: ${input.payoutPct}% < ${MIN_PAYOUT_PCT}%. NO_TRADE.`, new Date().toISOString(), failContext);
-    }
-    const series = candles ? candles.slice(0, currentCandleIndex + 1) : [];
-    const quality = validateCandleSeries(series, { timeframe: selectedTimeframe, nowMs: input.nowMs, minCandles: MIN_ENGINE_CANDLES });
-    if (!quality.ok) {
-      return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'INVALID', `DATA_QUALITY_FAIL: ${quality.issues.slice(0, 3).map((issue) => `${issue.code} ${issue.detail}`).join('; ')}`, new Date().toISOString(), { ...failContext, dataQualityIssues: quality.issues.map((issue) => issue.code) });
-    }
+  if (input.payoutPct === undefined || input.payoutPct === null || !Number.isFinite(input.payoutPct)) {
+    return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'DEGRADED', 'PAYOUT_UNSET: payout not set via Telegram. NO_TRADE.', new Date().toISOString(), failContext);
+  }
+  if (input.payoutPct < MIN_PAYOUT_PCT) {
+    return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'DEGRADED', `PAYOUT_BELOW_MIN: ${input.payoutPct}% < ${MIN_PAYOUT_PCT}%. NO_TRADE.`, new Date().toISOString(), failContext);
+  }
+  const series = candles ? candles.slice(0, currentCandleIndex + 1) : [];
+  const quality = validateCandleSeries(series, { timeframe: selectedTimeframe, nowMs: input.nowMs, minCandles: MIN_ENGINE_CANDLES });
+  if (!quality.ok) {
+    return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'INVALID', `DATA_QUALITY_FAIL: ${quality.issues.slice(0, 3).map((issue) => `${issue.code} ${issue.detail}`).join('; ')}`, new Date().toISOString(), { ...failContext, dataQualityIssues: quality.issues.map((issue) => issue.code) });
   }
   const signalCloseIso = candles?.[currentCandleIndex] ? new Date(Date.parse(candles[currentCandleIndex].timestamp) + timeframeMs(selectedTimeframe)).toISOString() : new Date(0).toISOString();
-  const resolvedHtfBias = decisionEngineVersion === 'V3' && input.htfCandles ? deriveHtfBias(input.htfCandles, signalCloseIso) : higherTimeframeBias;
-  if (decisionEngineVersion === 'V3' && resolvedHtfBias === 'UNCLEAR') {
+  const resolvedHtfBias = input.htfCandles ? deriveHtfBias(input.htfCandles, signalCloseIso) : higherTimeframeBias;
+  if (resolvedHtfBias === 'UNCLEAR') {
     return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'DEGRADED', 'HTF_BIAS_UNCLEAR: 1h higher-timeframe bias is unavailable or unclear. NO_TRADE.', new Date().toISOString(), failContext);
   }
 
@@ -1140,7 +1135,7 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
 
   const resolvedProvenance: DataProvenance = dataProvenance;
   const v3Decision = evaluateStrategyV3({ candles: candles.slice(0, currentCandleIndex + 1), htfBias: resolvedHtfBias, newsEvents, newsSourceOnline, timeframe: selectedTimeframe, timestamp: c3.timestamp, gate4Mode: input.gate4Mode });
-  if (decisionEngineVersion === 'V3' && (v3Decision.mfci.totalMfci === null || v3Decision.mfci.sStructure === null || v3Decision.mfci.sLiquidity === null || v3Decision.entryPrice === null)) {
+  if (v3Decision.mfci.totalMfci === null || v3Decision.mfci.sStructure === null || v3Decision.mfci.sLiquidity === null || v3Decision.entryPrice === null) {
     return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'INVALID', v3Decision.statusReason, new Date().toISOString(), failContext);
   }
   const v3Telemetry = { ...v3Decision, mfci: { ...v3Decision.mfci, sStructure: v3Decision.mfci.sStructure ?? Number.NaN, sLiquidity: v3Decision.mfci.sLiquidity ?? Number.NaN, totalMfci: v3Decision.mfci.totalMfci ?? Number.NaN }, entryPrice: v3Decision.entryPrice ?? Number.NaN };
@@ -1429,30 +1424,28 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
     halted_at_stage = 'Stage 7: News Guard Fail-Safe';
     rejection_reason = newsReason;
   }
-  if (decisionEngineVersion === 'V3') {
-    system_decision = v3Decision.systemDecision === 'PASS'
-      ? 'PASS'
-      : v3Decision.systemDecision === 'BLOCKED'
-      ? 'REJECT'
-      : 'INCONCLUSIVE';
-    final_action = v3Decision.finalAction;
-    if (v3Decision.systemDecision !== 'PASS') {
-      const blockedGuard = v3Decision.operationalGuards.find((guard) => guard.status === 'BLOCKED');
-      const failedGate = v3Decision.gates.find((gate) => gate.status !== 'PASS');
-      halted_at_stage = blockedGuard ? `Operational Guard: ${blockedGuard.name}` : `V3 Gate ${failedGate?.gateNumber ?? 9}`;
-      rejection_reason = blockedGuard?.reason ?? failedGate?.reason ?? 'V3 confluence or safety gate did not pass';
-    }
+  system_decision = v3Decision.systemDecision === 'PASS'
+    ? 'PASS'
+    : v3Decision.systemDecision === 'BLOCKED'
+    ? 'REJECT'
+    : 'INCONCLUSIVE';
+  final_action = v3Decision.finalAction;
+  if (v3Decision.systemDecision !== 'PASS') {
+    const blockedGuard = v3Decision.operationalGuards.find((guard) => guard.status === 'BLOCKED');
+    const failedGate = v3Decision.gates.find((gate) => gate.status !== 'PASS');
+    halted_at_stage = blockedGuard ? `Operational Guard: ${blockedGuard.name}` : `V3 Gate ${failedGate?.gateNumber ?? 9}`;
+    rejection_reason = blockedGuard?.reason ?? failedGate?.reason ?? 'V3 confluence or safety gate did not pass';
   }
 
   const nowIso = new Date().toISOString();
 
   return {
-    decision_engine_v3: decisionEngineVersion === 'V3' ? v3Telemetry : undefined,
+    decision_engine_v3: v3Telemetry,
     metadata: {
       project_name: 'ComVision Strategy Research Engine',
       strategy_version: ACTIVE_STRATEGY_VERSION,
       experiment_id: ACTIVE_EXPERIMENT_ID,
-      setup_id: deterministicSetupId(pair, selectedTimeframe, c3.timestamp, decisionEngineVersion),
+      setup_id: deterministicSetupId(pair, selectedTimeframe, c3.timestamp, 'V3'),
       config_hash: CONFIG_HASH,
       timestamp_utc: nowIso,
       signal_timestamp_utc: c3.timestamp,

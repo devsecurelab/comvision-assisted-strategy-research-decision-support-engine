@@ -608,7 +608,7 @@ app.post(['/api/engine/evaluate-candidate', '/api/engine/scan-candidate'], requi
   const result = await scanService.scanPair(selectedPair, resolvedTimeframe, 'MANUAL');
   let telemetry = result.telemetry;
   if (!telemetry) {
-    telemetry = executeStrategyPipeline({ decisionEngineVersion: 'V3', candles: [], currentCandleIndex: -1, selectedTimeframe: (SCAN_TIMEFRAMES as string[]).includes(resolvedTimeframe) ? resolvedTimeframe : '15m', newsEvents: [], newsSourceOnline: false, dataProvenance: 'NOT_LIVE', pair: displayPair(selectedPair), asset: displayPair(selectedPair), payoutPct: payout.pct });
+    telemetry = executeStrategyPipeline({ candles: [], currentCandleIndex: -1, selectedTimeframe: (SCAN_TIMEFRAMES as string[]).includes(resolvedTimeframe) ? resolvedTimeframe : '15m', newsEvents: [], newsSourceOnline: false, dataProvenance: 'NOT_LIVE', pair: displayPair(selectedPair), asset: displayPair(selectedPair), payoutPct: payout.pct });
     telemetry.metadata.status_reason = result.reason;
     telemetry.system_execution.rejection_reason = result.reason;
   }

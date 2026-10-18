@@ -40,7 +40,7 @@ for (const folder of ['public', 'dist', 'protected_storage']) {
 
 const fixtureCandles = idealPriceOnlySetup(1.085, '15m', 'BULLISH', SIGNAL_TS);
 const telemetry = executeStrategyPipeline({
-  decisionEngineVersion: 'V3', candles: fixtureCandles, currentCandleIndex: fixtureCandles.length - 1,
+  candles: fixtureCandles, currentCandleIndex: fixtureCandles.length - 1,
   selectedTimeframe: '15m', htfCandles: htfCandlesFor('BULLISH', new Date(Date.parse(SIGNAL_TS) + 900_000).toISOString()),
   newsEvents: [], newsSourceOnline: true, dataProvenance: 'LIVE_INGESTED', provider: 'TWELVE_DATA',
   pair: 'EUR/USD', asset: 'EUR/USD', payoutPct: 90, nowMs: Date.parse(fixtureCandles.at(-1)!.timestamp) + 900_000,
