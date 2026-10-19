@@ -1,0 +1,38 @@
+name: Memory-Capped Smoke Test Gate
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Heap-Capped Gate Renumber Equivalence Test
+        run: |
+          echo "Running the 24,024-case equivalence test with a 512 MiB V8 heap cap..."
+          npm run test:gate-renumber
+
+      - name: Report Limitation
+        if: failure()
+        run: |
+          echo "::warning::The gate failed. Review the assertion output and the 512 MiB V8 heap cap; GitHub Actions checks out the full repository fixture."
