@@ -7,6 +7,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { UserAccount, UserRole, UserStatus } from '../engine/types';
 import { durableStorage, StoredSession } from './storage';
 
@@ -14,8 +15,16 @@ export class AuthService {
   private users: Map<string, UserAccount> = new Map();
   private sessions: Map<string, StoredSession> = new Map();
   private sessionDurationMs = 24 * 60 * 60 * 1000; // 24 hours
+  private readonly scryptAsync = promisify(crypto.scrypt);
+  private activeVerifications = 0;
+  private verificationQueue: Array<() => void> = [];
+  private loginFailures = new Map<string, { count: number; firstAt: number; lockedUntil: number }>();
+  private ipRequests = new Map<string, { count: number; firstAt: number }>();
+  private registrationRequests = new Map<string, { count: number; firstAt: number }>();
+  private dummyPasswordHash = '';
 
   constructor() {
+    this.dummyPasswordHash = this.hashPassword('dummy-password-for-timing-only');
     this.initializeFromStorage();
   }
 
@@ -31,14 +40,37 @@ export class AuthService {
   /**
    * Timing-safe password verification
    */
-  public verifyPassword(password: string, storedHash: string): boolean {
+  public async verifyPassword(password: string, storedHash: string): Promise<boolean> {
     const parts = storedHash.split(':');
     if (parts.length !== 2) return false;
     const [salt, key] = parts;
     if (!salt || !key) return false;
     const keyBuffer = Buffer.from(key, 'hex');
-    const derivedKey = crypto.scryptSync(password, salt, 64);
+    if (keyBuffer.length !== 64) return false;
+    const release = await this.acquireVerificationSlot();
+    let derivedKey: Buffer;
+    try {
+      derivedKey = await this.scryptAsync(password, salt, 64) as Buffer;
+    } finally {
+      release();
+    }
     return crypto.timingSafeEqual(keyBuffer, derivedKey);
+  }
+
+  private acquireVerificationSlot(): Promise<() => void> {
+    this.verificationQueue ||= [];
+    if (this.activeVerifications < 2) {
+      this.activeVerifications += 1;
+      return Promise.resolve(() => { this.activeVerifications -= 1; this.drainVerificationQueue(); });
+    }
+    return new Promise((resolve) => this.verificationQueue.push(() => {
+      this.activeVerifications += 1;
+      resolve(() => { this.activeVerifications -= 1; this.drainVerificationQueue(); });
+    }));
+  }
+
+  private drainVerificationQueue() {
+    if (this.activeVerifications < 2) this.verificationQueue.shift()?.();
   }
 
   public resetForTesting() {
@@ -64,7 +96,8 @@ export class AuthService {
     const storedSessions = durableStorage.loadSessions();
     for (const s of storedSessions) {
       if (s.expiresAt > now) {
-        this.sessions.set(s.token, s);
+        const key = s.tokenHash || (s.token ? this.hashToken(s.token) : '');
+        if (key) this.sessions.set(key, { ...s, tokenHash: key, token: undefined });
       }
     }
   }
@@ -78,10 +111,10 @@ export class AuthService {
     const adminUser: UserAccount = {
       id: adminId,
       email: 'admin@devsecure.engine',
-      name: 'Dr. Sarah Lin (Chief Research Lead)',
+      name: process.env.ADMIN_NAME || 'Administrator',
       role: 'ADMIN',
       status: 'APPROVED',
-      createdAt: new Date(Date.now() - 14 * 86400000).toISOString(),
+      createdAt: new Date().toISOString(),
       lastLogin: new Date().toISOString(),
       passwordHash: this.hashPassword(bootstrapPassword),
     };
@@ -108,6 +141,10 @@ export class AuthService {
     durableStorage.saveSessions(Array.from(this.sessions.values()));
   }
 
+  private hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
   public register(
     name: string,
     email: string,
@@ -120,9 +157,9 @@ export class AuthService {
       return { success: false, message: 'All fields are required.' };
     }
 
-    if (password.length < 8) {
-      return { success: false, message: 'Password must be at least 8 characters long.' };
-    }
+    if (password.length < 12 || password.length > 128) return { success: false, message: 'Password must be between 12 and 128 characters long.' };
+    if (normalizedEmail.length > 254) return { success: false, message: 'Email is too long.' };
+    if (name.trim().length > 100) return { success: false, message: 'Name is too long.' };
 
     // Check existing
     for (const u of this.users.values()) {
@@ -161,17 +198,26 @@ export class AuthService {
     };
   }
 
-  public login(
+  public async login(
     email: string,
-    password: string
-  ): {
+    password: string,
+    ipAddress = 'unknown'
+  ): Promise<{
     success: boolean;
     message: string;
     token?: string;
     user?: Omit<UserAccount, 'passwordHash'>;
     status?: UserStatus;
-  } {
+  }> {
     const normalizedEmail = email.trim().toLowerCase();
+    const genericFailure = { success: false, message: 'Invalid email or password.' } as const;
+    const now = Date.now();
+    this.ipRequests ||= new Map();
+    this.loginFailures ||= new Map();
+    const request = this.ipRequests.get(ipAddress);
+    if (request && now - request.firstAt < 15 * 60 * 1000 && request.count >= 30) return genericFailure;
+    if (!request || now - request.firstAt >= 15 * 60 * 1000) this.ipRequests.set(ipAddress, { count: 1, firstAt: now });
+    else request.count += 1;
     let matchedUser: UserAccount | null = null;
 
     for (const u of this.users.values()) {
@@ -181,19 +227,23 @@ export class AuthService {
       }
     }
 
-    if (!matchedUser || !matchedUser.passwordHash) {
-      return { success: false, message: 'Invalid email or password.' };
-    }
-
-    const passwordValid = this.verifyPassword(password, matchedUser.passwordHash);
+    const failureKey = `${normalizedEmail}|${ipAddress}`;
+    const failure = this.loginFailures.get(failureKey);
+    if (failure && failure.lockedUntil > now) return genericFailure;
+    const passwordValid = await this.verifyPassword(password, matchedUser?.passwordHash || this.dummyPasswordHash || this.hashPassword('dummy-password-for-timing-only'));
     if (!passwordValid) {
+      const current = this.loginFailures.get(failureKey);
+      const next = !current || now - current.firstAt >= 15 * 60 * 1000 ? { count: 1, firstAt: now, lockedUntil: 0 } : { ...current, count: current.count + 1 };
+      if (next.count >= 5) next.lockedUntil = now + 15 * 60 * 1000;
+      this.loginFailures.set(failureKey, next);
       durableStorage.recordAuditEvent({
         event_type: 'AUTH_FAILED_PASSWORD',
         actor_email: normalizedEmail,
         details: { reason: 'Password mismatch' },
       });
-      return { success: false, message: 'Invalid email or password.' };
+      return genericFailure;
     }
+    if (!matchedUser) return genericFailure;
 
     // Check status
     if (matchedUser.status !== 'APPROVED') {
@@ -212,15 +262,16 @@ export class AuthService {
 
     // Generate session token
     const token = crypto.randomBytes(32).toString('hex');
-    const now = Date.now();
+    const tokenHash = this.hashToken(token);
+    const sessionNow = Date.now();
     const session: StoredSession = {
-      token,
+      tokenHash,
       userId: matchedUser.id,
-      createdAt: now,
-      expiresAt: now + this.sessionDurationMs,
+      createdAt: sessionNow,
+      expiresAt: sessionNow + this.sessionDurationMs,
     };
 
-    this.sessions.set(token, session);
+    this.sessions.set(tokenHash, session);
     this.persistSessions();
 
     matchedUser.lastLogin = new Date().toISOString();
@@ -244,19 +295,12 @@ export class AuthService {
   }
 
   public getUserByToken(token: string): Omit<UserAccount, 'passwordHash'> | null {
-    let session = this.sessions.get(token);
-    if (!session) {
-      const storedSessions = durableStorage.loadSessions();
-      const matched = storedSessions?.find((s) => s.token === token);
-      if (matched && matched.expiresAt > Date.now()) {
-        this.sessions.set(token, matched);
-        session = matched;
-      }
-    }
+    const tokenHash = this.hashToken(token);
+    const session = this.sessions.get(tokenHash);
     if (!session) return null;
 
     if (Date.now() > session.expiresAt) {
-      this.sessions.delete(token);
+      this.sessions.delete(tokenHash);
       this.persistSessions();
       return null;
     }
@@ -277,7 +321,7 @@ export class AuthService {
   }
 
   public logout(token: string): boolean {
-    const existed = this.sessions.delete(token);
+    const existed = this.sessions.delete(this.hashToken(token));
     if (existed) {
       this.persistSessions();
     }

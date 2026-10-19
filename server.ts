@@ -173,26 +173,26 @@ const requireOperator = requireRole('ADMIN');
 
 // --- AUTHENTICATION API ROUTES ---
 
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   const { name, email, password } = req.body;
   if (!name || !email || !password) {
     return res.status(400).json({ error: 'Missing required registration parameters' });
   }
 
-  const result = authService.register(name, email, password);
+  const result = await authService.register(name, email, password);
   if (!result.success) {
     return res.status(400).json(result);
   }
   res.status(201).json(result);
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required' });
   }
 
-  const result = authService.login(email, password);
+  const result = await authService.login(email, password, req.socket.remoteAddress || 'unknown');
   if (!result.success) {
     if (result.status && result.status !== 'APPROVED') {
       return res.status(403).json(result);
