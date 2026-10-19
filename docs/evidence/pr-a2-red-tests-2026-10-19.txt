@@ -1,0 +1,16 @@
+[AuthService] Bootstrapped initial admin: admin@devsecure.engine. Credentials saved securely to data/.admin_bootstrap_secret
+PR-A2 intentional red tests: 12 failure(s)
+- password verification contract must be asynchronous
+- default admin bootstrap must not expose fabricated researcher identity
+- admin name must use ADMIN_NAME with neutral fallback
+- bootstrap creation metadata must use the real creation timestamp
+- 129-character password must be rejected
+- password shorter than 12 characters must be rejected
+- email longer than 254 characters must be rejected
+- name longer than 100 characters must be rejected
+- correct password must be rejected during the 15-minute lockout after five failures
+- invalid token lookup must perform zero disk reads
+- 100 concurrent login operations must not starve the event loop timer (observed 4502ms)
+- session persistence must store only a token hash
+Error: Authentication hardening red tests failed as expected before implementation.
+    at main (/home/ubuntu/worktrees/comvision-pr-a2/test/auth_hardening.test.ts:107:11)

@@ -80,7 +80,9 @@ export interface ChatMessage {
 }
 
 export interface StoredSession {
-  token: string;
+  tokenHash?: string;
+  /** Legacy sessions may contain a raw token; new writes never do. */
+  token?: string;
   userId: string;
   createdAt: number;
   expiresAt: number;
