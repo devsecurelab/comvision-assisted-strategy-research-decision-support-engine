@@ -1,0 +1,48 @@
+[Storage] Failed to read /tmp/comvision-storage-red-PC610Z/critical-users/users.json, using fallback: SyntaxError: Unexpected token 'b', ...""users": [broken-jso"... is not valid JSON
+    at JSON.parse (<anonymous>)
+    at DurableStorage.readJson (/home/ubuntu/worktrees/comvision-pr-s/src/server/storage.ts:164:28)
+    at DurableStorage.loadUsers (/home/ubuntu/worktrees/comvision-pr-s/src/server/storage.ts:204:17)
+    at <anonymous> (/home/ubuntu/worktrees/comvision-pr-s/test/storage_recovery.test.ts:18:18)
+    at ModuleJob.run (node:internal/modules/esm/module_job:271:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:547:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:116:5)
+[Storage] Failed to read /tmp/comvision-storage-red-PC610Z/zero-byte/users.json, using fallback: SyntaxError: Unexpected end of JSON input
+    at JSON.parse (<anonymous>)
+    at DurableStorage.readJson (/home/ubuntu/worktrees/comvision-pr-s/src/server/storage.ts:164:28)
+    at DurableStorage.loadUsers (/home/ubuntu/worktrees/comvision-pr-s/src/server/storage.ts:204:17)
+    at <anonymous> (/home/ubuntu/worktrees/comvision-pr-s/test/storage_recovery.test.ts:27:14)
+    at ModuleJob.run (node:internal/modules/esm/module_job:271:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:547:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:116:5)
+[Storage] Failed to read /tmp/comvision-storage-red-PC610Z/low-priority/chat_history.json, using fallback: SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)
+    at JSON.parse (<anonymous>)
+    at DurableStorage.readJson (/home/ubuntu/worktrees/comvision-pr-s/src/server/storage.ts:164:28)
+    at DurableStorage.loadChatHistory (/home/ubuntu/worktrees/comvision-pr-s/src/server/storage.ts:300:17)
+    at <anonymous> (/home/ubuntu/worktrees/comvision-pr-s/test/storage_recovery.test.ts:46:38)
+    at ModuleJob.run (node:internal/modules/esm/module_job:271:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:547:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:116:5)
+[Storage] Failed to read /tmp/comvision-storage-red-PC610Z/prev-recovery/users.json, using fallback: SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)
+    at JSON.parse (<anonymous>)
+    at DurableStorage.readJson (/home/ubuntu/worktrees/comvision-pr-s/src/server/storage.ts:164:28)
+    at DurableStorage.loadUsers (/home/ubuntu/worktrees/comvision-pr-s/src/server/storage.ts:204:17)
+    at <anonymous> (/home/ubuntu/worktrees/comvision-pr-s/test/storage_recovery.test.ts:55:30)
+    at ModuleJob.run (node:internal/modules/esm/module_job:271:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:547:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:116:5)
+PR-S intentional red tests: 10 failure(s)
+- corrupt users.json must be quarantined with a UTC suffix
+- zero-byte JSON file must be treated as corrupt and quarantined
+- object where an array is required must be treated as corrupt
+- corrupt non-critical chat history must be quarantined
+- valid .prev must be automatically recovered before returning users
+- successful replacement must keep the prior file as users.json.prev
+- package scripts must expose the explicit local storage:recover command
+- .gitignore must protect recovery artifacts: *.corrupt.*
+- .gitignore must protect recovery artifacts: *.prev
+- .gitignore must protect recovery artifacts: *.tmp.*
+Error: Storage recovery red tests failed as expected before implementation.
+    at <anonymous> (/home/ubuntu/worktrees/comvision-pr-s/test/storage_recovery.test.ts:78:11)
+    at ModuleJob.run (node:internal/modules/esm/module_job:271:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:547:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:116:5)
