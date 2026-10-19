@@ -117,6 +117,12 @@ export class DurableStorage {
   public setDataDir(dir: string) {
     this.dataDir = dir;
     this.ensureDirExists(this.dataDir);
+    const cutoff = Date.now() - 60 * 60 * 1000;
+    for (const name of fs.readdirSync(this.dataDir)) {
+      if (name.includes('.tmp.') && fs.statSync(path.join(this.dataDir, name)).mtimeMs < cutoff) {
+        try { fs.unlinkSync(path.join(this.dataDir, name)); } catch {}
+      }
+    }
 
     this.usersFile = path.join(this.dataDir, 'users.json');
     this.sessionsFile = path.join(this.dataDir, 'sessions.json');
@@ -154,18 +160,42 @@ export class DurableStorage {
     }
   }
 
-  private readJson<T>(filePath: string, fallback: T): T {
+  private quarantine(filePath: string): string | undefined {
+    if (!fs.existsSync(filePath)) return undefined;
+    const quarantinePath = `${filePath}.corrupt.${new Date().toISOString().replace(/[:.]/g, '-')}`;
+    fs.copyFileSync(filePath, quarantinePath);
+    fs.chmodSync(quarantinePath, 0o600);
+    return quarantinePath;
+  }
+
+  private readJson<T>(filePath: string, fallback: T, validate?: (value: unknown) => value is T): T {
     try {
       if (fs.existsSync(filePath)) {
         const signature = this.fileSignature(filePath);
         const cached = this.jsonCache.get(filePath);
         if (cached?.signature === signature) return cached.value as T;
         const raw = fs.readFileSync(filePath, 'utf-8');
-        const value = JSON.parse(raw) as T;
+        const value: unknown = JSON.parse(raw);
+        if (validate && !validate(value)) throw new TypeError(`Unexpected JSON shape for ${path.basename(filePath)}`);
         this.jsonCache.set(filePath, { signature, value });
-        return value;
+        return value as T;
       }
     } catch (err) {
+      if (!(err instanceof SyntaxError || err instanceof TypeError)) throw err;
+      this.jsonCache.delete(filePath);
+      this.quarantine(filePath);
+      const previous = `${filePath}.prev`;
+      if (fs.existsSync(previous)) {
+        try {
+          const recovered: unknown = JSON.parse(fs.readFileSync(previous, 'utf8'));
+          if (!validate || validate(recovered)) {
+            fs.copyFileSync(previous, filePath);
+            fs.chmodSync(filePath, 0o600);
+            this.jsonCache.set(filePath, { signature: this.fileSignature(filePath), value: recovered });
+            return recovered as T;
+          }
+        } catch { /* invalid .prev is not a recovery source */ }
+      }
       console.error(`[Storage] Failed to read ${filePath}, using fallback:`, err);
     }
     return fallback;
@@ -181,6 +211,11 @@ export class DurableStorage {
       fs.fsyncSync(fd);
       fs.closeSync(fd);
       fd = undefined;
+      if (fs.existsSync(filePath)) {
+        const previous = `${filePath}.prev`;
+        try { fs.linkSync(filePath, previous); } catch { fs.copyFileSync(filePath, previous); }
+        fs.chmodSync(previous, 0o600);
+      }
       fs.renameSync(tempPath, filePath);
       tempPath = undefined;
       this.jsonCache.delete(filePath);
@@ -201,7 +236,7 @@ export class DurableStorage {
 
   // --- USERS ---
   public loadUsers(): UserAccount[] {
-    return this.readJson<UserAccount[]>(this.usersFile, []);
+    return this.readJson<UserAccount[]>(this.usersFile, [], (value): value is UserAccount[] => Array.isArray(value));
   }
 
   public saveUsers(users: UserAccount[]) {
@@ -210,7 +245,7 @@ export class DurableStorage {
 
   // --- SESSIONS ---
   public loadSessions(): StoredSession[] {
-    return this.readJson<StoredSession[]>(this.sessionsFile, []);
+    return this.readJson<StoredSession[]>(this.sessionsFile, [], (value): value is StoredSession[] => Array.isArray(value));
   }
 
   public saveSessions(sessions: StoredSession[]) {
@@ -219,7 +254,7 @@ export class DurableStorage {
 
   // --- CANDIDATES & TELEMETRY ---
   public loadCandidates(): MasterTelemetry[] {
-    return this.readJson<MasterTelemetry[]>(this.candidatesFile, []);
+    return this.readJson<MasterTelemetry[]>(this.candidatesFile, [], (value): value is MasterTelemetry[] => Array.isArray(value));
   }
 
   public saveCandidates(candidates: MasterTelemetry[]) {
@@ -228,7 +263,7 @@ export class DurableStorage {
 
   // --- SIGNAL OUTCOMES ---
   public loadOutcomes(): SignalOutcomeRecord[] {
-    return this.readJson<SignalOutcomeRecord[]>(this.outcomesFile, []);
+    return this.readJson<SignalOutcomeRecord[]>(this.outcomesFile, [], (value): value is SignalOutcomeRecord[] => Array.isArray(value));
   }
 
   public saveOutcomes(outcomes: SignalOutcomeRecord[]) {
@@ -297,7 +332,7 @@ export class DurableStorage {
 
   // --- CHAT HISTORY ---
   public loadChatHistory(): ChatMessage[] {
-    return this.readJson<ChatMessage[]>(this.chatFile, []);
+    return this.readJson<ChatMessage[]>(this.chatFile, [], (value): value is ChatMessage[] => Array.isArray(value));
   }
 
   public recordChatMessage(msg: Omit<ChatMessage, 'id' | 'timestamp_utc'>): ChatMessage {

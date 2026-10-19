@@ -29,6 +29,9 @@ data/r8-smoke/
 data/r8-smoke-rerun/
 data/.admin_bootstrap_secret
 !data/.gitkeep
+*.corrupt.*
+*.prev
+*.tmp.*
 data_test/
 
 # System and logs
