@@ -264,6 +264,13 @@ export interface V3DecisionTelemetry {
 
 export interface MasterTelemetry {
   decision_engine_v3?: V3DecisionTelemetry;
+  /** Closed candles captured only for a directional signal; absent means a chart is unavailable. */
+  candle_snapshot?: {
+    candles: Candle[];
+    signal_candle_open_ts?: string | null;
+    source: 'SIGNAL_TELEMETRY' | 'STORED_WINDOW';
+    setup_id?: string;
+  };
   metadata: {
     project_name: string;
     strategy_version: string; // active engine version, e.g. "RDP_STRATEGY_V3.0"

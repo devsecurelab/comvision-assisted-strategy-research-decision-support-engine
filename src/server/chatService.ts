@@ -1,5 +1,5 @@
 // ComVision Assistant & Quantitative Research Chat Engine
-// RDP Strategy V3.0 (Frozen) Master Specification (EXP-2026-V2-001)
+// RDP Strategy V3.0 (Frozen) Master Specification (current frozen experiment)
 // Natural Language Queries + Deterministic RDP Strategy V3.0 Pipeline Separation
 // STRICT NON-EXECUTION BOUNDARY: Informational decision-support only. No trade execution.
 

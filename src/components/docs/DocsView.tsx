@@ -386,7 +386,7 @@ export const DocsView: React.FC = () => {
                   STAGE 5
                 </span>
                 <h3 className="font-bold text-slate-100 text-sm sm:text-base">
-                  Wick Pushback Ratio &amp; Liquidity Sweep Guard
+                  Rejection-wick ratio and liquidity sweep guard
                 </h3>
               </div>
               <span className="text-[10px] font-mono text-slate-500 uppercase">&lt;= 50% Boundary Rule</span>
@@ -406,7 +406,7 @@ export const DocsView: React.FC = () => {
                   <strong>Pushback Ratio:</strong> <code>OppositeWick / TotalRange</code>
                 </p>
                 <div className="p-2.5 bg-slate-900 rounded border border-slate-800 text-[11px]">
-                  • <code>Ratio &lt;= 0.500 (50%)</code> ➔ <span className="text-emerald-400 font-bold">PASS</span><br />
+                  • <code>Ratio &lt;= 0.500 (50%)</code> ➔ <span className="text-emerald-400 font-bold">Accepted</span><br />
                   • <code>Ratio &gt; 0.500 (50%)</code> ➔ <span className="text-rose-400 font-bold">REJECT ("Wick Fakeout")</span>
                 </div>
               </div>
@@ -561,7 +561,7 @@ export const DocsView: React.FC = () => {
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono text-center">
               <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg">
-                <span className="text-emerald-400 font-bold block">ALIGNED</span>
+                <span className="text-emerald-400 font-bold block">Aligned state</span>
                 <span className="text-[10px] text-slate-500">Pressure matches candidate bias</span>
               </div>
               <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg">
@@ -628,7 +628,7 @@ export const DocsView: React.FC = () => {
 [ Stage 8: News Guard Macro Gate ] ────────(FAIL)──► [ REJECT (Active) | INCONCLUSIVE (Offline) ]
                     │ (PASS)
                     ▼
-[ Stage 9: T-10s Pressure Observation ] ───(OBSV)──► [ Append Descriptive Telemetry ]
+[ Stage 9: Pre-close Pressure Observation ] ───(OBSV)──► [ Append Descriptive Telemetry ]
                     │
                     ▼
 [ SHA-256 Telemetry Hash-Chaining & Logging ]
@@ -762,7 +762,7 @@ export const DocsView: React.FC = () => {
                 To prevent researcher p-hacking or selective survivorship bias, both valid candidates and rejected candidates are preserved in the experiment ledger.
               </p>
               <p className="leading-relaxed text-slate-400">
-                Analysts can review empirical performance (Win / Loss / Break-even tracking), win rate, profit factor, average R:R, and average duration computed strictly from human-recorded outcomes.
+                Analysts can review empirical performance (Win / Loss / Break-even tracking), stored research observation counts and outcome distributions computed strictly from human-recorded outcomes.
               </p>
             </div>
           </div>
@@ -900,8 +900,8 @@ export const DocsView: React.FC = () => {
               },
               {
                 title: '3. Quantitative Analytics',
-                whatItDoes: 'Calculates performance metrics, win rate, profit factor, average R:R, and outcome distributions.',
-                whatUserSees: 'Summary statistic cards (Win Rate, Profit Factor, Total R, Sample Size) and interactive outcome charts.',
+                whatItDoes: 'Summarizes stored research observation counts and outcome distributions.',
+                whatUserSees: 'Summary counts and research observation states from stored telemetry.',
                 whatDataItUses: 'Human-recorded setup outcomes (WIN, LOSS, BREAK_EVEN) tied to validated setup IDs.',
                 whatResultMeans: 'Summarizes empirical research findings for the active experiment.',
                 whatItDoesNotDo: 'Does NOT project future profits, optimize curve-fit variables, or execute retrospective backtests.',

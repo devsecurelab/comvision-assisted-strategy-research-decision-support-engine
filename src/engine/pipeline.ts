@@ -1438,14 +1438,24 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
   }
 
   const nowIso = new Date().toISOString();
+  const setupId = deterministicSetupId(pair, selectedTimeframe, c3.timestamp, 'V3');
+  const hasDirectionalSignal = system_decision === 'PASS' && (v3Telemetry.binarySignal === 'CALL' || v3Telemetry.binarySignal === 'PUT');
 
   return {
     decision_engine_v3: v3Telemetry,
+    ...(hasDirectionalSignal ? {
+      candle_snapshot: {
+        candles: candles.slice(Math.max(0, currentCandleIndex - 39), currentCandleIndex + 1),
+        signal_candle_open_ts: c3.timestamp,
+        source: 'SIGNAL_TELEMETRY' as const,
+        setup_id: setupId,
+      },
+    } : {}),
     metadata: {
       project_name: 'ComVision Strategy Research Engine',
       strategy_version: ACTIVE_STRATEGY_VERSION,
       experiment_id: ACTIVE_EXPERIMENT_ID,
-      setup_id: deterministicSetupId(pair, selectedTimeframe, c3.timestamp, 'V3'),
+      setup_id: setupId,
       config_hash: CONFIG_HASH,
       config_hash_epoch: CONFIG_HASH_EPOCH,
       timestamp_utc: nowIso,

@@ -1,4 +1,4 @@
-// Experiment Mode View Component (EXP-2026-V2-001: 100 Valid Setups)
+// Experiment Mode View Component (current frozen experiment: 100 Valid Setups)
 // RDP Strategy V3.0 (Frozen) Master Specification
 import React, { useState } from 'react';
 import { FlaskConical, Lock, ShieldAlert, Check, Copy, Hash } from 'lucide-react';

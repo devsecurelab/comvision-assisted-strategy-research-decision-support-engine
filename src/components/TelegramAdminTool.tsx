@@ -239,7 +239,7 @@ export const TelegramAdminTool: React.FC<TelegramAdminToolProps> = ({ authToken 
             </div>
           </div>
           <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-            SECURE
+            CONFIGURED
           </span>
         </div>
       </div>
