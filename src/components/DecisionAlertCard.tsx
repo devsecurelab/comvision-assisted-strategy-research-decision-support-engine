@@ -47,12 +47,9 @@ export const DecisionAlertCard: React.FC<DecisionAlertCardProps> = ({
     return (
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center text-slate-400 space-y-3">
         <Clock className="w-8 h-8 mx-auto text-slate-500 animate-spin" />
-        <h3 className="text-sm font-semibold text-slate-300">
-          Scanning Ingestion Stream
-        </h3>
+        <h3 className="text-sm font-semibold text-slate-300">V3 telemetry UNAVAILABLE</h3>
         <p className="text-xs text-slate-500 max-w-md mx-auto">
-          The 9-stage validation pipeline is continuously filtering incoming
-          frames according to RDP Strategy V3.0 Frozen Specification.
+          No current V3 telemetry record is available. The interface will not infer a signal, price, or market state.
         </p>
       </div>
     );
@@ -64,7 +61,8 @@ export const DecisionAlertCard: React.FC<DecisionAlertCardProps> = ({
   const setupId = alert.metadata.setup_id;
   const isPassed = alert.system_execution.system_decision === 'PASS';
   const recordedAction = alert.system_execution.user_recorded_action;
-  const pair = alert.metadata.pair || alert.metadata.asset || 'EUR/USD';
+  const pair = alert.metadata.pair || alert.metadata.asset || 'UNAVAILABLE';
+  const hasCandleSnapshot = Boolean(alert.candle_snapshot?.candles?.length);
 
   // Authoritative Signal Timestamp formatting (Canonical UTC -> Asia/Dhaka)
   const timeInfo = formatSignalTime(
@@ -180,21 +178,11 @@ export const DecisionAlertCard: React.FC<DecisionAlertCardProps> = ({
           </p>
         </div>
 
-        {/* T-10s Pressure Observation */}
-        <div className="text-right">
-          <span className="text-[11px] text-slate-400 block font-mono">
-            T-10s Pressure Observation
-          </span>
-          <span className="text-sm font-bold text-indigo-400 font-mono tracking-wide">
-            {alert.pressure_observation.classification} (
-            {alert.pressure_observation.magnitude} MAG)
-          </span>
-          {alert.pressure_observation.speedPxPerSec && (
-            <span className="text-[10px] text-slate-500 block font-mono">
-              Speed: {alert.pressure_observation.speedPxPerSec} px/s
-            </span>
-          )}
-        </div>
+        {alert.pressure_observation.classification !== 'UNAVAILABLE' && <div className="text-right">
+          <span className="text-[11px] text-slate-400 block font-mono">Pressure Observation</span>
+          <span className="text-sm font-bold text-indigo-400 font-mono tracking-wide">{alert.pressure_observation.classification} ({alert.pressure_observation.magnitude} MAG)</span>
+          {alert.pressure_observation.speedPxPerSec !== undefined && <span className="text-[10px] text-slate-500 block font-mono">Speed: {alert.pressure_observation.speedPxPerSec} px/s</span>}
+        </div>}
       </div>
 
       {/* Authoritative Signal Timestamp Banner (UTC + Bangladesh Asia/Dhaka) */}
@@ -269,10 +257,11 @@ export const DecisionAlertCard: React.FC<DecisionAlertCardProps> = ({
         <button
           id="btn-open-chart"
           onClick={onOpenChart}
-          className="flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-lg transition shadow-lg shadow-indigo-600/20"
+          disabled={!hasCandleSnapshot}
+          className="flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-lg transition shadow-lg shadow-indigo-600/20 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <ExternalLink className="w-3.5 h-3.5" />
-          Open Chart
+          {hasCandleSnapshot ? 'Open Chart' : 'Chart Unavailable'}
         </button>
 
         <button

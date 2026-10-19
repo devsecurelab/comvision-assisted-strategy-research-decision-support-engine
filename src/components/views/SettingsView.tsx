@@ -212,12 +212,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </h3>
           </div>
           <p className="text-xs text-slate-400 leading-relaxed">
-            In accordance with Section 3.1, the dashboard operator's selected
-            timeframe is the sole authority governing pipeline evaluations.
+            Select one of the server-supported timeframes for pipeline evaluation.
           </p>
 
           <div className="flex flex-wrap gap-2 pt-2">
-            {(['1m', '5m', '15m', '30m', '1h'] as Timeframe[]).map((tf) => (
+            {(['5m', '15m', '30m'] as Timeframe[]).map((tf) => (
               <button
                 key={tf}
                 onClick={() => onSelectTimeframe(tf)}
@@ -227,7 +226,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'
                 }`}
               >
-                {tf} {tf === '5m' ? '(Recommended)' : ''}
+                {tf}
               </button>
             ))}
           </div>
@@ -415,7 +414,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div className="text-[10px] text-slate-500 uppercase font-mono">Server Bot Token</div>
             <div className="text-xs font-semibold text-slate-200 mt-1 flex items-center gap-1.5">
               <Shield className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="text-emerald-400 font-mono">Secured (Zero Exposure)</span>
+              <span className="text-emerald-400 font-mono">{telegramStatus.botTokenConfigured ? 'CONFIGURED' : 'NOT CONFIGURED'}</span>
             </div>
           </div>
 
