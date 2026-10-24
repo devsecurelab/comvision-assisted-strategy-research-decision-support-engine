@@ -33,6 +33,7 @@ jobs:
           npx tsx test/ui_truthfulness.test.ts
           npx tsx test/p0_merge_blockers.test.ts
           npx tsx test/strategy_v3_engine.test.ts
+          npx tsx test/provider_scheduler_concurrency.test.ts
           npm run test:gate-renumber
 
       - name: Report Fast Feedback Failure

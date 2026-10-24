@@ -39,6 +39,29 @@ async function main(): Promise<void> {
       assert.ok(finishTimes.at(-1)! - startTime >= 3 * (minInterval - 5));
     }
 
+    async function testSpacingIncludesPersistenceLatency() {
+      const minInterval = 25;
+      const scheduler = new RateLimitScheduler({ perMinute: 10, perDay: 100, minimumIntervalMs: minInterval, storageKey: key('slow-persistence') });
+      const originalSave = durableStorage.saveAppSettings.bind(durableStorage);
+      let delayNextSave = true;
+      (durableStorage as any).saveAppSettings = (settings: Record<string, unknown>) => {
+        if (delayNextSave) {
+          delayNextSave = false;
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 40);
+        }
+        originalSave(settings);
+      };
+
+      try {
+        assert.equal((await scheduler.consumeWhenAvailable('ON_DEMAND')).allowed, true);
+        const firstCompletedAt = Date.now();
+        assert.equal((await scheduler.consumeWhenAvailable('ON_DEMAND')).allowed, true);
+        assert.ok(Date.now() - firstCompletedAt >= minInterval - 5, 'persistence latency must not collapse request spacing');
+      } finally {
+        (durableStorage as any).saveAppSettings = originalSave;
+      }
+    }
+
     async function testConcurrentMinuteCapEnforcement() {
       const scheduler = new RateLimitScheduler({ perMinute: 3, perDay: 100, minimumIntervalMs: 15, storageKey: key('minute-cap') });
       const results = await Promise.all(Array.from({ length: 4 }, () => scheduler.consumeWhenAvailable('ON_DEMAND')));
@@ -193,6 +216,7 @@ async function main(): Promise<void> {
 
     const suites: Array<[string, () => Promise<void>]> = [
       ['testConcurrentQueueSequentialInterval', testConcurrentQueueSequentialInterval],
+      ['testSpacingIncludesPersistenceLatency', testSpacingIncludesPersistenceLatency],
       ['testConcurrentMinuteCapEnforcement', testConcurrentMinuteCapEnforcement],
       ['testConcurrentHourlyLimitEnforcement', testConcurrentHourlyLimitEnforcement],
       ['testConcurrentDailyHardStopEnforcement', testConcurrentDailyHardStopEnforcement],
@@ -208,7 +232,7 @@ async function main(): Promise<void> {
       await test();
       console.log(`[${name}] PASS`);
     }
-    console.log('\nALL 11 PROVIDER SCHEDULER REGRESSION TEST SUITES PASSED!');
+    console.log(`\nALL ${suites.length} PROVIDER SCHEDULER REGRESSION TEST SUITES PASSED!`);
   } finally {
     if (previousDataDir === undefined) delete process.env.DATA_DIR;
     else process.env.DATA_DIR = previousDataDir;
