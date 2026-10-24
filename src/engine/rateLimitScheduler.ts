@@ -15,6 +15,7 @@ export class RateLimitScheduler {
   private readonly minimumIntervalMs: number;
   private readonly key: string;
   private reservationQueue: Promise<void> = Promise.resolve();
+  private lastReservationCompletedAt?: number;
   constructor(config: SchedulerConfig = {}) {
     this.perMinute = config.perMinute ?? Number(process.env.TD_PER_MIN || 8);
     this.perDay = config.perDay ?? Number(process.env.TD_PER_DAY || 800);
@@ -56,9 +57,19 @@ export class RateLimitScheduler {
   public consumeWhenAvailable(kind: 'AUTO' | 'ON_DEMAND' = 'ON_DEMAND'): Promise<ConsumeResult> {
     const task = this.reservationQueue.then(async () => {
       while (true) {
+        if (this.minimumIntervalMs > 0 && this.lastReservationCompletedAt !== undefined) {
+          const waitMs = this.minimumIntervalMs - (Date.now() - this.lastReservationCompletedAt);
+          if (waitMs > 0) await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
+        }
         const result = this.consume(kind);
-        if (result.allowed || result.reason !== 'MIN_INTERVAL') return result;
-        const lastRequestAt = this.state().lastRequestAt ?? Date.now();
+        if (result.allowed) {
+          // Anchor spacing after persistence completes; storage latency must not let queued
+          // provider calls bunch together when the persisted timestamp is already stale.
+          this.lastReservationCompletedAt = Date.now();
+          return result;
+        }
+        if (result.reason !== 'MIN_INTERVAL') return result;
+        const lastRequestAt = Math.max(this.state().lastRequestAt ?? Date.now(), this.lastReservationCompletedAt ?? 0);
         const waitMs = Math.max(1, this.minimumIntervalMs - (Date.now() - lastRequestAt));
         await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
       }
