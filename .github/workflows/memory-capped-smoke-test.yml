@@ -1,4 +1,4 @@
-name: Memory-Capped Smoke Test Gate
+name: Full Test Suite & Gate Check
 
 on:
   pull_request:
@@ -10,9 +10,10 @@ permissions:
   contents: read
 
 jobs:
-  smoke-test:
+  fast-feedback:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
 
     steps:
       - name: Checkout Repository
@@ -27,12 +28,44 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Run Heap-Capped Gate Renumber Equivalence Test
+      - name: Run Fast Unit Tests and Memory-Capped Gate
         run: |
-          echo "Running the 24,024-case equivalence test with a 512 MiB V8 heap cap..."
+          npx tsx test/ui_truthfulness.test.ts
+          npx tsx test/p0_merge_blockers.test.ts
+          npx tsx test/strategy_v3_engine.test.ts
           npm run test:gate-renumber
 
-      - name: Report Limitation
+      - name: Report Fast Feedback Failure
         if: failure()
         run: |
-          echo "::warning::The gate failed. Review the assertion output and the 512 MiB V8 heap cap; GitHub Actions checks out the full repository fixture."
+          echo "::warning::PR validation failed. Inspect the unit-test output and the 512 MiB gate result."
+
+  full-test-suite:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_OPTIONS: '--max-old-space-size=1024'
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Full Test Suite with Memory Limit
+        run: |
+          echo "Running full npm test suite with NODE_OPTIONS=--max-old-space-size=1024..."
+          npm test
+
+      - name: Report Full Test Failure
+        if: failure()
+        run: |
+          echo "::warning::Full npm test failed or exceeded the 15 minute timeout. Inspect the first failing test and memory output."
