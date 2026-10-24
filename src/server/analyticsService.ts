@@ -138,8 +138,7 @@ export class AnalyticsService {
       | 'WIN'
       | 'LOSS'
       | 'UNRESOLVED';
-    nextCandleOpen: number;
-    nextCandleClose: number;
+    nextCandle?: SignalOutcomeRecord['next_candle'];
     userAction: 'TAKEN' | 'NOT_TAKEN' | 'NOT_RECORDED' | 'SKIPPED' | 'PENDING';
     timestamp?: string;
   }) {
@@ -159,20 +158,17 @@ export class AnalyticsService {
       signal_timestamp_bdt: new Date().toISOString(),
       signal_outcome: standardized,
       outcome: standardized,
-      next_candle: {
-        open: record.nextCandleOpen,
-        high: Math.max(record.nextCandleOpen, record.nextCandleClose),
-        low: Math.min(record.nextCandleOpen, record.nextCandleClose),
-        close: record.nextCandleClose,
-      },
-      nextCandleOpen: record.nextCandleOpen,
-      nextCandleClose: record.nextCandleClose,
       user_recorded_action: record.userAction,
       userAction: record.userAction,
       result_timestamp_utc: record.timestamp || new Date().toISOString(),
       result_timestamp_bdt: record.timestamp || new Date().toISOString(),
       notes: 'Recorded via analyticsService',
     };
+    if (record.nextCandle) {
+      formatted.next_candle = record.nextCandle;
+      formatted.nextCandleOpen = record.nextCandle.open;
+      formatted.nextCandleClose = record.nextCandle.close;
+    }
     durableStorage.saveOutcomes([...existing.filter((o) => o.setup_id !== record.setup_id), formatted]);
   }
 

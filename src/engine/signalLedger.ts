@@ -31,6 +31,8 @@ export interface SignalPayload {
   htf_provider?: string;
   setup_id: string;
   experiment_id: string;
+  config_hash?: string;
+  config_hash_epoch?: string;
   session?: string;
   kill_zone?: string;
 }
@@ -79,18 +81,61 @@ function hashEntry(entry: Omit<LedgerEntry, 'hash'>): string {
 }
 
 export class SignalLedger {
-  constructor(private readonly filePath: string = process.env.SIGNAL_LEDGER_PATH || path.join(process.env.DATA_DIR || path.join(process.cwd(), 'data'), 'signal-ledger.jsonl')) {}
+  private cachedEntries: LedgerEntry[] | undefined;
+  private cachedSignature: string | undefined;
+  private cacheVerified = false;
+
+  constructor(private readonly filePath: string = process.env.SIGNAL_LEDGER_PATH || path.join(process.env.DATA_DIR || path.join(process.cwd(), 'data'), 'signal-ledger.jsonl')) {
+    this.recoverPartialTail();
+  }
 
   public get path(): string { return this.filePath; }
 
+  /** Recover only an incomplete final JSONL line; any earlier corruption remains fail-closed. */
+  public recoverPartialTail(): { recovered: boolean; reason?: string } {
+    if (!fs.existsSync(this.filePath)) return { recovered: false };
+    const raw = fs.readFileSync(this.filePath, 'utf8');
+    if (!raw || raw.endsWith('\n')) return { recovered: false };
+    const lastNewline = raw.lastIndexOf('\n');
+    const tail = raw.slice(lastNewline + 1).trim();
+    if (!tail) return { recovered: false };
+    try {
+      JSON.parse(tail);
+      fs.appendFileSync(this.filePath, '\n');
+      return { recovered: false };
+    } catch {
+      if (/[}\]]$/.test(tail)) return { recovered: false, reason: 'FINAL_LINE_PARSE_ERROR' };
+      if (lastNewline < 0) throw new Error('LEDGER_CORRUPT_NO_VALID_PREFIX');
+      const fd = fs.openSync(this.filePath, 'r+');
+      try {
+        fs.ftruncateSync(fd, lastNewline + 1);
+        fs.fsyncSync(fd);
+      } finally { fs.closeSync(fd); }
+      return { recovered: true, reason: 'TRUNCATED_INCOMPLETE_FINAL_LINE' };
+    }
+  }
+
+  /** Explicit, idempotent repair hook for an administrator/audit job. */
+  public repairPartialTail(): { repaired: boolean; reason?: string; verification: ReturnType<SignalLedger['verify']> } {
+    const result = this.recoverPartialTail();
+    this.cachedEntries = undefined;
+    this.cachedSignature = undefined;
+    this.cacheVerified = false;
+    return { repaired: result.recovered, reason: result.reason, verification: this.verify() };
+  }
+
   public readAll(): LedgerEntry[] {
-    if (!fs.existsSync(this.filePath)) return [];
-    return fs.readFileSync(this.filePath, 'utf8').split('\n').filter((line) => line.trim()).map((line) => JSON.parse(line) as LedgerEntry);
+    this.refreshCache();
+    return this.cachedEntries!.map((entry) => entry);
   }
 
   public verify(): { ok: boolean; entries: number; brokenAt?: number; reason?: string } {
     let entries: LedgerEntry[];
-    try { entries = this.readAll(); } catch { return { ok: false, entries: 0, reason: 'LEDGER_UNPARSEABLE' }; }
+    try { this.refreshCache(true); entries = this.cachedEntries!; } catch { return { ok: false, entries: 0, reason: 'LEDGER_UNPARSEABLE' }; }
+    return this.verifyEntries(entries);
+  }
+
+  private verifyEntries(entries: LedgerEntry[]): { ok: boolean; entries: number; brokenAt?: number; reason?: string } {
     let prev = GENESIS_HASH;
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i];
@@ -102,16 +147,37 @@ export class SignalLedger {
     return { ok: true, entries: entries.length };
   }
 
+  private fileSignature(): string {
+    if (!fs.existsSync(this.filePath)) return 'MISSING';
+    const stat = fs.statSync(this.filePath);
+    return `${stat.size}:${stat.mtimeMs}`;
+  }
+
+  private refreshCache(force = false): void {
+    const signature = this.fileSignature();
+    if (!force && this.cachedEntries && this.cachedSignature === signature) return;
+    const entries = signature === 'MISSING'
+      ? []
+      : fs.readFileSync(this.filePath, 'utf8').split('\n').filter((line) => line.trim()).map((line) => JSON.parse(line) as LedgerEntry);
+    this.cachedEntries = entries;
+    this.cachedSignature = signature;
+    this.cacheVerified = this.verifyEntries(entries).ok;
+  }
+
   public append<T extends object>(type: LedgerEventType, payload: T, ts = new Date().toISOString()): LedgerEntry<T> {
-    const check = this.verify();
+    this.refreshCache();
+    const check = this.cacheVerified ? { ok: true, entries: this.cachedEntries!.length } : this.verifyEntries(this.cachedEntries!);
     if (!check.ok) throw new Error(`LEDGER_TAMPERED: ${check.reason} at entry ${check.brokenAt ?? 'unknown'}; refusing to append.`);
-    const entries = this.readAll();
+    const entries = this.cachedEntries!;
     const prevHash = entries.at(-1)?.hash ?? GENESIS_HASH;
     const base = { seq: entries.length, type, ts, payload: payload as Record<string, unknown>, prevHash };
     const entry = { ...base, hash: hashEntry(base) };
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
     const fd = fs.openSync(this.filePath, 'a');
     try { fs.writeSync(fd, `${JSON.stringify(entry)}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    entries.push(entry as LedgerEntry);
+    this.cachedSignature = this.fileSignature();
+    this.cacheVerified = true;
     return entry as unknown as LedgerEntry<T>;
   }
 

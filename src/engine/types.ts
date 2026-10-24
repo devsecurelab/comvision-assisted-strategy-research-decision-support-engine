@@ -264,12 +264,20 @@ export interface V3DecisionTelemetry {
 
 export interface MasterTelemetry {
   decision_engine_v3?: V3DecisionTelemetry;
+  /** Closed candles captured only for a directional signal; absent means a chart is unavailable. */
+  candle_snapshot?: {
+    candles: Candle[];
+    signal_candle_open_ts?: string | null;
+    source: 'SIGNAL_TELEMETRY' | 'STORED_WINDOW';
+    setup_id?: string;
+  };
   metadata: {
     project_name: string;
     strategy_version: string; // active engine version, e.g. "RDP_STRATEGY_V3.0"
     experiment_id: string; // e.g. "EXP-2026-V2-001"
     setup_id: string; // e.g. "V2-000001"
     config_hash?: string; // SHA-256 of frozen rule parameters
+    config_hash_epoch?: string; // Canonical hash scheme identifier; absent on legacy records
     timestamp_utc: string;
     signal_timestamp_utc?: string;
     pair?: string;

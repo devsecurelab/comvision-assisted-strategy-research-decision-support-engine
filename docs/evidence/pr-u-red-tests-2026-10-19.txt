@@ -1,0 +1,36 @@
+PR-U intentional red tests: 23 failure(s)
+- src/components/ChartModal.tsx: forbidden or unsupported display claim /T-10s Pressure/i
+- src/components/ChartModal.tsx: fabricated Wick Pushback overlay must be removed
+- src/components/ChartModal.tsx: hardcoded market-price literal found
+- src/components/DecisionAlertCard.tsx: forbidden or unsupported display claim /T-10s Pressure/i
+- src/components/DecisionAlertCard.tsx: pair must not default to EUR/USD
+- src/components/PublicLanding.tsx: forbidden or unsupported display claim /T-10s Pressure/i
+- src/components/TelegramAdminTool.tsx: literal status claim must be telemetry-driven
+- src/components/docs/DocsView.tsx: forbidden or unsupported display claim /Profit Factor/i
+- src/components/docs/DocsView.tsx: forbidden or unsupported display claim /Total R/i
+- src/components/docs/DocsView.tsx: forbidden or unsupported display claim /T-10s Pressure/i
+- src/components/docs/DocsView.tsx: literal status claim must be telemetry-driven
+- src/components/views/ExperimentView.tsx: forbidden or unsupported display claim /EXP-2026-V2/i
+- src/components/views/SettingsView.tsx: forbidden or unsupported display claim /Secured\s*\(Zero Exposure\)/i
+- src/App.tsx: forbidden or unsupported display claim /Capital Protected/i
+- src/App.tsx: forbidden or unsupported display claim /Circuit Breaker/i
+- src/App.tsx: forbidden or unsupported display claim /Strategy v1\.0 Pipeline/i
+- src/server/chatService.ts: forbidden or unsupported display claim /EXP-2026-V2/i
+- App.tsx must not claim capital is protected
+- App.tsx must not advertise the legacy pipeline
+- null telemetry must render a V3/UNAVAILABLE description, not an invented scanning claim
+- Open Chart must be disabled when no candle snapshot is stored
+- missing candle snapshot must show the explicit unavailable state
+- chart must not invent market prices when candles are missing
+/home/ubuntu/worktrees/comvision-pr-u/test/ui_truthfulness.test.ts:95
+  throw new Error('UI truthfulness red tests failed as expected before implementation.');
+        ^
+
+
+Error: UI truthfulness red tests failed as expected before implementation.
+    at <anonymous> (/home/ubuntu/worktrees/comvision-pr-u/test/ui_truthfulness.test.ts:95:9)
+    at ModuleJob.run (node:internal/modules/esm/module_job:271:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:547:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:116:5)
+
+Node.js v22.13.0

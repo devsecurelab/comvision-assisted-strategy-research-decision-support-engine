@@ -262,7 +262,7 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
             />
             <StageCard
               num="09"
-              title="T-10s Pressure"
+              title="Pressure Observation"
               desc="Non-filtering observation. Categorical classification & magnitude; NO artificial percentages."
             />
           </div>

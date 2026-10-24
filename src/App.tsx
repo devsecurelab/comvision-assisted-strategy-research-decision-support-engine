@@ -29,6 +29,7 @@ const PrivacyView = lazy(() => import('./components/docs/PrivacyView').then((mod
 const TermsView = lazy(() => import('./components/docs/TermsView').then((module) => ({ default: module.TermsView })));
 const SecurityView = lazy(() => import('./components/docs/SecurityView').then((module) => ({ default: module.SecurityView })));
 import { Footer } from './components/Footer';
+import { SampleRate } from './components/SampleRate';
 import {
   MasterTelemetry,
   Timeframe,
@@ -102,7 +103,7 @@ export default function App() {
   };
 
   // Engine state
-  const [scannerActive, setScannerActive] = useState<boolean>(true);
+  const [scannerActive, setScannerActive] = useState<boolean>(false);
   const [currentAlert, setCurrentAlert] = useState<MasterTelemetry | null>(null);
   const [candidateHistory, setCandidateHistory] = useState<MasterTelemetry[]>([]);
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | undefined>();
@@ -169,7 +170,7 @@ export default function App() {
           setProviderStatus(data.providerStatus);
           if (data.providerStatus.provider === 'TWELVE_DATA') setSelectedProvider('TWELVE_DATA');
         }
-        setScannerActive(data.settings?.scannerActive ?? true);
+        setScannerActive(data.settings?.scannerActive ?? false);
       }
 
       // 2. Fetch Candidates
@@ -296,14 +297,8 @@ export default function App() {
         body: JSON.stringify({ setupId, action }),
       });
 
-      // 2. If research observation was also specified, record outcome via research outcome endpoint
+      // 2. Record only the operator's observation; never invent OHLC data in the client.
       if (observation && observation !== 'PENDING') {
-        const candidate = candidateHistory.find((c) => c.metadata.setup_id === setupId);
-        const inputCandles = (candidate as any)?.input_snapshot?.candles;
-        const openPrice = inputCandles?.[inputCandles.length - 1]?.close || 1.085;
-        const closeDelta = observation === 'NEXT_CANDLE_FAVORABLE' ? 0.0015 : observation === 'NEXT_CANDLE_UNFAVORABLE' ? -0.0015 : 0;
-        const closePrice = openPrice + closeDelta;
-
         await apiFetch('/api/engine/record-outcome', {
           method: 'POST',
           headers: {
@@ -313,12 +308,6 @@ export default function App() {
           body: JSON.stringify({
             setupId,
             outcome: observation,
-            nextCandle: {
-              open: openPrice,
-              high: Math.max(openPrice, closePrice) + 0.0005,
-              low: Math.min(openPrice, closePrice) - 0.0005,
-              close: closePrice,
-            },
             notes: `Operator empirical recording: Observation ${observation}, Action ${action}`,
           }),
         });
@@ -447,17 +436,9 @@ export default function App() {
   const rejectedCount = candidateHistory.filter(
     (c) => c.system_execution.system_decision === 'REJECT'
   ).length;
-  const winCount = candidateHistory.filter(
-    (c) => c.system_execution.user_recorded_action === 'WIN'
-  ).length;
-  const lossCount = candidateHistory.filter(
-    (c) => c.system_execution.user_recorded_action === 'LOSS'
-  ).length;
-  const confirmedTrades = winCount + lossCount;
-  const winRate =
-    confirmedTrades > 0
-      ? `${Math.round((winCount / confirmedTrades) * 100)}%`
-      : 'N/A';
+  const favorableCount = candidateHistory.filter((c) => c.next_candle_observation?.status === 'NEXT_CANDLE_FAVORABLE').length;
+  const unfavorableCount = candidateHistory.filter((c) => c.next_candle_observation?.status === 'NEXT_CANDLE_UNFAVORABLE').length;
+  const researchSampleSize = favorableCount + unfavorableCount;
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans select-none">
@@ -491,7 +472,7 @@ export default function App() {
           {(!currentAlert || currentAlert.metadata.data_provenance !== 'LIVE_INGESTED' || providerStatus?.status === 'OFFLINE') && (
             <div role="alert" className="max-w-7xl mx-auto w-full rounded-xl border-2 border-rose-500 bg-rose-950/90 px-5 py-4 text-rose-50 shadow-lg shadow-rose-950/40">
               <div className="text-base sm:text-lg font-black tracking-wide">⚠️ LIVE DATA UNAVAILABLE — NO ALERT</div>
-              <p className="mt-1 text-sm text-rose-100">No verified live market data is available for the current setup. The circuit breaker blocks alerts until a live provider response is verified.</p>
+              <p className="mt-1 text-sm text-rose-100">No verified live market data is available for the current setup. Alerts remain unavailable until a live provider response is verified.</p>
             </div>
           )}
           {activeTab === 'overview' && (
@@ -506,7 +487,7 @@ export default function App() {
                     {totalEvaluated}
                   </span>
                   <span className="text-[10px] text-slate-500 mt-0.5 block">
-                    Strategy v1.0 Pipeline
+                    V3 telemetry records
                   </span>
                 </div>
 
@@ -547,19 +528,19 @@ export default function App() {
                     {rejectedCount}
                   </span>
                   <span className="text-[10px] text-slate-500 mt-0.5 block">
-                    Capital Protected
+                    Outcome claim unavailable
                   </span>
                 </div>
 
                 <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl shadow-sm">
                   <span className="text-[11px] font-mono text-slate-400 block">
-                    EMPIRICAL WIN RATE
+                    RESEARCH OBSERVATION RATE
                   </span>
                   <span className="text-2xl font-bold font-mono text-indigo-300 mt-1 block">
-                    {winRate}
+                    <SampleRate favorable={favorableCount} unfavorable={unfavorableCount} />
                   </span>
                   <span className="text-[10px] text-slate-500 mt-0.5 block">
-                    {confirmedTrades} Recorded Trades
+                    {researchSampleSize} recorded observations
                   </span>
                 </div>
               </div>

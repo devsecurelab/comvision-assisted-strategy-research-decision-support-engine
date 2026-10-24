@@ -18,7 +18,7 @@ const routeLines = serverSource.split('\n').filter((line) => /^app\.(get|post|pu
 const apiRoutes = routeLines.flatMap((line) => [...line.matchAll(/['"](\/api\/[^'"]+)['"]/g)].map((match) => ({ path: match[1], line })));
 for (const route of apiRoutes) {
   if (!publicApiAllowlist.has(route.path)) {
-    assert.match(route.line, /authenticateToken|requireApprovedUser|requireAdmin/, `API route ${route.path} must use authentication/authorization middleware`);
+    assert.match(route.line, /authenticateToken|requireApprovedUser|requireAdmin|requireRole|requireResearcher|requireOperator/, `API route ${route.path} must use authentication/authorization middleware`);
   }
 }
 assert.doesNotMatch(serverSource, /req\.query\.token|query\.token/);

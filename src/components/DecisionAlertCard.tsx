@@ -47,22 +47,22 @@ export const DecisionAlertCard: React.FC<DecisionAlertCardProps> = ({
     return (
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center text-slate-400 space-y-3">
         <Clock className="w-8 h-8 mx-auto text-slate-500 animate-spin" />
-        <h3 className="text-sm font-semibold text-slate-300">
-          Scanning Ingestion Stream
-        </h3>
+        <h3 className="text-sm font-semibold text-slate-300">V3 telemetry UNAVAILABLE</h3>
         <p className="text-xs text-slate-500 max-w-md mx-auto">
-          The 9-stage validation pipeline is continuously filtering incoming
-          frames according to RDP Strategy V3.0 Frozen Specification.
+          No current V3 telemetry record is available. The interface will not infer a signal, price, or market state.
         </p>
       </div>
     );
   }
 
-  const isBullish = alert.market_context.local_bias === 'BULLISH';
+  const binarySignal = alert.decision_engine_v3?.binarySignal ?? 'NO_TRADE';
+  const directionLabel = binarySignal === 'CALL' ? 'BULLISH' : binarySignal === 'PUT' ? 'BEARISH' : 'UNAVAILABLE';
+  const isBullish = directionLabel === 'BULLISH';
   const setupId = alert.metadata.setup_id;
   const isPassed = alert.system_execution.system_decision === 'PASS';
   const recordedAction = alert.system_execution.user_recorded_action;
-  const pair = alert.metadata.pair || alert.metadata.asset || 'EUR/USD';
+  const pair = alert.metadata.pair || alert.metadata.asset || 'UNAVAILABLE';
+  const hasCandleSnapshot = Boolean(alert.candle_snapshot?.candles?.length);
 
   // Authoritative Signal Timestamp formatting (Canonical UTC -> Asia/Dhaka)
   const timeInfo = formatSignalTime(
@@ -157,10 +157,10 @@ export const DecisionAlertCard: React.FC<DecisionAlertCardProps> = ({
             >
               {isBullish ? (
                 <TrendingUp className="w-3.5 h-3.5" />
-              ) : (
+              ) : directionLabel === 'BEARISH' ? (
                 <TrendingDown className="w-3.5 h-3.5" />
-              )}
-              {isBullish ? 'BULLISH' : 'BEARISH'}
+              ) : null}
+              {directionLabel}
             </span>
             {recordedAction !== 'PENDING' && (
               <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold">
@@ -178,21 +178,11 @@ export const DecisionAlertCard: React.FC<DecisionAlertCardProps> = ({
           </p>
         </div>
 
-        {/* T-10s Pressure Observation */}
-        <div className="text-right">
-          <span className="text-[11px] text-slate-400 block font-mono">
-            T-10s Pressure Observation
-          </span>
-          <span className="text-sm font-bold text-indigo-400 font-mono tracking-wide">
-            {alert.pressure_observation.classification} (
-            {alert.pressure_observation.magnitude} MAG)
-          </span>
-          {alert.pressure_observation.speedPxPerSec && (
-            <span className="text-[10px] text-slate-500 block font-mono">
-              Speed: {alert.pressure_observation.speedPxPerSec} px/s
-            </span>
-          )}
-        </div>
+        {alert.pressure_observation.classification !== 'UNAVAILABLE' && <div className="text-right">
+          <span className="text-[11px] text-slate-400 block font-mono">Pressure Observation</span>
+          <span className="text-sm font-bold text-indigo-400 font-mono tracking-wide">{alert.pressure_observation.classification} ({alert.pressure_observation.magnitude} MAG)</span>
+          {alert.pressure_observation.speedPxPerSec !== undefined && <span className="text-[10px] text-slate-500 block font-mono">Speed: {alert.pressure_observation.speedPxPerSec} px/s</span>}
+        </div>}
       </div>
 
       {/* Authoritative Signal Timestamp Banner (UTC + Bangladesh Asia/Dhaka) */}
@@ -236,103 +226,23 @@ export const DecisionAlertCard: React.FC<DecisionAlertCardProps> = ({
         </div>
       </div>
 
-      {/* Validation Checklist Grid (RDP Strategy V3.0 (Frozen) 19-Stage Pipeline) */}
+      {/* Authoritative V3 decision gates; stage-level details remain in telemetry inspection. */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 mb-5">
-        <ValidationBadge
-          label="1. Market Structure"
-          status={alert.validation_metrics.structure.status}
-          detail={`5-Candle Fractal (${alert.market_context.local_bias})`}
-        />
-        <ValidationBadge
-          label="2. BOS Breakout"
-          status={alert.validation_metrics.bos?.bos_detected ? 'PASS' : 'PASS'}
-          detail={alert.validation_metrics.bos?.bos_detected ? `${alert.validation_metrics.bos.bos_direction} (Body Close)` : 'Structural Continuity'}
-        />
-        <ValidationBadge
-          label="3. CHoCH Pivot"
-          status={alert.validation_metrics.choch?.choch_status !== 'UNCERTAIN' ? 'PASS' : 'REJECT'}
-          detail={alert.validation_metrics.choch?.choch_status || 'NO_CHoCH'}
-        />
-        <ValidationBadge
-          label="4. FVG Imbalance"
-          status={alert.validation_metrics.fvg.fvg_status}
-          detail={`State: ${alert.validation_metrics.fvg.fvg_mitigation_state}`}
-        />
-        <ValidationBadge
-          label="5. IFVG Inversion"
-          status={alert.validation_metrics.ifvg?.status || 'PASS'}
-          detail={alert.validation_metrics.ifvg?.ifvg_status || 'STANDARD_FVG'}
-        />
-        <ValidationBadge
-          label="6. Balanced Price (BPR)"
-          status={alert.validation_metrics.bpr?.status || 'PASS'}
-          detail={alert.validation_metrics.bpr?.bpr_status || 'NONE'}
-        />
-        <ValidationBadge
-          label="7. Order Block (OB)"
-          status={alert.validation_metrics.order_block.ob_confluence_status}
-          detail="Displacement Precursor"
-        />
-        <ValidationBadge
-          label="8. Breaker Block"
-          status={alert.validation_metrics.breaker_block?.status || 'PASS'}
-          detail={alert.validation_metrics.breaker_block?.breaker_status || 'NO_BREAKER'}
-        />
-        <ValidationBadge
-          label="9. Liquidity Sweep"
-          status={alert.validation_metrics.liquidity_sweep.status}
-          detail={
-            alert.validation_metrics.liquidity_sweep.tested_swing_level
-              ? `Level: ${alert.validation_metrics.liquidity_sweep.tested_swing_level.toFixed(4)}`
-              : 'Structural Level'
-          }
-        />
-        <ValidationBadge
-          label="10. BSL / SSL Target"
-          status={alert.validation_metrics.bsl_ssl?.status || 'PASS'}
-          detail={alert.validation_metrics.bsl_ssl?.selected_liquidity_target || 'BSL_TARGET'}
-        />
-        <ValidationBadge
-          label="11. Fib 50% Equilibrium"
-          status={alert.validation_metrics.fib_zone.status}
-          detail="Discount / Premium Rule"
-        />
-        <ValidationBadge
-          label="12. OTE Zone (61.8-78.6%)"
-          status={alert.validation_metrics.ote?.status || 'PASS'}
-          detail={alert.validation_metrics.ote?.zone_status || 'INSIDE_OTE'}
-        />
-        <ValidationBadge
-          label="13. Wick Pushback"
-          status={alert.validation_metrics.wick_check.status}
-          detail={`Ratio: ${alert.validation_metrics.wick_check.wick_ratio.toFixed(3)} (<=0.50)`}
-        />
-        <ValidationBadge
-          label="14. Candle Momentum"
-          status={alert.validation_metrics.momentum?.status || 'PASS'}
-          detail={alert.validation_metrics.momentum?.momentum_state || 'ALIGNED'}
-        />
-        <ValidationBadge
-          label="15. Session & Kill Zone"
-          status="PASS"
-          detail={`${alert.market_context.session || 'London'} (${alert.market_context.kill_zone === 'INSIDE_KILL_ZONE' ? 'ACTIVE' : 'OUTSIDE'})`}
-        />
+        {(alert.decision_engine_v3?.gates ?? []).map((gate: any) => (
+          <ValidationBadge
+            key={gate.gate}
+            label={`Gate ${gate.gate}: ${gate.name}`}
+            status={gate.status ?? 'UNAVAILABLE'}
+            detail={gate.reason ?? 'No gate detail available.'}
+          />
+        ))}
+        {!alert.decision_engine_v3?.gates?.length && (
+          <ValidationBadge label="V3 Gates" status="UNAVAILABLE" detail="Authoritative gate telemetry unavailable." />
+        )}
       </div>
 
-      {/* Risk Parameters Notice */}
+      {/* Only state the architectural boundary that is actually enforced. */}
       <div className="p-3 bg-slate-950/80 border border-slate-800 rounded-lg mb-5 text-xs text-slate-400 space-y-1.5">
-        <div className="flex flex-wrap justify-between font-mono text-[11px]">
-          <span>
-            Stake Rule:{' '}
-            <strong className="text-slate-200">
-              Fixed 1.0% (No Martingale)
-            </strong>
-          </span>
-          <span>
-            Daily Loss Limit:{' '}
-            <strong className="text-emerald-400">PASSED (0.0% / 3.0%)</strong>
-          </span>
-        </div>
         <div className="flex items-center gap-1 text-[11px] text-slate-500">
           <ShieldCheck className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
           <span>
@@ -347,10 +257,11 @@ export const DecisionAlertCard: React.FC<DecisionAlertCardProps> = ({
         <button
           id="btn-open-chart"
           onClick={onOpenChart}
-          className="flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-lg transition shadow-lg shadow-indigo-600/20"
+          disabled={!hasCandleSnapshot}
+          className="flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-lg transition shadow-lg shadow-indigo-600/20 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <ExternalLink className="w-3.5 h-3.5" />
-          Open Chart
+          {hasCandleSnapshot ? 'Open Chart' : 'Chart Unavailable'}
         </button>
 
         <button
