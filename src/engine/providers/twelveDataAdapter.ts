@@ -1,5 +1,5 @@
 import type { Timeframe } from '../types';
-import type { IForexDataProvider, ProviderCandlePayload } from './contracts';
+import type { IForexDataProvider, ProviderCandlePayload, ProviderQuotePayload } from './contracts';
 import { ProviderAdapterError, assertProviderPayload, requestJson } from './http';
 
 const INTERVAL: Record<Timeframe, string> = { '1m': '1min', '5m': '5min', '15m': '15min', '30m': '30min', '1h': '1h' };
@@ -27,6 +27,15 @@ export class TwelveDataAdapter implements IForexDataProvider {
     const response = await requestJson(this.id, this.request, url, signal, { Authorization: `apikey ${this.apiKey}` });
     const payload = response.payload as any;
     return { ...this.parsePayload(payload, response.serverDate), creditsUsed: response.creditsUsed, creditsLeft: response.creditsLeft };
+  }
+
+  public async fetchQuote(pair: string, signal: AbortSignal): Promise<ProviderQuotePayload> {
+    if (!this.isConfigured()) throw new ProviderAdapterError(this.id, 'PROVIDER_NOT_CONFIGURED', 'Twelve Data key is not configured.');
+    const url = new URL('https://api.twelvedata.com/price'); url.searchParams.set('symbol', pair);
+    const response = await requestJson(this.id, this.request, url, signal, { Authorization: `apikey ${this.apiKey}` });
+    const price = Number((response.payload as any)?.price);
+    if (!Number.isFinite(price)) throw new ProviderAdapterError(this.id, 'INVALID_PROVIDER_RESPONSE', 'Twelve Data price response did not contain a numeric price.');
+    return { price, ts: response.serverDate || new Date().toISOString(), creditsUsed: response.creditsUsed, creditsLeft: response.creditsLeft };
   }
 
   public async fetchHistoricalCandles(pair: string, timeframe: Timeframe, startDate: string, endDateInclusive: string, signal: AbortSignal): Promise<ProviderCandlePayload> {

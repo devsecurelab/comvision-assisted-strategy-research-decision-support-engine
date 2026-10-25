@@ -221,6 +221,20 @@ export class MarketFeedManager {
     return { ...result, candles: cloneCandles(result.candles), cacheHit: false };
   }
 
+  public async fetchQuote(pair: string, provider: MarketDataProvider = 'TWELVE_DATA'): Promise<{ price: number; ts: string }> {
+    const normalizedPair = normalizePair(pair);
+    if (provider !== 'TWELVE_DATA' || !this.isConfigured(provider)) throw new MarketDataError('PROVIDER_NOT_CONFIGURED', `${LABEL[provider]} credentials are not configured.`, provider);
+    const adapter = this.adapters.get(provider);
+    if (!adapter?.fetchQuote) throw new MarketDataError('QUOTE_UNAVAILABLE', 'Provider does not expose a quote endpoint.', provider);
+    const budget = await this.schedulers.get(provider)!.consumeWhenAvailable('ON_DEMAND');
+    if (!budget.allowed) throw new MarketDataError('RATE_LIMITED', `Provider quote blocked by scheduler: ${budget.reason}.`, provider);
+    this.incrementRequests(provider);
+    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 3_000);
+    try { const quote = await adapter.fetchQuote(normalizedPair, controller.signal); return { price: quote.price, ts: quote.ts }; }
+    catch (error) { if (error instanceof ProviderAdapterError) throw new MarketDataError(error.code, error.message, provider); throw error instanceof MarketDataError ? error : new MarketDataError('QUOTE_UNAVAILABLE', 'Provider quote request failed.', provider); }
+    finally { clearTimeout(timeout); }
+  }
+
   public async fetchHistoricalCandles(pair: string, timeframe: Timeframe, startDate: string, endDate: string, provider: 'TWELVE_DATA' = 'TWELVE_DATA'): Promise<MarketDataResult> {
     const normalizedPair = normalizePair(pair);
     if (provider !== 'TWELVE_DATA' || !this.twelveDataAdapter.isConfigured()) throw new MarketDataError('PROVIDER_NOT_CONFIGURED', 'R8 requires a Twelve Data key; no replay or simulated fallback is permitted.', provider);

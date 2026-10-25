@@ -1,13 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { slippagePips } from './price';
 
 /**
  * Append-only signal ledger (JSON Lines) with a SHA-256 hash chain.
  * Every line commits to the previous line's hash, so editing, deleting or
  * reordering any historical record is detected by verify().
  */
-export type LedgerEventType = 'SIGNAL' | 'SCAN' | 'RESULT' | 'EDGE_LOST' | 'EDGE_RESUMED';
+export type LedgerEventType = 'SIGNAL' | 'SCAN' | 'RESULT' | 'TRADE_TAKEN' | 'CANDLE_REVISION' | 'SIGNAL_SENT' | 'EDGE_LOST' | 'EDGE_RESUMED';
 export type SignalOutcome = 'WIN' | 'LOSS' | 'TIE' | 'SKIPPED' | 'UNRESOLVED';
 
 export interface LedgerEntry<T = Record<string, unknown>> { seq: number; type: LedgerEventType; ts: string; payload: T; prevHash: string; hash: string }
@@ -35,6 +36,10 @@ export interface SignalPayload {
   config_hash_epoch?: string;
   session?: string;
   kill_zone?: string;
+  signal_price?: number;
+  quote_price?: number;
+  quote_ts?: string;
+  price_tolerance?: number;
 }
 
 export interface ScanPayload {
@@ -57,6 +62,9 @@ export interface ResultPayload {
   entry_price?: number;
   exit_price?: number;
   provider?: string;
+  broker_close_price?: number;
+  broker_entry_price?: number;
+  slippage_pips?: number;
   note?: string;
 }
 
@@ -68,7 +76,16 @@ export interface SignalView extends SignalPayload {
   resolved_at?: string;
   entry_price?: number;
   exit_price?: number;
+  broker_entry_price?: number;
+  broker_close_price?: number;
+  slippage_pips?: number;
+  candle_revision_pips?: number;
+  telegram_sent_at?: string;
 }
+
+export interface TradeTakenPayload { signal_id: string; broker_entry_price: number }
+export interface CandleRevisionPayload { signal_id: string; candle_revision_pips: number }
+export interface SignalSentPayload { signal_id: string; telegram_sent_at: string }
 
 export const GENESIS_HASH = '0'.repeat(64);
 
@@ -202,8 +219,31 @@ export class SignalLedger {
   }
 
   public recordResult(result: ResultPayload, ts?: string): LedgerEntry<ResultPayload> {
-    if (!this.signals().some((s) => s.signal_id === result.signal_id)) throw new Error(`UNKNOWN_SIGNAL: ${result.signal_id}`);
-    return this.append('RESULT', result, ts);
+    const signal = this.signals().find((s) => s.signal_id === result.signal_id);
+    if (!signal) throw new Error(`UNKNOWN_SIGNAL: ${result.signal_id}`);
+    const brokerEntry = result.broker_entry_price ?? signal.broker_entry_price;
+    const enriched = brokerEntry !== undefined && signal.signal_price !== undefined
+      ? { ...result, broker_entry_price: brokerEntry, slippage_pips: result.slippage_pips ?? slippagePips(signal.pair, signal.signal_price, brokerEntry) }
+      : result;
+    return this.append('RESULT', enriched, ts);
+  }
+
+  public recordTaken(signalId: string, brokerEntryPrice: number, ts?: string): boolean {
+    const signal = this.get(signalId);
+    if (!signal) throw new Error(`UNKNOWN_SIGNAL: ${signalId}`);
+    if (!Number.isFinite(brokerEntryPrice)) throw new Error('INVALID_BROKER_ENTRY_PRICE');
+    this.append('TRADE_TAKEN', { signal_id: signal.signal_id, broker_entry_price: brokerEntryPrice }, ts);
+    return true;
+  }
+
+  public recordCandleRevision(signalId: string, candleRevisionPips: number, ts?: string): LedgerEntry<CandleRevisionPayload> {
+    if (!this.get(signalId)) throw new Error(`UNKNOWN_SIGNAL: ${signalId}`);
+    return this.append('CANDLE_REVISION', { signal_id: signalId, candle_revision_pips: candleRevisionPips }, ts);
+  }
+
+  public recordTelegramSent(signalId: string, telegramSentAt = new Date().toISOString(), ts?: string): LedgerEntry<SignalSentPayload> {
+    if (!this.get(signalId)) throw new Error(`UNKNOWN_SIGNAL: ${signalId}`);
+    return this.append('SIGNAL_SENT', { signal_id: signalId, telegram_sent_at: telegramSentAt }, ts);
   }
 
   public signals(): SignalView[] {
@@ -216,9 +256,12 @@ export class SignalLedger {
         if (s) {
           if (r.source === 'AUTO_PROVIDER') s.provider_outcome = r.outcome;
           else s.broker_outcome = r.outcome;
-          Object.assign(s, { outcome: r.outcome, result_source: r.source, resolved_at: e.ts, entry_price: r.entry_price, exit_price: r.exit_price });
+          Object.assign(s, { outcome: r.outcome, result_source: r.source, resolved_at: e.ts, entry_price: r.entry_price, exit_price: r.exit_price, broker_close_price: r.broker_close_price ?? s.broker_close_price, broker_entry_price: r.broker_entry_price ?? s.broker_entry_price, slippage_pips: r.slippage_pips ?? s.slippage_pips });
         }
       }
+      if (e.type === 'TRADE_TAKEN') { const p = e.payload as unknown as TradeTakenPayload; const s = map.get(p.signal_id); if (s) s.broker_entry_price = p.broker_entry_price; }
+      if (e.type === 'CANDLE_REVISION') { const p = e.payload as unknown as CandleRevisionPayload; const s = map.get(p.signal_id); if (s) s.candle_revision_pips = p.candle_revision_pips; }
+      if (e.type === 'SIGNAL_SENT') { const p = e.payload as unknown as SignalSentPayload; const s = map.get(p.signal_id); if (s) s.telegram_sent_at = p.telegram_sent_at; }
     }
     return [...map.values()];
   }

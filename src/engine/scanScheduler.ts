@@ -8,6 +8,7 @@ import { breakevenFor, EdgeMonitor } from './edgeMonitor';
 import { SignalLedger, signalIdFor, type SignalOutcome, type SignalView } from './signalLedger';
 import { filterFxOpenMarketCandles, isFxBarClosed, isFxMarketClosed } from './marketHours';
 import { classifySessionAndKillZone } from './session';
+import { priceTolerance, slippagePips } from './price';
 
 export type ScanTimeframe = '5m' | '15m' | '30m';
 export type ScanTrigger = 'MANUAL' | 'AUTO';
@@ -15,7 +16,7 @@ export const SCAN_TIMEFRAMES: ScanTimeframe[] = ['5m', '15m', '30m'];
 /** Auto-scan pair caps per timeframe so 2 credits/pair stays inside 70% of an 800/day, 8/min budget. */
 export const MAX_AUTO_PAIRS: Record<ScanTimeframe, number> = { '5m': 1, '15m': 4, '30m': 7 };
 export const SCAN_DELAY_AFTER_CLOSE_MS = 3_000;
-export const SIGNAL_VALIDITY_MS = 10_000;
+export const ENTRY_WINDOW_SECONDS: Record<ScanTimeframe, number> = { '5m': Number(process.env.ENTRY_WINDOW_5M_SECONDS || 45), '15m': Number(process.env.ENTRY_WINDOW_15M_SECONDS || 60), '30m': Number(process.env.ENTRY_WINDOW_30M_SECONDS || 90) };
 const RETRY_BACKOFF_MS = [5_000, 10_000, 20_000];
 const PAIR_RE = /^[A-Z]{6}$/;
 
@@ -37,6 +38,11 @@ export interface ScanResult {
   delivered_at?: string;
   cached: boolean;
   telemetry?: MasterTelemetry;
+  signal_price?: number;
+  quote_price?: number;
+  quote_ts?: string;
+  price_tolerance?: number;
+  quote_status?: 'OK' | 'QUOTE_UNAVAILABLE';
 }
 
 export interface ProviderSwitchStep { fromProvider: MarketDataProvider; toProvider: MarketDataProvider; reason: string }
@@ -57,6 +63,7 @@ export interface ScanDeps {
   newsEvents(): NewsEvent[];
   newsSourceOnline(): boolean;
   autoBudgetRemaining(): number;
+  fetchQuote?(pair: string): Promise<{ price: number; ts: string }>;
   now(): number;
   ledger: SignalLedger;
   onScan?(result: ScanResult): Promise<void> | void;
@@ -259,11 +266,16 @@ export class ScanService {
     };
     if (signal !== 'NO_TRADE' && v3) {
       const entryMs = expectedOpen + timeframeMs(timeframe);
-      const validUntil = entryMs + SIGNAL_VALIDITY_MS;
+      const validUntil = entryMs + ENTRY_WINDOW_SECONDS[timeframe] * 1000;
       if (this.deps.now() > validUntil) {
         result = { ...result, status: 'NO_TRADE', reason: `SIGNAL_EXPIRED: ${signal} was not delivered before ${new Date(validUntil).toISOString()}.` };
       } else {
         const signalId = signalIdFor(displayScanPair(pair), timeframe, latest.timestamp);
+        let quotePrice: number | undefined; let quoteTs: string | undefined;
+        try { const quote = await this.deps.fetchQuote?.(displayScanPair(pair)); quotePrice = quote?.price; quoteTs = quote?.ts; } catch { /* alert remains auditable with QUOTE_UNAVAILABLE */ }
+        const atrRows = candles.slice(-15);
+        const atr14 = atrRows.length > 1 ? atrRows.slice(1).reduce((sum, c, i) => sum + Math.max(c.high - c.low, Math.abs(c.high - atrRows[i].close), Math.abs(c.low - atrRows[i].close)), 0) / Math.min(14, atrRows.length - 1) : 0;
+        const tolerance = priceTolerance(displayScanPair(pair), atr14);
         this.deps.ledger.recordSignal({
           signal_id: signalId, pair: displayScanPair(pair), timeframe, direction: signal,
           signal_candle_open_ts: latest.timestamp, entry_ts: new Date(entryMs).toISOString(), expiry_ts: new Date(entryMs + timeframeMs(timeframe)).toISOString(),
@@ -271,8 +283,9 @@ export class ScanService {
           mfci_total: v3.mfci.totalMfci, mfci_band: v3.mfciBand, engine_mode: v3.engineMode ?? 'PRICE_ONLY', provider: primary.provider,
           ltf_provider: primary.provider, htf_provider: htf.provider,
           setup_id: telemetry.metadata.setup_id, experiment_id: ACTIVE_EXPERIMENT_ID, config_hash: CONFIG_HASH, config_hash_epoch: CONFIG_HASH_EPOCH, session: telemetry.market_context.session, kill_zone: telemetry.market_context.kill_zone,
+          signal_price: latest.close, quote_price: quotePrice, quote_ts: quoteTs, price_tolerance: tolerance,
         });
-        result = { ...result, signal_id: signalId, valid_until: new Date(validUntil).toISOString() };
+        result = { ...result, signal_id: signalId, valid_until: new Date(validUntil).toISOString(), signal_price: latest.close, quote_price: quotePrice, quote_ts: quoteTs, price_tolerance: tolerance, quote_status: quotePrice === undefined ? 'QUOTE_UNAVAILABLE' : 'OK' };
       }
     }
     // A stop may arrive while the provider request is in flight. Do not dispatch
@@ -334,6 +347,8 @@ export class ScanService {
           continue;
         }
         const outcome: SignalOutcome = c.close === c.open ? 'TIE' : (s.direction === 'CALL') === (c.close > c.open) ? 'WIN' : 'LOSS';
+        const signalCandle = candles.find((x) => x.timestamp === s.signal_candle_open_ts || Date.parse(x.timestamp) === Date.parse(s.signal_candle_open_ts));
+        if (signalCandle && s.signal_price !== undefined) this.deps.ledger.recordCandleRevision(s.signal_id, slippagePips(s.pair, s.signal_price, signalCandle.close) * (signalCandle.close >= s.signal_price ? 1 : -1));
         this.deps.ledger.recordResult({ signal_id: s.signal_id, outcome, source: 'AUTO_PROVIDER', entry_price: c.open, exit_price: c.close });
         out.push({ signal_id: s.signal_id, outcome });
         await this.deps.onResolved?.(this.deps.ledger.get(s.signal_id)!, outcome);
@@ -347,12 +362,18 @@ export class ScanService {
   }
 
   /** Owner-entered result via Telegram /result; appended, never overwriting history. */
-  public recordManualResult(signalId: string, outcomeInput: string): string {
+  public recordManualTaken(signalId: string, brokerEntryPrice: number): string {
+    try { this.deps.ledger.recordTaken(signalId, brokerEntryPrice); return `Taken recorded: ${signalId} broker entry ${brokerEntryPrice}.`; } catch (error) { return `ERROR ${error instanceof Error ? error.message : 'INVALID_TAKEN'}`; }
+  }
+
+  public recordManualResult(signalId: string, outcomeInput: string, brokerClosePrice?: number): string {
     const outcome = outcomeInput.toUpperCase() as SignalOutcome;
     if (!['WIN', 'LOSS', 'TIE', 'SKIPPED'].includes(outcome)) return 'ERROR INVALID_RESULT: use /result <signal_id> win|loss|tie|skipped.';
     const signal = this.deps.ledger.get(signalId);
     if (!signal) return `ERROR UNKNOWN_SIGNAL: ${signalId}`;
-    this.deps.ledger.recordResult({ signal_id: signal.signal_id, outcome, source: 'TELEGRAM_MANUAL' });
+    const brokerEntryPrice = signal.broker_entry_price;
+    const slippage = brokerEntryPrice !== undefined && signal.signal_price !== undefined ? slippagePips(signal.pair, signal.signal_price, brokerEntryPrice) : undefined;
+    this.deps.ledger.recordResult({ signal_id: signal.signal_id, outcome, source: 'TELEGRAM_MANUAL', broker_close_price: brokerClosePrice, broker_entry_price: brokerEntryPrice, slippage_pips: slippage });
     if (outcome === 'WIN' || outcome === 'LOSS') this.edge.check();
     return `Result recorded: ${signal.signal_id} ${signal.pair} ${signal.timeframe} ${signal.direction} => ${outcome}${signal.outcome && signal.outcome !== outcome ? ` (previous ${signal.outcome} kept in ledger)` : ''}.`;
   }
