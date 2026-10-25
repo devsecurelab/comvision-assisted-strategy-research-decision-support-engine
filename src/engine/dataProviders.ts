@@ -95,7 +95,7 @@ export type ProviderKeys = Partial<Record<MarketDataProvider, string>>;
 
 export function createProviderSchedulers(): Map<MarketDataProvider, RateLimitScheduler> {
   return new Map([
-    ['TWELVE_DATA', new RateLimitScheduler({ perMinute: Number(process.env.TD_PER_MINUTE || 8), perDay: Number(process.env.TD_PER_DAY || 800), autoDailyBudget: Number(process.env.TD_AUTO_DAILY_BUDGET || 560), hardStopDaily: Number(process.env.TD_HARD_STOP_DAILY || 640), minimumIntervalMs: 8_000, storageKey: 'rateLimitScheduler' })],
+    ['TWELVE_DATA', new RateLimitScheduler({ perMinute: Number(process.env.TWELVE_DATA_CREDITS_PER_MIN || process.env.TD_PER_MINUTE || 8), perDay: Number(process.env.TWELVE_DATA_CREDITS_PER_DAY || process.env.TD_PER_DAY || 800), autoDailyBudget: Number(process.env.TWELVE_DATA_AUTO_DAILY_BUDGET || process.env.TD_AUTO_DAILY_BUDGET || 560), hardStopDaily: Number(process.env.TWELVE_DATA_HARD_STOP_DAILY || process.env.TD_HARD_STOP_DAILY || 640), minimumIntervalMs: 0, storageKey: 'rateLimitScheduler' })],
     ['OANDA', new RateLimitScheduler({ perMinute: 60, perDay: 20_000, autoDailyBudget: 14_000, hardStopDaily: 16_000, minimumIntervalMs: 1_000, storageKey: 'providerQuota.OANDA' })],
     ['TIINGO', new RateLimitScheduler({ perMinute: 50, perHour: 50, perDay: 1_000, autoDailyBudget: 700, hardStopDaily: 1_000, storageKey: 'providerQuota.TIINGO' })],
   ]);

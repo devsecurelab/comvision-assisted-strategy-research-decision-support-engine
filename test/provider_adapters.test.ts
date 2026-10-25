@@ -105,8 +105,8 @@ async function liveHistoryRequestCounts() {
 }
 
 async function main() {
-  assert.equal(createProviderSchedulers().get('TWELVE_DATA')?.snapshot().minimumIntervalMs, 8_000);
-  console.log('[twelve_data_minimum_spacing] PASS');
+  assert.equal(createProviderSchedulers().get('TWELVE_DATA')?.snapshot().minimumIntervalMs, 0);
+  console.log('[twelve_data_rolling_window] PASS');
   await adapterContracts();
   console.log('[provider_adapter_rest_contracts] PASS');
   await liveHistoryRequestCounts();
