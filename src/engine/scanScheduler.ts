@@ -18,6 +18,8 @@ export const MAX_AUTO_PAIRS: Record<ScanTimeframe, number> = { '5m': 1, '15m': 4
 export const SCAN_DELAY_AFTER_CLOSE_MS = 1_000;
 export const GENERATION_DEADLINE_MS = Number(process.env.GENERATION_DEADLINE_MS || 15_000);
 export const ENTRY_WINDOW_SECONDS: Record<ScanTimeframe, number> = { '5m': Number(process.env.ENTRY_WINDOW_5M_SECONDS || 45), '15m': Number(process.env.ENTRY_WINDOW_15M_SECONDS || 60), '30m': Number(process.env.ENTRY_WINDOW_30M_SECONDS || 90) };
+export function entryWindowBounds(entryMs: number, timeframe: ScanTimeframe): { startMs: number; endMs: number } { return { startMs: entryMs, endMs: entryMs + ENTRY_WINDOW_SECONDS[timeframe] * 1000 }; }
+export function isWithinEntryWindow(nowMs: number, entryMs: number, timeframe: ScanTimeframe): boolean { return nowMs <= entryWindowBounds(entryMs, timeframe).endMs; }
 export const RETRY_BACKOFF_MS = [1_000, 2_000, 3_000];
 const PAIR_RE = /^[A-Z]{6}$/;
 
@@ -271,8 +273,8 @@ export class ScanService {
     };
     if (signal !== 'NO_TRADE' && v3) {
       const entryMs = expectedOpen + timeframeMs(timeframe);
-      const validUntil = entryMs + ENTRY_WINDOW_SECONDS[timeframe] * 1000;
-      if (this.deps.now() - generationStartedAt > GENERATION_DEADLINE_MS || this.deps.now() > validUntil) {
+      const validUntil = entryWindowBounds(entryMs, timeframe).endMs;
+      if (this.deps.now() - generationStartedAt > GENERATION_DEADLINE_MS || !isWithinEntryWindow(this.deps.now(), entryMs, timeframe)) {
         result = { ...result, status: 'NO_TRADE', reason: `SIGNAL_EXPIRED: ${signal} was not delivered before ${new Date(validUntil).toISOString()}.` };
       } else {
         const signalId = signalIdFor(displayScanPair(pair), timeframe, latest.timestamp);

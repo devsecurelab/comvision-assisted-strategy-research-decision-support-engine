@@ -77,10 +77,14 @@ export function buildLedgerReport(signals: SignalView[], sinceMs: number, untilM
   const taken = rows.filter((s) => s.broker_entry_price !== undefined);
   const brokerDecisive = taken.filter((s) => s.broker_outcome === 'WIN' || s.broker_outcome === 'LOSS');
   const slippages = taken.map((s) => s.slippage_pips).filter((v): v is number => v !== undefined && Number.isFinite(v));
+  const telegramLatencies = rows.map((s) => {
+    const closeMs = Date.parse(s.entry_ts); const sentMs = Date.parse(s.telegram_sent_at ?? '');
+    return Number.isFinite(closeMs) && Number.isFinite(sentMs) && sentMs >= closeMs ? sentMs - closeMs : null;
+  }).filter((v): v is number => v !== null);
   const mismatchRows = rows.filter((s) => s.provider_outcome && s.broker_outcome);
   return { signals: total.n, ...total, winRate: decisiveN ? total.wins / decisiveN : null, wilson: interval, breakeven, position: !interval || breakeven === null ? 'UNAVAILABLE' : interval[0] > breakeven ? 'ABOVE_BREAKEVEN' : interval[1] < breakeven ? 'BELOW_BREAKEVEN' : 'INCONCLUSIVE', groups,
     takenTrades: taken.length, takenWinRate: brokerDecisive.length ? brokerDecisive.filter((s) => s.broker_outcome === 'WIN').length / brokerDecisive.length : null,
-    slippageMedianPips: percentile(slippages, .5), slippageP95Pips: percentile(slippages, .95), outcomeMismatchPct: mismatchRows.length ? mismatchRows.filter((s) => s.provider_outcome !== s.broker_outcome).length / mismatchRows.length : null };
+    slippageMedianPips: percentile(slippages, .5), slippageP95Pips: percentile(slippages, .95), telegramLatencyP50Ms: percentile(telegramLatencies, .5), telegramLatencyP95Ms: percentile(telegramLatencies, .95), outcomeMismatchPct: mismatchRows.length ? mismatchRows.filter((s) => s.provider_outcome !== s.broker_outcome).length / mismatchRows.length : null };
 }
 
 export function formatLedgerReport(title: string, report: ReturnType<typeof buildLedgerReport>): string {
@@ -91,6 +95,7 @@ export function formatLedgerReport(title: string, report: ReturnType<typeof buil
     `Win rate: ${pct(report.winRate)} | Wilson 95%: ${report.wilson ? `${pct(report.wilson[0])}–${pct(report.wilson[1])}` : 'UNAVAILABLE'}`,
     `Breakeven: ${pct(report.breakeven)} | Position: ${report.position}`,
     `Taken trades: ${report.takenTrades} | broker win rate: ${pct(report.takenWinRate)} | slippage median/p95: ${report.slippageMedianPips ?? 'UNAVAILABLE'}/${report.slippageP95Pips ?? 'UNAVAILABLE'} pips | provider/broker mismatch: ${pct(report.outcomeMismatchPct)}`,
+    `Telegram close→sent latency p50/p95: ${report.telegramLatencyP50Ms ?? 'UNAVAILABLE'}/${report.telegramLatencyP95Ms ?? 'UNAVAILABLE'} ms`,
   ];
   for (const [group, entries] of Object.entries(report.groups)) {
     const parts = Object.entries(entries).map(([k, b]) => `${k} ${b.wins}/${b.wins + b.losses}`);
