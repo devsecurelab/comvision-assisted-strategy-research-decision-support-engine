@@ -5,7 +5,7 @@ import { ACTIVE_EXPERIMENT_ID, CONFIG_HASH, CONFIG_HASH_EPOCH } from './manifest
 import type { Candle, MasterTelemetry, NewsEvent, Timeframe } from './types';
 import { timeframeMs } from './dataIntegrity';
 import { breakevenFor, EdgeMonitor } from './edgeMonitor';
-import { SignalLedger, signalIdFor, type SignalOutcome, type SignalView } from './signalLedger';
+import { SignalLedger, type SignalOutcome, type SignalView } from './signalLedger';
 import { filterFxOpenMarketCandles, isFxBarClosed, isFxMarketClosed } from './marketHours';
 import { classifySessionAndKillZone } from './session';
 import { priceTolerance, slippagePips } from './price';
@@ -60,6 +60,7 @@ type FetchedMarketData = MarketDataResult & { failoverReason?: string; providerS
 
 export interface ScanDeps {
   fetchCandles(pair: string, timeframe: Timeframe, provider: MarketDataProvider, kind: 'AUTO' | 'ON_DEMAND'): Promise<MarketDataResult>;
+  fetchCandlesBatch?(pairs: string[], timeframe: Timeframe, provider: MarketDataProvider, kind: 'AUTO' | 'ON_DEMAND'): Promise<Record<string, MarketDataResult>>;
   providers(): MarketDataProvider[];
   getPayout(pair: string): { pct: number; setAt: string } | undefined;
   favorites(): string[];
@@ -96,6 +97,7 @@ export function nextCandleCloseMs(nowMs: number, timeframe: Timeframe): number {
 export class ScanService {
   private readonly cache = new Map<string, ScanResult>();
   private readonly htfCache = new Map<string, { hourOpen: number; result: FetchedMarketData }>();
+  private readonly cycleBatch = new Map<string, MarketDataResult>();
   private cycleProvider: { cycle: string; provider: MarketDataProvider; reason?: string } | undefined;
   public readonly edge: EdgeMonitor;
 
@@ -130,6 +132,8 @@ export class ScanService {
       const sticky = this.cycleProvider;
       attempted.add(sticky.provider);
       try {
+        const batched = this.cycleBatch.get(`${windowKey}|${pair}|${sticky.provider}`);
+        if (batched) return { ...batched, failoverReason: sticky.reason, providerSwitches };
         const res = await this.deps.fetchCandles(pair, timeframe, sticky.provider, kind);
         return { ...res, failoverReason: sticky.reason, providerSwitches };
       } catch (error) {
@@ -145,6 +149,11 @@ export class ScanService {
         providerSwitches.push({ fromProvider: failedProvider, toProvider: provider, reason });
       }
       try {
+        const batched = this.cycleBatch.get(`${windowKey}|${pair}|${provider}`);
+        if (batched) {
+          this.cycleProvider = { cycle: windowKey, provider, reason: providerSwitches.at(-1)?.reason };
+          return { ...batched, failoverReason: providerSwitches.at(-1)?.reason, providerSwitches };
+        }
         const res = await this.deps.fetchCandles(pair, timeframe, provider, kind);
         const reason = providerSwitches.length ? providerSwitches.map((step) => `${step.fromProvider} ${step.reason} → ${step.toProvider}`).join('; ') : undefined;
         this.cycleProvider = { cycle: windowKey, provider, reason };
@@ -277,7 +286,7 @@ export class ScanService {
       if (this.deps.now() - generationStartedAt > GENERATION_DEADLINE_MS || !isWithinEntryWindow(this.deps.now(), entryMs, timeframe)) {
         result = { ...result, status: 'NO_TRADE', reason: `SIGNAL_EXPIRED: ${signal} was not delivered before ${new Date(validUntil).toISOString()}.` };
       } else {
-        const signalId = signalIdFor(displayScanPair(pair), timeframe, latest.timestamp);
+        const signalId = telemetry.metadata.setup_id;
         let quotePrice: number | undefined; let quoteTs: string | undefined;
         try { const quote = await this.deps.fetchQuote?.(displayScanPair(pair)); quotePrice = quote?.price; quoteTs = quote?.ts; } catch { /* alert remains auditable with QUOTE_UNAVAILABLE */ }
         const atrRows = candles.slice(-15);
@@ -316,6 +325,17 @@ export class ScanService {
       const pair = normalizeScanPair(fav); const payout = this.deps.getPayout(pair);
       if (!payout || payout.pct < MIN_PAYOUT_PCT) continue;
       try { await this.htfCandles(displayScanPair(pair), nowMs, 'AUTO', prefetchKey); } catch { /* scan records the provider failure */ }
+    }
+    this.cycleBatch.clear();
+    const batchProvider = this.deps.providers()[0];
+    const batchPairs = this.deps.favorites().map(normalizeScanPair).filter((pair, index, all) => all.indexOf(pair) === index)
+      .filter((pair) => { const payout = this.deps.getPayout(pair); return !!payout && payout.pct >= MIN_PAYOUT_PCT; })
+      .slice(0, MAX_AUTO_PAIRS[timeframe]);
+    if (batchProvider && batchPairs.length > 1 && this.deps.fetchCandlesBatch) {
+      try {
+        const batched = await this.deps.fetchCandlesBatch(batchPairs.map(displayScanPair), timeframe, batchProvider, 'AUTO');
+        for (const [pair, result] of Object.entries(batched)) this.cycleBatch.set(`${prefetchKey}|${pair}|${batchProvider}`, result);
+      } catch { /* partial/failed batch falls back to the normal per-symbol failover path */ }
     }
     let scanned = 0;
     for (const fav of this.deps.favorites()) {

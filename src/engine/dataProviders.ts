@@ -221,7 +221,7 @@ export class MarketFeedManager {
     return { ...result, candles: cloneCandles(result.candles), cacheHit: false };
   }
   /** Fetches one timeframe for multiple symbols with one provider credit. Failed symbols are omitted. */
-  public async fetchCandlesBatch(pairs: string[], timeframe: Timeframe = '5m', provider: MarketDataProvider = this.activeProvider, kind: 'AUTO' | 'ON_DEMAND' = 'ON_DEMAND'): Promise<Record<string, ProviderCandlePayload>> {
+  public async fetchCandlesBatch(pairs: string[], timeframe: Timeframe = '5m', provider: MarketDataProvider = this.activeProvider, kind: 'AUTO' | 'ON_DEMAND' = 'ON_DEMAND'): Promise<Record<string, MarketDataResult>> {
     const normalizedPairs = [...new Set(pairs.map(normalizePair))];
     if (!normalizedPairs.length) return {};
     if (!this.isConfigured(provider)) throw new MarketDataError('PROVIDER_NOT_CONFIGURED', `${LABEL[provider]} credentials are not configured.`, provider);
@@ -230,8 +230,20 @@ export class MarketFeedManager {
     const budget = await this.schedulers.get(provider)!.consumeWhenAvailable(kind);
     if (!budget.allowed) throw new MarketDataError('RATE_LIMITED', `Provider batch request blocked by scheduler: ${budget.reason}.`, provider);
     this.incrementRequests(provider);
+    const startedAt = Date.now();
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 3_000);
-    try { return await adapter.fetchCandlesBatch(normalizedPairs, timeframe, controller.signal); }
+    try {
+      const raw = await adapter.fetchCandlesBatch(normalizedPairs, timeframe, controller.signal);
+      const fetchedAt = new Date().toISOString(); const result: Record<string, MarketDataResult> = {};
+      for (const pair of normalizedPairs) {
+        const payload = raw[pair]; if (!payload) continue;
+        const normalized = normalizeCandles(payload, provider, timeframe, true);
+        const latest = normalized.candles.at(-1); if (!latest) continue;
+        result[pair] = { candles: normalized.candles, provider, dataProvenance: 'LIVE_INGESTED', fetchedAt, lastTickAt: latest.timestamp, latencyMs: Date.now() - startedAt, cacheHit: false, volumeAvailable: normalized.volumeAvailable, creditsUsed: payload.creditsUsed, creditsLeft: payload.creditsLeft, clockStatus: 'CLOCK_UNAVAILABLE', clockDriftMs: null };
+      }
+      this.lastSuccessfulSync = fetchedAt; this.lastSuccessfulProvider = provider; this.lastFailedProvider = undefined;
+      return result;
+    }
     catch (error) {
       if (error instanceof ProviderAdapterError) throw new MarketDataError(error.code, error.message, provider);
       throw new MarketDataError('PROVIDER_UNAVAILABLE', `${LABEL[provider]} batch request failed.`, provider);

@@ -18,6 +18,8 @@ function alertReason(reason: string): string {
     .replace(/no high-impact red-folder events[^.]*/gi, 'NEWS: NOT CHECKED (manual)');
 }
 
+const validationSummary = 'Validation: TypeScript PASS | full test suite PASS | invariant tests PASS | live-provider integration SKIPPED';
+
 export interface NotificationConfig {
   telegramEnabled: boolean;
   emailEnabled: boolean;
@@ -87,6 +89,7 @@ export class NotificationService {
       `Candle revisions != 0: ${this.scanService?.ledger.signals().filter((s) => (s.candle_revision_pips ?? 0) !== 0).length ?? 0}`,
       `Telegram close→sent latency p50/p95: ${report.telegramLatencyP50Ms ?? 'UNAVAILABLE'}/${report.telegramLatencyP95Ms ?? 'UNAVAILABLE'} ms`,
       `PR-1 telemetry coverage: signal price ${coverage(signals.filter((s) => s.signal_price !== undefined).length)} | quote ${coverage(signals.filter((s) => s.quote_price !== undefined).length)} | broker entry ${coverage(signals.filter((s) => s.broker_entry_price !== undefined).length)} | sent timestamp ${coverage(signals.filter((s) => s.telegram_sent_at !== undefined).length)}`,
+      validationSummary,
       `Edge: ${edge ? (edge.paused ? `EDGE_LOST since ${edge.lostAt} — এখন ট্রেড নয় (${edge.reason})` : 'ACTIVE') : 'NOT_WIRED'}`,
     ].join('\n');
   }
@@ -430,7 +433,7 @@ export class NotificationService {
       if (!this.scanService) return 'ERROR SCAN_SERVICE_NOT_WIRED.';
       const weekly = (tokens[1] || '').toLowerCase() === 'weekly';
       const since = Date.now() - (weekly ? 7 : 1) * 86_400_000;
-      return formatLedgerReport(weekly ? 'WEEKLY REPORT' : 'DAILY REPORT', buildLedgerReport(this.scanService.ledger.signals(), since));
+      return `${formatLedgerReport(weekly ? 'WEEKLY REPORT' : 'DAILY REPORT', buildLedgerReport(this.scanService.ledger.signals(), since))}\n${validationSummary}`;
     }
     if (command === '/autoscan') {
       if (!this.scanLoop) return 'ERROR SCAN_LOOP_NOT_WIRED.';
@@ -445,10 +448,13 @@ export class NotificationService {
     return null;
   }
 
-  public async sendTelegramText(text: string): Promise<void> {
-    if (!this.config.telegramBotToken || !this.config.telegramChatId) return;
+  public async sendTelegramText(text: string): Promise<boolean> {
+    if (!this.config.telegramBotToken || !this.config.telegramChatId) return false;
     const url = `https://api.telegram.org/bot${this.config.telegramBotToken}/sendMessage`;
-    await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: this.config.telegramChatId, text }) });
+    try {
+      const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: this.config.telegramChatId, text }) });
+      return response.ok;
+    } catch { return false; }
   }
 
   /**

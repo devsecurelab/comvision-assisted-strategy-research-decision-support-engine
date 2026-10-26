@@ -113,7 +113,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               id="nav-experiment"
               icon={<FlaskConical className="w-4 h-4" />}
               label="Experiment Mode"
-              badge="EXP-V2"
+              badge="EXP-V3"
               active={activeTab === 'experiment'}
               onClick={() => handleItemClick('experiment')}
             />

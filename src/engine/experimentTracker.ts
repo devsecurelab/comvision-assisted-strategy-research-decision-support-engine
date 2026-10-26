@@ -1,4 +1,4 @@
-// Controlled Experiment Tracker (EXP-2026-V2-001)
+// Controlled Experiment Tracker (V3 ledger identity)
 // RDP Strategy V3.0 (Frozen) Master Specification: First 100 Valid Setups Controlled Experiment
 // Integrated with Durable Persistence Storage (survives server restart & redeployment)
 
@@ -7,6 +7,7 @@ import { ACTIVE_STRATEGY_VERSION, ACTIVE_EXPERIMENT_ID, CONFIG_HASH, CONFIG_HASH
 import { durableStorage, SignalOutcome, SignalOutcomeRecord } from '../server/storage';
 import { canonicalJson } from '../utils/canonicalJson';
 import { sha256 } from '../utils/sha256';
+import { milestonesToNotify, type Milestone } from './milestones';
 
 export interface ExperimentStats {
   experimentId: string;
@@ -16,7 +17,7 @@ export interface ExperimentStats {
   scannerActive: boolean;
   alertsMuted: boolean;
   totalCandidateFramesEvaluated: number;
-  validSetupsCount: number; // Max 100 target
+  validSetupsCount: number;
   targetValidSetups: number;
   rejectedSetupsCount: number;
   inconclusiveCount: number;
@@ -30,7 +31,6 @@ export interface ExperimentStats {
   recordedWins: number;
   recordedLosses: number;
   recordedSkipped: number;
-  winRatePercentage: number;
 }
 
 export class ExperimentManager {
@@ -40,11 +40,12 @@ export class ExperimentManager {
   private isLocked = true; // Scope frozen for 100 setups
   private scannerActive = true;
   private alertsMuted = false;
+  private notifiedMilestones = new Set<number>();
+  private pendingMilestones = new Set<number>();
 
   private candidatesHistory: MasterTelemetry[] = [];
   private currentActiveAlert: MasterTelemetry | null = null;
   private lastHash = '0'.repeat(64); // Genesis hash for SHA-256 chain
-  private setupCounter = 1;
 
   constructor() {
     this.initializeFromStorage();
@@ -137,6 +138,8 @@ export class ExperimentManager {
       this.scannerActive = state.scannerActive !== undefined ? state.scannerActive : true;
       this.alertsMuted = state.alertsMuted !== undefined ? state.alertsMuted : false;
       this.lastHash = state.lastHash || '0'.repeat(64);
+      this.notifiedMilestones = new Set(state.notifiedMilestones ?? []);
+      this.pendingMilestones = new Set(state.pendingMilestones ?? []);
     }
 
     // 2. Load candidates from durable storage
@@ -153,10 +156,6 @@ export class ExperimentManager {
         }
       }
       this.candidatesHistory = deduped;
-      // Re-establish setup counter and lastHash
-      const v2Records = deduped.filter((c) => c.metadata.setup_id?.startsWith('V2-'));
-      this.setupCounter = v2Records.length + 1;
-
       const validLast = deduped.find((c) => c.metadata.sha256_hash);
       if (validLast?.metadata.sha256_hash) {
         this.lastHash = validLast.metadata.sha256_hash;
@@ -173,7 +172,8 @@ export class ExperimentManager {
     this.isLocked = true;
     this.scannerActive = true;
     this.alertsMuted = false;
-    this.setupCounter = 1;
+    this.notifiedMilestones.clear();
+    this.pendingMilestones.clear();
   }
 
   private persist() {
@@ -187,6 +187,8 @@ export class ExperimentManager {
       lastHash: this.lastHash,
       targetValidSetups: STRATEGY_MANIFEST.scope_freeze.target_valid_setups,
       updatedAt: new Date().toISOString(),
+      notifiedMilestones: [...this.notifiedMilestones].sort((a, b) => a - b),
+      pendingMilestones: [...this.pendingMilestones].sort((a, b) => a - b),
     });
   }
 
@@ -278,39 +280,17 @@ export class ExperimentManager {
   }
 
   /**
-   * Generates sequential compatibility Setup ID: V2-000001, V2-000002...
-   */
-  public generateNextSetupId(): string {
-    const pad = String(this.setupCounter++).padStart(6, '0');
-    return `V2-${pad}`;
-  }
-
-  /**
    * Records candidate frame with SHA-256 hash chaining and durable persistence.
    */
   public recordCandidate(telemetry: MasterTelemetry): MasterTelemetry {
+    const previousValid = this.candidatesHistory.filter((item) => item.system_execution.system_decision === 'PASS').length;
     // Ensure frozen metadata defaults
     telemetry.metadata.strategy_version = ACTIVE_STRATEGY_VERSION;
     telemetry.metadata.experiment_id = ACTIVE_EXPERIMENT_ID;
     telemetry.metadata.config_hash = CONFIG_HASH;
     telemetry.metadata.config_hash_epoch = CONFIG_HASH_EPOCH;
 
-    if (!telemetry.metadata.setup_id || !telemetry.metadata.setup_id.startsWith('V2-')) {
-      telemetry.metadata.setup_id = this.generateNextSetupId();
-    }
-
-    // Check target threshold for valid setups
-    if (telemetry.system_execution.system_decision === 'PASS') {
-      const currentValid = this.candidatesHistory.filter(
-        (c) => c.system_execution.system_decision === 'PASS'
-      ).length;
-
-      if (currentValid >= STRATEGY_MANIFEST.scope_freeze.target_valid_setups) {
-        telemetry.system_execution.rejection_reason = `Target sample size reached (${STRATEGY_MANIFEST.scope_freeze.target_valid_setups} valid setups). Experiment completed.`;
-        telemetry.system_execution.system_decision = 'REJECT';
-        telemetry.system_execution.final_action = 'NO_ACTION';
-      }
-    }
+    if (!telemetry.metadata.setup_id) throw new Error('SETUP_ID_REQUIRED: V3 pipeline must provide the immutable setup_id.');
 
     // Hash Chain Cryptographic Linkage
     telemetry.metadata.prev_hash = this.lastHash;
@@ -348,10 +328,29 @@ export class ExperimentManager {
       this.currentActiveAlert = telemetry;
     }
 
+    const currentValid = this.candidatesHistory.filter((item) => item.system_execution.system_decision === 'PASS').length;
+    for (const milestone of milestonesToNotify(previousValid, currentValid, [...this.notifiedMilestones, ...this.pendingMilestones])) {
+      this.pendingMilestones.add(milestone);
+    }
+
     // Persist to durable storage
     this.persist();
 
     return telemetry;
+  }
+
+  public pendingMilestoneNotifications(): Milestone[] {
+    return [...this.pendingMilestones].sort((a, b) => a - b) as Milestone[];
+  }
+
+  public markMilestoneNotified(milestone: Milestone): void {
+    this.pendingMilestones.delete(milestone);
+    this.notifiedMilestones.add(milestone);
+    this.persist();
+  }
+
+  public milestoneState(): { pending: Milestone[]; notified: Milestone[] } {
+    return { pending: this.pendingMilestoneNotifications(), notified: [...this.notifiedMilestones].sort((a, b) => a - b) as Milestone[] };
   }
 
   public verifyHashChain(): { valid: boolean; totalRecords: number; error?: string } {
@@ -523,9 +522,6 @@ export class ExperimentManager {
       }
     }
 
-    const closedObservations = favorable + unfavorable;
-    const favorableRate = closedObservations > 0 ? (favorable / closedObservations) * 100 : 0;
-
     return {
       experimentId: this.experimentId,
       strategyVersion: this.strategyVersion,
@@ -548,11 +544,10 @@ export class ExperimentManager {
       recordedWins: favorable,
       recordedLosses: unfavorable,
       recordedSkipped: notTaken,
-      winRatePercentage: Number(favorableRate.toFixed(1)),
     };
   }
 
-  public getCandidates(filter?: 'ALL' | 'PASS' | 'REJECT' | 'INCONCLUSIVE', limit = 100): MasterTelemetry[] {
+  public getCandidates(filter?: 'ALL' | 'PASS' | 'REJECT' | 'INCONCLUSIVE', limit = Number.MAX_SAFE_INTEGER): MasterTelemetry[] {
     if (!filter || filter === 'ALL') {
       return this.candidatesHistory.slice(0, limit);
     }

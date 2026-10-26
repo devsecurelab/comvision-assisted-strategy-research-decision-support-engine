@@ -97,6 +97,8 @@ export interface ExperimentState {
   lastHash: string;
   targetValidSetups: number;
   updatedAt: string;
+  notifiedMilestones?: number[];
+  pendingMilestones?: number[];
 }
 
 export class DurableStorage {

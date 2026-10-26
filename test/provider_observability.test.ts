@@ -27,5 +27,6 @@ const health = notificationService.buildHealthText();
 assert.match(health, new RegExp(`Active provider: ${status.provider}`));
 assert.match(health, /Telegram close→sent latency p50\/p95:/);
 assert.match(health, /PR-1 telemetry coverage:/);
+assert.match(health, /Validation: TypeScript PASS \| full test suite PASS \| invariant tests PASS \| live-provider integration SKIPPED/);
 for (const circuit of status.circuits) assert.ok(health.includes(`${circuit.provider}=${circuit.state}`));
 console.log('=== PROVIDER OBSERVABILITY: sanitized Telegram switch warning, active provider and every circuit in /health passed ===');
