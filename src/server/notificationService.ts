@@ -445,10 +445,13 @@ export class NotificationService {
     return null;
   }
 
-  public async sendTelegramText(text: string): Promise<void> {
-    if (!this.config.telegramBotToken || !this.config.telegramChatId) return;
+  public async sendTelegramText(text: string): Promise<boolean> {
+    if (!this.config.telegramBotToken || !this.config.telegramChatId) return false;
     const url = `https://api.telegram.org/bot${this.config.telegramBotToken}/sendMessage`;
-    await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: this.config.telegramChatId, text }) });
+    try {
+      const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: this.config.telegramChatId, text }) });
+      return response.ok;
+    } catch { return false; }
   }
 
   /**

@@ -274,8 +274,8 @@ export interface MasterTelemetry {
   metadata: {
     project_name: string;
     strategy_version: string; // active engine version, e.g. "RDP_STRATEGY_V3.0"
-    experiment_id: string; // e.g. "EXP-2026-V2-001"
-    setup_id: string; // e.g. "V2-000001"
+    experiment_id: string; // e.g. "EXP-2026-V3-REAL-001"
+    setup_id: string; // e.g. "V3-..."
     config_hash?: string; // SHA-256 of frozen rule parameters
     config_hash_epoch?: string; // Canonical hash scheme identifier; absent on legacy records
     timestamp_utc: string;

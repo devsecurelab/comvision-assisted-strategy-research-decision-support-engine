@@ -223,7 +223,7 @@ app.get(['/api/engine/dashboard-state', '/api/engine/status'], requireApprovedUs
   const activeAlert = experimentTracker.getActiveAlert();
   const providerStatus = feedManager.getStatus();
   const newsStatus = newsGuard.checkNewsWindow();
-  const validSetups = experimentTracker.getCandidates('PASS', 100);
+  const validSetups = experimentTracker.getCandidates('PASS');
 
   res.json({
     stats,
@@ -240,7 +240,7 @@ app.get(['/api/engine/dashboard-state', '/api/engine/status'], requireApprovedUs
 });
 
 app.get('/api/engine/valid-setups', requireApprovedUser, (_req, res) => {
-  const validSetups = experimentTracker.getCandidates('PASS', 100);
+  const validSetups = experimentTracker.getCandidates('PASS');
   res.json({
     validSetups,
     total: validSetups.length,
@@ -633,6 +633,10 @@ const scanService = new ScanService({
     if (!result.telemetry) return;
     if (result.trigger === 'AUTO' && !scanLoop.state().enabled) return;
     const recorded = experimentTracker.recordCandidate(result.telemetry);
+    for (const milestone of experimentTracker.pendingMilestoneNotifications()) {
+      const delivered = await notificationService.sendTelegramText(`MILESTONE: ${milestone} valid signals recorded. Research tracking continues; no execution is performed.`);
+      if (delivered) experimentTracker.markMilestoneNotified(milestone);
+    }
     if (result.status !== 'NO_TRADE' && recorded.system_execution.system_decision === 'PASS') {
       const delivery = await notificationService.dispatchSignalAlert(recorded, { signalId: result.signal_id, validUntil: result.valid_until, signalPrice: result.signal_price, quotePrice: result.quote_price, quoteTs: result.quote_ts, priceTolerance: result.price_tolerance });
       if (delivery.telegram === 'SENT' && result.signal_id) signalLedger.recordTelegramSent(result.signal_id);
