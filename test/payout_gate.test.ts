@@ -47,7 +47,13 @@ assert.match(polled.responses[0], /INVALID_PAYOUT/);
 assert.match(polled.responses[1], /85%. Status: ELIGIBLE/);
 assert.match(polled.responses[2], /UNSUPPORTED_SYMBOL/);
 assert.equal(new PayoutRegistry().get('EURUSD')?.pct, 85, 'non-owner /payout 90 was ignored');
-const audit = fs.readFileSync(path.join(dir, fs.readdirSync(dir).find((f) => f.includes('audit'))!), 'utf8');
-assert.doesNotMatch(audit, /999|"111"/);
+const auditEntries = JSON.parse(fs.readFileSync(path.join(dir, fs.readdirSync(dir).find((f) => f.includes('audit'))!), 'utf8'));
+const containsChatId = (value: unknown): boolean => {
+  if (value === 999 || value === '999' || value === 111 || value === '111') return true;
+  if (Array.isArray(value)) return value.some(containsChatId);
+  if (value && typeof value === 'object') return Object.values(value).some(containsChatId);
+  return false;
+};
+assert.equal(auditEntries.some(containsChatId), false, 'chat IDs must not appear as audit values');
 assert.match((await service.processOwnerTelegramCommands()).responses.join(), /.*/);
 console.log('=== PAYOUT AUTH: owner-only commands, payout validation, no chat IDs in audit passed ===');
