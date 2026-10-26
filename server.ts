@@ -515,7 +515,9 @@ app.get('/api/audit/verify-chain', requireApprovedUser, (_req, res) => {
   const verification = experimentTracker.verifyHashChain();
   res.json(verification);
 });
-
+app.get('/api/ledger/stats', requireApprovedUser, (_req, res) => {
+  res.json(signalLedger.stats());
+});
 app.get('/api/audit/verify-signal-ledger', requireAdmin, (_req, res) => {
   res.json({ path: signalLedger.path, verification: signalLedger.verify() });
 });

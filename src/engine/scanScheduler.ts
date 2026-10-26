@@ -5,7 +5,7 @@ import { ACTIVE_EXPERIMENT_ID, CONFIG_HASH, CONFIG_HASH_EPOCH } from './manifest
 import type { Candle, MasterTelemetry, NewsEvent, Timeframe } from './types';
 import { timeframeMs } from './dataIntegrity';
 import { breakevenFor, EdgeMonitor } from './edgeMonitor';
-import { SignalLedger, signalIdFor, type SignalOutcome, type SignalView } from './signalLedger';
+import { SignalLedger, type SignalOutcome, type SignalView } from './signalLedger';
 import { filterFxOpenMarketCandles, isFxBarClosed, isFxMarketClosed } from './marketHours';
 import { classifySessionAndKillZone } from './session';
 import { priceTolerance, slippagePips } from './price';
@@ -286,7 +286,7 @@ export class ScanService {
       if (this.deps.now() - generationStartedAt > GENERATION_DEADLINE_MS || !isWithinEntryWindow(this.deps.now(), entryMs, timeframe)) {
         result = { ...result, status: 'NO_TRADE', reason: `SIGNAL_EXPIRED: ${signal} was not delivered before ${new Date(validUntil).toISOString()}.` };
       } else {
-        const signalId = signalIdFor(displayScanPair(pair), timeframe, latest.timestamp);
+        const signalId = telemetry.metadata.setup_id;
         let quotePrice: number | undefined; let quoteTs: string | undefined;
         try { const quote = await this.deps.fetchQuote?.(displayScanPair(pair)); quotePrice = quote?.price; quoteTs = quote?.ts; } catch { /* alert remains auditable with QUOTE_UNAVAILABLE */ }
         const atrRows = candles.slice(-15);

@@ -86,6 +86,7 @@ export interface SignalView extends SignalPayload {
 export interface TradeTakenPayload { signal_id: string; broker_entry_price: number }
 export interface CandleRevisionPayload { signal_id: string; candle_revision_pips: number }
 export interface SignalSentPayload { signal_id: string; telegram_sent_at: string }
+export interface LedgerStats { signals: number; resolved: number; wins: number; losses: number; ties: number; winRatePercentage: number | null }
 
 export const GENESIS_HASH = '0'.repeat(64);
 
@@ -268,6 +269,15 @@ export class SignalLedger {
 
   public get(signalId: string): SignalView | undefined {
     return this.signals().find((s) => s.signal_id.toUpperCase() === signalId.toUpperCase());
+  }
+
+  public stats(): LedgerStats {
+    const signals = this.signals();
+    const wins = signals.filter((s) => s.outcome === 'WIN').length;
+    const losses = signals.filter((s) => s.outcome === 'LOSS').length;
+    const ties = signals.filter((s) => s.outcome === 'TIE').length;
+    const resolved = wins + losses + ties;
+    return { signals: signals.length, resolved, wins, losses, ties, winRatePercentage: wins + losses ? Number((wins / (wins + losses) * 100).toFixed(1)) : null };
   }
 
   public pending(nowMs: number): SignalView[] {

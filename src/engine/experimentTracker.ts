@@ -44,7 +44,6 @@ export class ExperimentManager {
   private candidatesHistory: MasterTelemetry[] = [];
   private currentActiveAlert: MasterTelemetry | null = null;
   private lastHash = '0'.repeat(64); // Genesis hash for SHA-256 chain
-  private setupCounter = 1;
 
   constructor() {
     this.initializeFromStorage();
@@ -153,10 +152,6 @@ export class ExperimentManager {
         }
       }
       this.candidatesHistory = deduped;
-      // Re-establish setup counter and lastHash
-      const v2Records = deduped.filter((c) => c.metadata.setup_id?.startsWith('V2-'));
-      this.setupCounter = v2Records.length + 1;
-
       const validLast = deduped.find((c) => c.metadata.sha256_hash);
       if (validLast?.metadata.sha256_hash) {
         this.lastHash = validLast.metadata.sha256_hash;
@@ -173,7 +168,6 @@ export class ExperimentManager {
     this.isLocked = true;
     this.scannerActive = true;
     this.alertsMuted = false;
-    this.setupCounter = 1;
   }
 
   private persist() {
@@ -278,14 +272,6 @@ export class ExperimentManager {
   }
 
   /**
-   * Generates sequential compatibility Setup ID: V2-000001, V2-000002...
-   */
-  public generateNextSetupId(): string {
-    const pad = String(this.setupCounter++).padStart(6, '0');
-    return `V2-${pad}`;
-  }
-
-  /**
    * Records candidate frame with SHA-256 hash chaining and durable persistence.
    */
   public recordCandidate(telemetry: MasterTelemetry): MasterTelemetry {
@@ -295,22 +281,7 @@ export class ExperimentManager {
     telemetry.metadata.config_hash = CONFIG_HASH;
     telemetry.metadata.config_hash_epoch = CONFIG_HASH_EPOCH;
 
-    if (!telemetry.metadata.setup_id || !telemetry.metadata.setup_id.startsWith('V2-')) {
-      telemetry.metadata.setup_id = this.generateNextSetupId();
-    }
-
-    // Check target threshold for valid setups
-    if (telemetry.system_execution.system_decision === 'PASS') {
-      const currentValid = this.candidatesHistory.filter(
-        (c) => c.system_execution.system_decision === 'PASS'
-      ).length;
-
-      if (currentValid >= STRATEGY_MANIFEST.scope_freeze.target_valid_setups) {
-        telemetry.system_execution.rejection_reason = `Target sample size reached (${STRATEGY_MANIFEST.scope_freeze.target_valid_setups} valid setups). Experiment completed.`;
-        telemetry.system_execution.system_decision = 'REJECT';
-        telemetry.system_execution.final_action = 'NO_ACTION';
-      }
-    }
+    if (!telemetry.metadata.setup_id) throw new Error('SETUP_ID_REQUIRED: V3 pipeline must provide the immutable setup_id.');
 
     // Hash Chain Cryptographic Linkage
     telemetry.metadata.prev_hash = this.lastHash;
