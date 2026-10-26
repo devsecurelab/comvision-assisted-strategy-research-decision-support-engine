@@ -617,6 +617,7 @@ const loadScanState = (): ScanLoopState | undefined => durableStorage.loadAppSet
 const saveScanState = (state: ScanLoopState) => durableStorage.saveAppSettings({ ...durableStorage.loadAppSettings(), scanLoopState: state });
 const scanService = new ScanService({
   fetchCandles: (pair, timeframe, provider, kind) => feedManager.fetchCandles(pair, timeframe, provider, kind),
+  fetchCandlesBatch: (pairs, timeframe, provider, kind) => feedManager.fetchCandlesBatch(pairs, timeframe, provider, kind),
   fetchQuote: (pair) => feedManager.fetchQuote(pair),
   providers: () => feedManager.getFallbackProviders(),
   getPayout: (pair) => { const record = payoutRegistry.get(pair); return record ? { pct: record.pct, setAt: record.setAt } : undefined; },
