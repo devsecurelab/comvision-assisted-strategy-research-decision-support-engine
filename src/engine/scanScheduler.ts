@@ -15,9 +15,10 @@ export type ScanTrigger = 'MANUAL' | 'AUTO';
 export const SCAN_TIMEFRAMES: ScanTimeframe[] = ['5m', '15m', '30m'];
 /** Auto-scan pair caps per timeframe so 2 credits/pair stays inside 70% of an 800/day, 8/min budget. */
 export const MAX_AUTO_PAIRS: Record<ScanTimeframe, number> = { '5m': 1, '15m': 4, '30m': 7 };
-export const SCAN_DELAY_AFTER_CLOSE_MS = 3_000;
+export const SCAN_DELAY_AFTER_CLOSE_MS = 1_000;
+export const GENERATION_DEADLINE_MS = Number(process.env.GENERATION_DEADLINE_MS || 15_000);
 export const ENTRY_WINDOW_SECONDS: Record<ScanTimeframe, number> = { '5m': Number(process.env.ENTRY_WINDOW_5M_SECONDS || 45), '15m': Number(process.env.ENTRY_WINDOW_15M_SECONDS || 60), '30m': Number(process.env.ENTRY_WINDOW_30M_SECONDS || 90) };
-const RETRY_BACKOFF_MS = [5_000, 10_000, 20_000];
+export const RETRY_BACKOFF_MS = [1_000, 2_000, 3_000];
 const PAIR_RE = /^[A-Z]{6}$/;
 
 export interface ScanResult {
@@ -211,6 +212,8 @@ export class ScanService {
     if (!PAIR_RE.test(pair)) return this.noTrade(pairInput, timeframe, trigger, 'UNSUPPORTED_SYMBOL');
     if (!SCAN_TIMEFRAMES.includes(timeframe)) return this.noTrade(pair, timeframe, trigger, 'UNSUPPORTED_TIMEFRAME');
     const nowMs = this.deps.now();
+    const generationStartedAt = nowMs;
+    const expired = (): ScanResult => this.noTrade(pair, timeframe, trigger, `SIGNAL_EXPIRED: generation exceeded ${GENERATION_DEADLINE_MS}ms.`);
     const expectedOpen = latestClosedCandleOpenMs(nowMs, timeframe);
     if (isFxMarketClosed(nowMs) || isFxBarClosed(new Date(expectedOpen).toISOString(), timeframe)) return this.noTrade(pair, timeframe, trigger, 'MARKET_CLOSED');
     if (classifySessionAndKillZone(new Date(expectedOpen).toISOString()).kill_zone !== 'INSIDE_KILL_ZONE') return this.noTrade(pair, timeframe, trigger, 'OUTSIDE_KILL_ZONE');
@@ -231,8 +234,10 @@ export class ScanService {
     let htf: FetchedMarketData | undefined;
     try {
       primary = await this.fetchWithFailover(displayScanPair(pair), timeframe, kind, windowKey);
+      if (this.deps.now() - generationStartedAt > GENERATION_DEADLINE_MS) return expired();
       markCandleAvailable(new Date(this.deps.now()).toISOString());
       htf = await this.htfCandles(displayScanPair(pair), nowMs, kind, windowKey);
+      if (this.deps.now() - generationStartedAt > GENERATION_DEADLINE_MS) return expired();
     } catch (error) {
       const providerChanges = primary ? await this.notifyProviderSwitches(displayScanPair(pair), timeframe, primary.providerSwitches.map((step) => ({ series: 'LTF' as const, step }))) : undefined;
       const code = error instanceof MarketDataError ? error.code : 'PROVIDER_ERROR';
@@ -267,7 +272,7 @@ export class ScanService {
     if (signal !== 'NO_TRADE' && v3) {
       const entryMs = expectedOpen + timeframeMs(timeframe);
       const validUntil = entryMs + ENTRY_WINDOW_SECONDS[timeframe] * 1000;
-      if (this.deps.now() > validUntil) {
+      if (this.deps.now() - generationStartedAt > GENERATION_DEADLINE_MS || this.deps.now() > validUntil) {
         result = { ...result, status: 'NO_TRADE', reason: `SIGNAL_EXPIRED: ${signal} was not delivered before ${new Date(validUntil).toISOString()}.` };
       } else {
         const signalId = signalIdFor(displayScanPair(pair), timeframe, latest.timestamp);
@@ -304,6 +309,12 @@ export class ScanService {
     if (isFxMarketClosed(nowMs) || isFxBarClosed(new Date(expectedOpen).toISOString(), timeframe)) return this.deps.favorites().map((fav) => this.recordUnfetchedScan(this.noTrade(normalizeScanPair(fav), timeframe, 'AUTO', 'MARKET_CLOSED')));
     if (classifySessionAndKillZone(new Date(expectedOpen).toISOString()).kill_zone !== 'INSIDE_KILL_ZONE') return this.deps.favorites().map((fav) => this.recordUnfetchedScan(this.noTrade(normalizeScanPair(fav), timeframe, 'AUTO', 'OUTSIDE_KILL_ZONE')));
     const results: ScanResult[] = [];
+    const prefetchKey = `${timeframe}|${new Date(expectedOpen).toISOString()}`;
+    for (const fav of this.deps.favorites()) {
+      const pair = normalizeScanPair(fav); const payout = this.deps.getPayout(pair);
+      if (!payout || payout.pct < MIN_PAYOUT_PCT) continue;
+      try { await this.htfCandles(displayScanPair(pair), nowMs, 'AUTO', prefetchKey); } catch { /* scan records the provider failure */ }
+    }
     let scanned = 0;
     for (const fav of this.deps.favorites()) {
       if (!shouldContinue()) break;

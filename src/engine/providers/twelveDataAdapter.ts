@@ -29,6 +29,23 @@ export class TwelveDataAdapter implements IForexDataProvider {
     return { ...this.parsePayload(payload, response.serverDate), creditsUsed: response.creditsUsed, creditsLeft: response.creditsLeft };
   }
 
+  public async fetchCandlesBatch(pairs: string[], timeframe: Timeframe, signal: AbortSignal): Promise<Record<string, ProviderCandlePayload>> {
+    if (!this.isConfigured()) throw new ProviderAdapterError(this.id, 'PROVIDER_NOT_CONFIGURED', 'Twelve Data key is not configured.');
+    const symbols = [...new Set(pairs.map((pair) => pair.trim().toUpperCase()))];
+    if (!symbols.length) return {};
+    const url = new URL('https://api.twelvedata.com/time_series');
+    url.searchParams.set('symbol', symbols.join(',')); url.searchParams.set('interval', INTERVAL[timeframe]);
+    url.searchParams.set('outputsize', '130'); url.searchParams.set('timezone', 'UTC'); url.searchParams.set('order', 'asc');
+    const response = await requestJson(this.id, this.request, url, signal, { Authorization: `apikey ${this.apiKey}` });
+    const payload = response.payload as any; const result: Record<string, ProviderCandlePayload> = {};
+    for (const symbol of symbols) {
+      const item = payload?.[symbol] ?? (symbols.length === 1 ? payload : undefined);
+      if (!item || item.status === 'error') continue;
+      try { result[symbol] = { ...this.parsePayload(item, response.serverDate), creditsUsed: response.creditsUsed, creditsLeft: response.creditsLeft }; } catch { /* preserve other symbols */ }
+    }
+    return result;
+  }
+
   public async fetchQuote(pair: string, signal: AbortSignal): Promise<ProviderQuotePayload> {
     if (!this.isConfigured()) throw new ProviderAdapterError(this.id, 'PROVIDER_NOT_CONFIGURED', 'Twelve Data key is not configured.');
     const url = new URL('https://api.twelvedata.com/price'); url.searchParams.set('symbol', pair);

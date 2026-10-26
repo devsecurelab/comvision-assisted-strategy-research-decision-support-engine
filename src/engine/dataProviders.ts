@@ -4,7 +4,7 @@
 import type { Candle, DataProvenance, Timeframe } from './types';
 import { RateLimitScheduler } from './rateLimitScheduler';
 import { MAX_CLOCK_DRIFT_MS, measureClockDrift } from './dataIntegrity';
-import { PROVIDER_ORDER, type IForexDataProvider, type MarketDataProvider, type ManuallySelectableProvider, type ProviderCircuitSnapshot } from './providers/contracts';
+import { PROVIDER_ORDER, type IForexDataProvider, type MarketDataProvider, type ManuallySelectableProvider, type ProviderCircuitSnapshot, type ProviderCandlePayload } from './providers/contracts';
 import { FallbackManager } from './providers/fallbackManager';
 import { ProviderAdapterError } from './providers/http';
 import { normalizeCandles } from './providers/normalize';
@@ -219,6 +219,23 @@ export class MarketFeedManager {
     const result = await fetchTask;
     this.cache.set(cacheKey, { minute, result: { ...result, candles: cloneCandles(result.candles) } });
     return { ...result, candles: cloneCandles(result.candles), cacheHit: false };
+  }
+  /** Fetches one timeframe for multiple symbols with one provider credit. Failed symbols are omitted. */
+  public async fetchCandlesBatch(pairs: string[], timeframe: Timeframe = '5m', provider: MarketDataProvider = this.activeProvider, kind: 'AUTO' | 'ON_DEMAND' = 'ON_DEMAND'): Promise<Record<string, ProviderCandlePayload>> {
+    const normalizedPairs = [...new Set(pairs.map(normalizePair))];
+    if (!normalizedPairs.length) return {};
+    if (!this.isConfigured(provider)) throw new MarketDataError('PROVIDER_NOT_CONFIGURED', `${LABEL[provider]} credentials are not configured.`, provider);
+    const adapter = this.adapters.get(provider);
+    if (!adapter?.fetchCandlesBatch) throw new MarketDataError('BATCH_UNSUPPORTED', `${LABEL[provider]} does not support multi-symbol requests.`, provider);
+    const budget = await this.schedulers.get(provider)!.consumeWhenAvailable(kind);
+    if (!budget.allowed) throw new MarketDataError('RATE_LIMITED', `Provider batch request blocked by scheduler: ${budget.reason}.`, provider);
+    this.incrementRequests(provider);
+    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 3_000);
+    try { return await adapter.fetchCandlesBatch(normalizedPairs, timeframe, controller.signal); }
+    catch (error) {
+      if (error instanceof ProviderAdapterError) throw new MarketDataError(error.code, error.message, provider);
+      throw new MarketDataError('PROVIDER_UNAVAILABLE', `${LABEL[provider]} batch request failed.`, provider);
+    } finally { clearTimeout(timeout); }
   }
 
   public async fetchQuote(pair: string, provider: MarketDataProvider = 'TWELVE_DATA'): Promise<{ price: number; ts: string }> {
