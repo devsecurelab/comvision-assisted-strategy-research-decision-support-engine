@@ -69,6 +69,9 @@ export class NotificationService {
     const loopState = this.scanLoop?.state();
     const ledgerCheck = this.scanService?.ledger.verify();
     const edge = this.scanService?.edge.current();
+    const signals = this.scanService?.ledger.signals() ?? [];
+    const report = buildLedgerReport(signals, 0);
+    const coverage = (count: number) => `${count}/${signals.length}`;
     return [
       'COMVISION /health',
       `Auto-scan: ${loopState ? `${loopState.enabled ? 'ON' : 'OFF'} ${loopState.timeframe}` : 'NOT_WIRED'} | last run ${loopState?.lastRunAt ?? 'never'}${loopState?.lastError ? ` | last error ${loopState.lastError}` : ''}`,
@@ -82,6 +85,8 @@ export class NotificationService {
       `Ledger: ${ledgerCheck ? (ledgerCheck.ok ? `OK (${ledgerCheck.entries} entries)` : `TAMPERED ${ledgerCheck.reason} at ${ledgerCheck.brokenAt}`) : 'NOT_WIRED'}`,
       `SIGNAL_EXPIRED scans: ${this.scanService?.ledger.expiredScanCount() ?? 0}`,
       `Candle revisions != 0: ${this.scanService?.ledger.signals().filter((s) => (s.candle_revision_pips ?? 0) !== 0).length ?? 0}`,
+      `Telegram close→sent latency p50/p95: ${report.telegramLatencyP50Ms ?? 'UNAVAILABLE'}/${report.telegramLatencyP95Ms ?? 'UNAVAILABLE'} ms`,
+      `PR-1 telemetry coverage: signal price ${coverage(signals.filter((s) => s.signal_price !== undefined).length)} | quote ${coverage(signals.filter((s) => s.quote_price !== undefined).length)} | broker entry ${coverage(signals.filter((s) => s.broker_entry_price !== undefined).length)} | sent timestamp ${coverage(signals.filter((s) => s.telegram_sent_at !== undefined).length)}`,
       `Edge: ${edge ? (edge.paused ? `EDGE_LOST since ${edge.lostAt} — এখন ট্রেড নয় (${edge.reason})` : 'ACTIVE') : 'NOT_WIRED'}`,
     ].join('\n');
   }
