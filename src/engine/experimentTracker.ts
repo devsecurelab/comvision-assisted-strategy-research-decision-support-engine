@@ -17,7 +17,7 @@ export interface ExperimentStats {
   scannerActive: boolean;
   alertsMuted: boolean;
   totalCandidateFramesEvaluated: number;
-  validSetupsCount: number; // Max 100 target
+  validSetupsCount: number;
   targetValidSetups: number;
   rejectedSetupsCount: number;
   inconclusiveCount: number;
@@ -31,7 +31,6 @@ export interface ExperimentStats {
   recordedWins: number;
   recordedLosses: number;
   recordedSkipped: number;
-  winRatePercentage: number;
 }
 
 export class ExperimentManager {
@@ -523,9 +522,6 @@ export class ExperimentManager {
       }
     }
 
-    const closedObservations = favorable + unfavorable;
-    const favorableRate = closedObservations > 0 ? (favorable / closedObservations) * 100 : 0;
-
     return {
       experimentId: this.experimentId,
       strategyVersion: this.strategyVersion,
@@ -548,7 +544,6 @@ export class ExperimentManager {
       recordedWins: favorable,
       recordedLosses: unfavorable,
       recordedSkipped: notTaken,
-      winRatePercentage: Number(favorableRate.toFixed(1)),
     };
   }
 
