@@ -12,10 +12,15 @@ import { feedManager } from '../engine/dataProviders';
 import type { ScanLoop, ScanResult, ScanService, ScanTimeframe } from '../engine/scanScheduler';
 import { SCAN_TIMEFRAMES } from '../engine/scanScheduler';
 import { buildLedgerReport, formatLedgerReport } from '../engine/edgeMonitor';
+import { telegramSend, type TelegramMethod, type TelegramSendOptions, type TelegramSendResult } from './telegramSend';
 
 function alertReason(reason: string): string {
   return reason.replace(/news[^.]*clear/gi, 'manual news review not performed')
     .replace(/no high-impact red-folder events[^.]*/gi, 'NEWS: NOT CHECKED (manual)');
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!);
 }
 
 const validationSummary = 'Validation: TypeScript PASS | full test suite PASS | invariant tests PASS | live-provider integration SKIPPED';
@@ -32,11 +37,26 @@ export interface NotificationConfig {
   smtpPass?: string;
 }
 
+export interface NotificationServiceDependencies {
+  fetchImpl?: typeof fetch;
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+  createTransport?: (options: Record<string, unknown>) => any;
+  mailTimeoutMs?: number;
+}
+
 export class NotificationService {
   private config: NotificationConfig;
   private mailTransporter: any = null;
   private scanService?: ScanService;
   private scanLoop?: ScanLoop;
+  private readonly fetchImpl: typeof fetch;
+  private readonly sleep: (ms: number) => Promise<void>;
+  private readonly now: () => number;
+  private readonly createTransport: (options: Record<string, unknown>) => any;
+  private readonly mailTimeoutMs: number;
+  private readonly signalSendInFlight = new Map<string, Promise<TelegramSendResult>>();
+  private readonly sentSignalIds = new Set<string>();
 
   /** Wires the R9 scan service and loop so owner commands (/scan, /result, /health, /resume, /report, /autoscan) can use them. */
   public attachScanService(service: ScanService, loop: ScanLoop): void {
@@ -74,6 +94,8 @@ export class NotificationService {
     const signals = this.scanService?.ledger.signals() ?? [];
     const report = buildLedgerReport(signals, 0);
     const coverage = (count: number) => `${count}/${signals.length}`;
+    const failedTelegramDeliveries = durableStorage.loadNotifications()
+      .filter((notification) => notification.channel === 'TELEGRAM' && notification.status === 'FAILED').length;
     return [
       'COMVISION /health',
       `Auto-scan: ${loopState ? `${loopState.enabled ? 'ON' : 'OFF'} ${loopState.timeframe}` : 'NOT_WIRED'} | last run ${loopState?.lastRunAt ?? 'never'}${loopState?.lastError ? ` | last error ${loopState.lastError}` : ''}`,
@@ -86,6 +108,7 @@ export class NotificationService {
       'NEWS: NOT CHECKED (manual)',
       `Ledger: ${ledgerCheck ? (ledgerCheck.ok ? `OK (${ledgerCheck.entries} entries)` : `TAMPERED ${ledgerCheck.reason} at ${ledgerCheck.brokenAt}`) : 'NOT_WIRED'}`,
       `SIGNAL_EXPIRED scans: ${this.scanService?.ledger.expiredScanCount() ?? 0}`,
+      `Telegram failed deliveries: ${failedTelegramDeliveries}`,
       `Candle revisions != 0: ${this.scanService?.ledger.signals().filter((s) => (s.candle_revision_pips ?? 0) !== 0).length ?? 0}`,
       `Telegram close→sent latency p50/p95: ${report.telegramLatencyP50Ms ?? 'UNAVAILABLE'}/${report.telegramLatencyP95Ms ?? 'UNAVAILABLE'} ms`,
       `PR-1 telemetry coverage: signal price ${coverage(signals.filter((s) => s.signal_price !== undefined).length)} | quote ${coverage(signals.filter((s) => s.quote_price !== undefined).length)} | broker entry ${coverage(signals.filter((s) => s.broker_entry_price !== undefined).length)} | sent timestamp ${coverage(signals.filter((s) => s.telegram_sent_at !== undefined).length)}`,
@@ -94,7 +117,12 @@ export class NotificationService {
     ].join('\n');
   }
 
-  constructor() {
+  constructor(dependencies: NotificationServiceDependencies = {}) {
+    this.fetchImpl = dependencies.fetchImpl ?? fetch;
+    this.sleep = dependencies.sleep ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    this.now = dependencies.now ?? Date.now;
+    this.createTransport = dependencies.createTransport ?? ((options) => nodemailer.createTransport(options as any));
+    this.mailTimeoutMs = dependencies.mailTimeoutMs ?? 5000;
     const savedSettings = durableStorage.loadAppSettings();
     const resolvedChatId = process.env.TELEGRAM_CHAT_ID || savedSettings.telegramChatId;
 
@@ -116,10 +144,13 @@ export class NotificationService {
   private initMailTransporter() {
     if (this.config.smtpUser && this.config.smtpPass) {
       try {
-        this.mailTransporter = nodemailer.createTransport({
+        this.mailTransporter = this.createTransport({
           host: this.config.smtpHost,
           port: this.config.smtpPort,
           secure: this.config.smtpPort === 465,
+          connectionTimeout: 5000,
+          greetingTimeout: 5000,
+          socketTimeout: 5000,
           auth: {
             user: this.config.smtpUser,
             pass: this.config.smtpPass,
@@ -128,6 +159,116 @@ export class NotificationService {
       } catch (err) {
         console.error('[NotificationService] Failed to create mail transporter:', err);
       }
+    }
+  }
+
+  private requestTelegram(
+    method: TelegramMethod,
+    payload: Record<string, unknown>,
+    extra: Partial<Pick<TelegramSendOptions, 'validUntil' | 'expiredText'>> = {},
+  ): Promise<TelegramSendResult> {
+    const token = this.config.telegramBotToken;
+    if (!token) return Promise.resolve({ ok: false, attempts: 0, error: 'Telegram Bot Token is not configured.' });
+    return telegramSend({
+      token,
+      method,
+      payload,
+      timeoutMs: 5000,
+      fetchImpl: this.fetchImpl,
+      sleep: this.sleep,
+      now: this.now,
+      ...extra,
+    });
+  }
+
+  private async sendMailWithTimeout(mailOptions: Record<string, unknown>): Promise<unknown> {
+    if (!this.mailTransporter) this.initMailTransporter();
+    if (!this.mailTransporter) throw new Error('Email transport is not configured.');
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timeoutHandle = setTimeout(() => {
+        timedOut = true;
+        reject(new Error(`Nodemailer send timed out after ${this.mailTimeoutMs}ms.`));
+      }, this.mailTimeoutMs);
+    });
+    try {
+      return await Promise.race([this.mailTransporter.sendMail(mailOptions), deadline]);
+    } finally {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+      if (timedOut) {
+        try { this.mailTransporter.close?.(); } catch { /* transport cleanup is best-effort */ }
+        this.mailTransporter = null;
+      }
+    }
+  }
+
+  private latestSignalDelivery(signalId: string): NotificationRecord | undefined {
+    return durableStorage.loadNotifications().find((notification) =>
+      notification.setup_id === signalId
+      && notification.type === 'SIGNAL_ALERT'
+      && notification.channel === 'TELEGRAM'
+    );
+  }
+
+  private recordSignalDelivery(
+    signalId: string,
+    status: 'SENDING' | 'SENT' | 'FAILED',
+    payloadSummary: string,
+    errorMessage?: string,
+  ): void {
+    durableStorage.recordNotification({
+      setup_id: signalId,
+      type: 'SIGNAL_ALERT',
+      channel: 'TELEGRAM',
+      recipient: this.config.telegramChatId ? 'OWNER_CHAT' : 'NOT_CONFIGURED',
+      status,
+      ...(errorMessage ? { error_message: errorMessage } : {}),
+      payload_summary: payloadSummary,
+    } as unknown as Omit<NotificationRecord, 'id' | 'dispatched_at_utc'>);
+  }
+
+  private async sendSignalTelegram(
+    signalId: string,
+    payload: Record<string, unknown>,
+    extra: Partial<Pick<TelegramSendOptions, 'validUntil' | 'expiredText'>>,
+    payloadSummary: string,
+  ): Promise<TelegramSendResult> {
+    if (this.sentSignalIds.has(signalId) || this.latestSignalDelivery(signalId)?.status === 'SENT') {
+      return { ok: true, attempts: 0 };
+    }
+    const inFlight = this.signalSendInFlight.get(signalId);
+    if (inFlight) return inFlight;
+
+    const previousStatus = String(this.latestSignalDelivery(signalId)?.status || '');
+    if (previousStatus === 'SENDING') {
+      const validUntilMs = extra.validUntil ? Date.parse(extra.validUntil) : Number.NaN;
+      if (!Number.isFinite(validUntilMs) || this.now() >= validUntilMs) {
+        const error = 'Signal validity window expired while prior delivery was SENDING; not resent.';
+        this.recordSignalDelivery(signalId, 'FAILED', `SUPPRESSED EXPIRED SIGNAL ${payloadSummary}`, error);
+        return { ok: false, attempts: 0, error };
+      }
+    }
+
+    const pending = (async () => {
+      this.recordSignalDelivery(signalId, 'SENDING', `SENDING SIGNAL ALERT ${payloadSummary}`);
+      const result = await this.requestTelegram('sendMessage', payload, extra);
+      if (result.ok) {
+        this.sentSignalIds.add(signalId);
+      }
+      this.recordSignalDelivery(
+        signalId,
+        result.ok ? 'SENT' : 'FAILED',
+        `${result.expired ? 'EXPIRED NOTICE' : 'SIGNAL ALERT'} ${payloadSummary}`,
+        result.error,
+      );
+      return result;
+    })();
+    this.signalSendInFlight.set(signalId, pending);
+    try {
+      return await pending;
+    } finally {
+      if (this.signalSendInFlight.get(signalId) === pending) this.signalSendInFlight.delete(signalId);
     }
   }
 
@@ -232,31 +373,24 @@ export class NotificationService {
     };
 
     try {
-      // Query Telegram getUpdates
-      const url = `https://api.telegram.org/bot${botToken}/getUpdates?limit=25&allowed_updates=["message"]`;
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: { Accept: 'application/json' },
-      });
-
-      if (!res.ok) {
-        if (res.status === 401) {
+      const response = await this.requestTelegram('getUpdates', { limit: 25, allowed_updates: ['message'] });
+      if (!response.ok) {
+        if (response.status === 401 || response.errorCode === 401) {
           return {
             success: false,
             configured: true,
             error: 'Telegram Bot API returned 401 Unauthorized. The configured bot token is invalid or has been revoked.',
           };
         }
-        const errBody = await res.text();
         return {
           success: false,
           configured: true,
-          error: `Telegram API error (${res.status}): ${sanitize(errBody)}`,
+          error: `Telegram API error (${response.status ?? 'request'}): ${sanitize(response.error || 'Request failed.')}`,
         };
       }
 
-      const data = await res.json();
-      if (!data.ok || !Array.isArray(data.result)) {
+      const data: any = response.data;
+      if (!data?.ok || !Array.isArray(data.result)) {
         return {
           success: false,
           configured: true,
@@ -354,11 +488,10 @@ export class NotificationService {
     const settings = durableStorage.loadAppSettings();
     const offset = Number(settings.telegramUpdateOffset || 0);
     try {
-      const url = `https://api.telegram.org/bot${botToken}/getUpdates?offset=${offset}&limit=25&timeout=0&allowed_updates=["message"]`;
-      const response = await fetch(url, { headers: { Accept: 'application/json' } });
-      if (!response.ok) return { configured: true, processed: 0, rejected: 0, responses: [], error: `TELEGRAM_HTTP_${response.status}` };
-      const payload = await response.json();
-      if (!payload.ok || !Array.isArray(payload.result)) return { configured: true, processed: 0, rejected: 0, responses: [], error: 'TELEGRAM_INVALID_RESPONSE' };
+      const response = await this.requestTelegram('getUpdates', { offset, limit: 25, timeout: 0, allowed_updates: ['message'] });
+      if (!response.ok) return { configured: true, processed: 0, rejected: 0, responses: [], error: response.status ? `TELEGRAM_HTTP_${response.status}` : 'TELEGRAM_REQUEST_FAILED' };
+      const payload: any = response.data;
+      if (!payload?.ok || !Array.isArray(payload.result)) return { configured: true, processed: 0, rejected: 0, responses: [], error: 'TELEGRAM_INVALID_RESPONSE' };
       let processed = 0; let rejected = 0; const responses: string[] = []; let nextOffset = offset;
       for (const update of payload.result) {
         nextOffset = Math.max(nextOffset, Number(update.update_id || 0) + 1);
@@ -450,11 +583,18 @@ export class NotificationService {
 
   public async sendTelegramText(text: string): Promise<boolean> {
     if (!this.config.telegramBotToken || !this.config.telegramChatId) return false;
-    const url = `https://api.telegram.org/bot${this.config.telegramBotToken}/sendMessage`;
-    try {
-      const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: this.config.telegramChatId, text }) });
-      return response.ok;
-    } catch { return false; }
+    const response = await this.requestTelegram('sendMessage', { chat_id: this.config.telegramChatId, text });
+    const token = this.config.telegramBotToken;
+    durableStorage.recordNotification({
+      setup_id: `TELEGRAM-TEXT-${this.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      type: 'SYSTEM_ALERT',
+      channel: 'TELEGRAM',
+      recipient: 'OWNER_CHAT',
+      status: response.ok ? 'SENT' : 'FAILED',
+      ...(response.error ? { error_message: response.error } : {}),
+      payload_summary: text.slice(0, 160).split(token).join('[REDACTED_BOT_TOKEN]'),
+    });
+    return response.ok;
   }
 
   /**
@@ -546,43 +686,39 @@ export class NotificationService {
     email: 'SENT' | 'FAILED' | 'DISABLED';
   }> {
     const setupId = telemetry.metadata.setup_id;
+    const signalId = extra.signalId || setupId;
     const pair = telemetry.metadata.pair || telemetry.metadata.asset || 'EUR/USD';
     const bias = telemetry.market_context.local_bias;
     const messageText = this.formatSignalAlert(telemetry, extra);
 
     let telegramStatus: 'SENT' | 'FAILED' | 'DISABLED' = 'DISABLED';
     let emailStatus: 'SENT' | 'FAILED' | 'DISABLED' = 'DISABLED';
+    let emailError: string | undefined;
 
     // 1. Telegram
     if (this.config.telegramBotToken && this.config.telegramChatId) {
-      try {
-        const url = `https://api.telegram.org/bot${this.config.telegramBotToken}/sendMessage`;
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: this.config.telegramChatId,
-            text: messageText,
-            parse_mode: 'HTML',
-          }),
-        });
-        if (res.ok) {
-          telegramStatus = 'SENT';
-        } else {
-          const errData = await res.text();
-          console.error('[NotificationService] Telegram API error:', errData);
-          telegramStatus = 'FAILED';
-        }
-      } catch (err: any) {
-        console.error('[NotificationService] Telegram fetch failure:', err);
-        telegramStatus = 'FAILED';
-      }
+      const telegramResult = await this.sendSignalTelegram(
+        signalId,
+        { chat_id: this.config.telegramChatId, text: messageText },
+        { validUntil: extra.validUntil, expiredText: `SIGNAL EXPIRED — do not enter (${signalId})` },
+        `${pair} ${bias} ${signalId}`,
+      );
+      telegramStatus = telegramResult.ok ? 'SENT' : 'FAILED';
+    } else {
+      durableStorage.recordNotification({
+        setup_id: signalId,
+        type: 'SIGNAL_ALERT',
+        channel: 'TELEGRAM',
+        recipient: 'NOT_CONFIGURED',
+        status: 'DISABLED',
+        payload_summary: `${pair} ${bias} ${signalId}`,
+      });
     }
 
     // 2. Email
     if (this.mailTransporter && this.config.notificationEmail) {
       try {
-        await this.mailTransporter.sendMail({
+        await this.sendMailWithTimeout({
           from: `"ComVision Research Engine" <${this.config.smtpUser}>`,
           to: this.config.notificationEmail,
           subject: `[COMVISION SIGNAL] ${pair} ${bias} (${setupId})`,
@@ -592,18 +728,9 @@ export class NotificationService {
       } catch (err) {
         console.error('[NotificationService] Email delivery failure:', err);
         emailStatus = 'FAILED';
+        emailError = err instanceof Error ? err.message : String(err);
       }
     }
-
-    // Log to durable storage
-    durableStorage.recordNotification({
-      setup_id: setupId,
-      type: 'SIGNAL_ALERT',
-      channel: 'TELEGRAM',
-      recipient: this.config.telegramChatId ? 'OWNER_CHAT' : 'NOT_CONFIGURED',
-      status: telegramStatus,
-      payload_summary: `${pair} ${bias} ${setupId}`,
-    });
 
     durableStorage.recordNotification({
       setup_id: setupId,
@@ -611,6 +738,7 @@ export class NotificationService {
       channel: 'EMAIL',
       recipient: this.config.notificationEmail || 'NOT_CONFIGURED',
       status: emailStatus,
+      ...(emailError ? { error_message: emailError } : {}),
       payload_summary: `${pair} ${bias} ${setupId}`,
     });
 
@@ -656,30 +784,23 @@ export class NotificationService {
 
     let telegramStatus: 'SENT' | 'FAILED' | 'DISABLED' = 'DISABLED';
     let emailStatus: 'SENT' | 'FAILED' | 'DISABLED' = 'DISABLED';
+    let telegramError: string | undefined;
+    let emailError: string | undefined;
 
     // 1. Telegram
     if (this.config.telegramBotToken && this.config.telegramChatId) {
-      try {
-        const url = `https://api.telegram.org/bot${this.config.telegramBotToken}/sendMessage`;
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: this.config.telegramChatId,
-            text: messageText,
-            parse_mode: 'HTML',
-          }),
-        });
-        telegramStatus = res.ok ? 'SENT' : 'FAILED';
-      } catch (err) {
-        telegramStatus = 'FAILED';
-      }
+      const telegramResult = await this.requestTelegram('sendMessage', {
+        chat_id: this.config.telegramChatId,
+        text: messageText,
+      });
+      telegramStatus = telegramResult.ok ? 'SENT' : 'FAILED';
+      telegramError = telegramResult.error;
     }
 
     // 2. Email
     if (this.mailTransporter && this.config.notificationEmail) {
       try {
-        await this.mailTransporter.sendMail({
+        await this.sendMailWithTimeout({
           from: `"ComVision Research Engine" <${this.config.smtpUser}>`,
           to: this.config.notificationEmail,
           subject: `[COMVISION RESULT] ${outcome.pair} ${outcome.signal_outcome} (${outcome.setup_id})`,
@@ -688,6 +809,7 @@ export class NotificationService {
         emailStatus = 'SENT';
       } catch (err) {
         emailStatus = 'FAILED';
+        emailError = err instanceof Error ? err.message : String(err);
       }
     }
 
@@ -697,6 +819,7 @@ export class NotificationService {
       channel: 'TELEGRAM',
       recipient: this.config.telegramChatId ? 'OWNER_CHAT' : 'NOT_CONFIGURED',
       status: telegramStatus,
+      ...(telegramError ? { error_message: telegramError } : {}),
       payload_summary: `${outcome.pair} Result: ${outcome.signal_outcome} (${outcome.setup_id})`,
     });
 
@@ -706,6 +829,7 @@ export class NotificationService {
       channel: 'EMAIL',
       recipient: this.config.notificationEmail || 'NOT_CONFIGURED',
       status: emailStatus,
+      ...(emailError ? { error_message: emailError } : {}),
       payload_summary: `${outcome.pair} Result: ${outcome.signal_outcome} (${outcome.setup_id})`,
     });
 
@@ -736,25 +860,22 @@ export class NotificationService {
     };
 
     if (this.config.telegramBotToken && this.config.telegramChatId) {
-      try {
-        const url = `https://api.telegram.org/bot${this.config.telegramBotToken}/sendMessage`;
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: this.config.telegramChatId,
-            text: testText,
-          }),
-        });
-        if (res.ok) {
-          tgResult = { status: 'SENT', detail: 'Test message delivered to Telegram.' };
-        } else {
-          const body = await res.text();
-          tgResult = { status: 'FAILED', detail: `Telegram API error: ${body}` };
-        }
-      } catch (err: any) {
-        tgResult = { status: 'FAILED', detail: err.message };
-      }
+      const telegramResult = await this.requestTelegram('sendMessage', {
+        chat_id: this.config.telegramChatId,
+        text: testText,
+      });
+      tgResult = telegramResult.ok
+        ? { status: 'SENT', detail: 'Test message delivered to Telegram.' }
+        : { status: 'FAILED', detail: `Telegram API error: ${telegramResult.error || 'request failed'}` };
+      durableStorage.recordNotification({
+        setup_id: 'TEST-NOTIFICATION',
+        type: 'SYSTEM_ALERT',
+        channel: 'TELEGRAM',
+        recipient: 'OWNER_CHAT',
+        status: tgResult.status,
+        ...(telegramResult.error ? { error_message: telegramResult.error } : {}),
+        payload_summary: 'Manual notification test',
+      });
     }
 
     let emailResult: { status: 'SENT' | 'FAILED' | 'DISABLED'; detail?: string } = {
@@ -764,7 +885,7 @@ export class NotificationService {
 
     if (this.mailTransporter && this.config.notificationEmail) {
       try {
-        await this.mailTransporter.sendMail({
+        await this.sendMailWithTimeout({
           from: `"ComVision Research Engine" <${this.config.smtpUser}>`,
           to: this.config.notificationEmail,
           subject: `[COMVISION TEST] Notification Channel Verified`,
@@ -828,92 +949,44 @@ export class NotificationService {
     }
 
     const testText = [
-      `🧪 <b>COMVISION — TELEGRAM INTEGRATION TEST</b>`,
+      `🧪 COMVISION — TELEGRAM INTEGRATION TEST`,
       ``,
-      `<b>System:</b> ComVision Strategy v1.0 Research Engine`,
-      `<b>Target Chat ID:</b> <code>${chatId}</code>`,
-      `<b>Verification:</b> Real-time Channel Operational`,
+      `System: ComVision Strategy v1.0 Research Engine`,
+      `Target Chat ID: ${escapeHtml(chatId)}`,
+      `Verification: Real-time Channel Operational`,
       ``,
-      `<b>Timestamp:</b>`,
-      `UTC: <code>${timeData.utcTime}</code>`,
-      `Bangladesh (Asia/Dhaka): <code>${timeData.bdtTime}</code>`,
+      `Timestamp:`,
+      `UTC: ${timeData.utcTime}`,
+      `Bangladesh (Asia/Dhaka): ${timeData.bdtTime}`,
       ``,
-      `✅ <i>Telegram Bot integration verified successfully. Signal & Result alerts will dispatch to this chat.</i>`,
+      `✅ Telegram Bot integration verified successfully. Signal & Result alerts will dispatch to this chat.`,
     ].join('\n');
 
-    try {
-      const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: testText,
-          parse_mode: 'HTML',
-        }),
-      });
-
-      if (res.ok) {
-        const resData = await res.json();
-        const messageId = resData.result?.message_id;
-
-        durableStorage.recordNotification({
-          setup_id: 'TEST-TELEGRAM',
-          type: 'SIGNAL_ALERT',
-          channel: 'TELEGRAM',
-          recipient: 'OWNER_CHAT',
-          status: 'SENT',
-          payload_summary: `Telegram Bot Test Alert verified (Message ID: ${messageId || 'N/A'})`,
-        });
-
-        return {
-          success: true,
-          status: 'SENT',
-          chatId,
-          messageId,
-          detail: `Test alert successfully delivered to Telegram chat ${chatId}!`,
-          timestampUtc: timeData.utcTime,
-          timestampBdt: timeData.bdtTime,
-        };
-      } else {
-        const errRaw = await res.text();
-        let errMsg = errRaw;
-        try {
-          const parsed = JSON.parse(errRaw);
-          errMsg = parsed.description || errRaw;
-        } catch {
-          // fallback to raw text
-        }
-
-        durableStorage.recordNotification({
-          setup_id: 'TEST-TELEGRAM',
-          type: 'SIGNAL_ALERT',
-          channel: 'TELEGRAM',
-          recipient: 'OWNER_CHAT',
-          status: 'FAILED',
-          payload_summary: `Telegram Bot Test Alert failed: ${sanitize(errMsg)}`,
-        });
-
-        return {
-          success: false,
-          status: 'FAILED',
-          chatId,
-          detail: `Telegram delivery error: ${sanitize(errMsg)}`,
-          timestampUtc: timeData.utcTime,
-          timestampBdt: timeData.bdtTime,
-        };
-      }
-    } catch (err: any) {
-      const safeMsg = sanitize(err?.message || 'Network error reaching Telegram API.');
-      return {
-        success: false,
-        status: 'FAILED',
-        chatId,
-        detail: `Network failure: ${safeMsg}`,
-        timestampUtc: timeData.utcTime,
-        timestampBdt: timeData.bdtTime,
-      };
-    }
+    const telegramResult = await this.requestTelegram('sendMessage', { chat_id: chatId, text: testText });
+    const messageId = telegramResult.messageId;
+    const detail = telegramResult.ok
+      ? `Test alert successfully delivered to Telegram chat ${chatId}!`
+      : `Telegram delivery error: ${sanitize(telegramResult.error || 'request failed')}`;
+    durableStorage.recordNotification({
+      setup_id: 'TEST-TELEGRAM',
+      type: 'SYSTEM_ALERT',
+      channel: 'TELEGRAM',
+      recipient: 'OWNER_CHAT',
+      status: telegramResult.ok ? 'SENT' : 'FAILED',
+      ...(telegramResult.error ? { error_message: sanitize(telegramResult.error) } : {}),
+      payload_summary: telegramResult.ok
+        ? `Telegram Bot Test Alert verified (Message ID: ${messageId || 'N/A'})`
+        : `Telegram Bot Test Alert failed: ${sanitize(telegramResult.error || 'request failed')}`,
+    });
+    return {
+      success: telegramResult.ok,
+      status: telegramResult.ok ? 'SENT' : 'FAILED',
+      chatId,
+      messageId,
+      detail,
+      timestampUtc: timeData.utcTime,
+      timestampBdt: timeData.bdtTime,
+    };
   }
 }
 
