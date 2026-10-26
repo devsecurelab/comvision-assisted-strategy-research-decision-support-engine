@@ -133,16 +133,15 @@ async function main(): Promise<void> {
 
     async function testMinuteRolloverWindowReset() {
       const storageKey = key('minute-rollover');
-      const scheduler = new RateLimitScheduler({ perMinute: 2, perDay: 100, minimumIntervalMs: 10, storageKey });
+      let fakeNow = Date.now();
+      const scheduler = new RateLimitScheduler({ perMinute: 2, perDay: 100, now: () => fakeNow, storageKey });
       const first = await scheduler.consumeWhenAvailable('ON_DEMAND');
       const second = await scheduler.consumeWhenAvailable('ON_DEMAND');
       assert.equal(first.allowed, true);
       assert.equal(second.allowed, true);
       const capped = await scheduler.consumeWhenAvailable('ON_DEMAND');
       assert.equal(capped.reason, 'MINUTE_LIMIT');
-      const settings = durableStorage.loadAppSettings();
-      settings[storageKey].minuteStartedAt -= 61_000;
-      durableStorage.saveAppSettings(settings);
+      fakeNow += 60_001;
       const rolled = await scheduler.consumeWhenAvailable('ON_DEMAND');
       assert.equal(rolled.allowed, true);
       assert.equal(rolled.minuteUsed, 1);
@@ -161,7 +160,7 @@ async function main(): Promise<void> {
         assert.ok(snapshot.hardStopDaily > 0 && snapshot.hardStopDaily <= snapshot.perDay);
         assert.ok(snapshot.autoDailyBudget > 0 && snapshot.autoDailyBudget <= snapshot.hardStopDaily);
       }
-      assert.equal(schedulers.get('TWELVE_DATA')?.snapshot().minimumIntervalMs, 8_000);
+      assert.equal(schedulers.get('TWELVE_DATA')?.snapshot().minimumIntervalMs, 0);
       assert.equal(schedulers.get('OANDA')?.snapshot().minimumIntervalMs, 1_000);
       assert.equal(schedulers.get('TIINGO')?.snapshot().perHour, 50);
     }

@@ -617,6 +617,7 @@ const loadScanState = (): ScanLoopState | undefined => durableStorage.loadAppSet
 const saveScanState = (state: ScanLoopState) => durableStorage.saveAppSettings({ ...durableStorage.loadAppSettings(), scanLoopState: state });
 const scanService = new ScanService({
   fetchCandles: (pair, timeframe, provider, kind) => feedManager.fetchCandles(pair, timeframe, provider, kind),
+  fetchQuote: (pair) => feedManager.fetchQuote(pair),
   providers: () => feedManager.getFallbackProviders(),
   getPayout: (pair) => { const record = payoutRegistry.get(pair); return record ? { pct: record.pct, setAt: record.setAt } : undefined; },
   favorites: () => favoriteRegistry.all().map((item) => item.pair),
@@ -630,7 +631,8 @@ const scanService = new ScanService({
     if (result.trigger === 'AUTO' && !scanLoop.state().enabled) return;
     const recorded = experimentTracker.recordCandidate(result.telemetry);
     if (result.status !== 'NO_TRADE' && recorded.system_execution.system_decision === 'PASS') {
-      await notificationService.dispatchSignalAlert(recorded, { signalId: result.signal_id, validUntil: result.valid_until });
+      const delivery = await notificationService.dispatchSignalAlert(recorded, { signalId: result.signal_id, validUntil: result.valid_until, signalPrice: result.signal_price, quotePrice: result.quote_price, quoteTs: result.quote_ts, priceTolerance: result.price_tolerance });
+      if (delivery.telegram === 'SENT' && result.signal_id) signalLedger.recordTelegramSent(result.signal_id);
     }
   },
   onProviderSwitches: async (notice) => {

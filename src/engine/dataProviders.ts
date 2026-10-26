@@ -4,7 +4,7 @@
 import type { Candle, DataProvenance, Timeframe } from './types';
 import { RateLimitScheduler } from './rateLimitScheduler';
 import { MAX_CLOCK_DRIFT_MS, measureClockDrift } from './dataIntegrity';
-import { PROVIDER_ORDER, type IForexDataProvider, type MarketDataProvider, type ManuallySelectableProvider, type ProviderCircuitSnapshot } from './providers/contracts';
+import { PROVIDER_ORDER, type IForexDataProvider, type MarketDataProvider, type ManuallySelectableProvider, type ProviderCircuitSnapshot, type ProviderCandlePayload } from './providers/contracts';
 import { FallbackManager } from './providers/fallbackManager';
 import { ProviderAdapterError } from './providers/http';
 import { normalizeCandles } from './providers/normalize';
@@ -95,7 +95,7 @@ export type ProviderKeys = Partial<Record<MarketDataProvider, string>>;
 
 export function createProviderSchedulers(): Map<MarketDataProvider, RateLimitScheduler> {
   return new Map([
-    ['TWELVE_DATA', new RateLimitScheduler({ perMinute: Number(process.env.TD_PER_MINUTE || 8), perDay: Number(process.env.TD_PER_DAY || 800), autoDailyBudget: Number(process.env.TD_AUTO_DAILY_BUDGET || 560), hardStopDaily: Number(process.env.TD_HARD_STOP_DAILY || 640), minimumIntervalMs: 8_000, storageKey: 'rateLimitScheduler' })],
+    ['TWELVE_DATA', new RateLimitScheduler({ perMinute: Number(process.env.TWELVE_DATA_CREDITS_PER_MIN || process.env.TD_PER_MINUTE || 8), perDay: Number(process.env.TWELVE_DATA_CREDITS_PER_DAY || process.env.TD_PER_DAY || 800), autoDailyBudget: Number(process.env.TWELVE_DATA_AUTO_DAILY_BUDGET || process.env.TD_AUTO_DAILY_BUDGET || 560), hardStopDaily: Number(process.env.TWELVE_DATA_HARD_STOP_DAILY || process.env.TD_HARD_STOP_DAILY || 640), minimumIntervalMs: 0, storageKey: 'rateLimitScheduler' })],
     ['OANDA', new RateLimitScheduler({ perMinute: 60, perDay: 20_000, autoDailyBudget: 14_000, hardStopDaily: 16_000, minimumIntervalMs: 1_000, storageKey: 'providerQuota.OANDA' })],
     ['TIINGO', new RateLimitScheduler({ perMinute: 50, perHour: 50, perDay: 1_000, autoDailyBudget: 700, hardStopDaily: 1_000, storageKey: 'providerQuota.TIINGO' })],
   ]);
@@ -219,6 +219,37 @@ export class MarketFeedManager {
     const result = await fetchTask;
     this.cache.set(cacheKey, { minute, result: { ...result, candles: cloneCandles(result.candles) } });
     return { ...result, candles: cloneCandles(result.candles), cacheHit: false };
+  }
+  /** Fetches one timeframe for multiple symbols with one provider credit. Failed symbols are omitted. */
+  public async fetchCandlesBatch(pairs: string[], timeframe: Timeframe = '5m', provider: MarketDataProvider = this.activeProvider, kind: 'AUTO' | 'ON_DEMAND' = 'ON_DEMAND'): Promise<Record<string, ProviderCandlePayload>> {
+    const normalizedPairs = [...new Set(pairs.map(normalizePair))];
+    if (!normalizedPairs.length) return {};
+    if (!this.isConfigured(provider)) throw new MarketDataError('PROVIDER_NOT_CONFIGURED', `${LABEL[provider]} credentials are not configured.`, provider);
+    const adapter = this.adapters.get(provider);
+    if (!adapter?.fetchCandlesBatch) throw new MarketDataError('BATCH_UNSUPPORTED', `${LABEL[provider]} does not support multi-symbol requests.`, provider);
+    const budget = await this.schedulers.get(provider)!.consumeWhenAvailable(kind);
+    if (!budget.allowed) throw new MarketDataError('RATE_LIMITED', `Provider batch request blocked by scheduler: ${budget.reason}.`, provider);
+    this.incrementRequests(provider);
+    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 3_000);
+    try { return await adapter.fetchCandlesBatch(normalizedPairs, timeframe, controller.signal); }
+    catch (error) {
+      if (error instanceof ProviderAdapterError) throw new MarketDataError(error.code, error.message, provider);
+      throw new MarketDataError('PROVIDER_UNAVAILABLE', `${LABEL[provider]} batch request failed.`, provider);
+    } finally { clearTimeout(timeout); }
+  }
+
+  public async fetchQuote(pair: string, provider: MarketDataProvider = 'TWELVE_DATA'): Promise<{ price: number; ts: string }> {
+    const normalizedPair = normalizePair(pair);
+    if (provider !== 'TWELVE_DATA' || !this.isConfigured(provider)) throw new MarketDataError('PROVIDER_NOT_CONFIGURED', `${LABEL[provider]} credentials are not configured.`, provider);
+    const adapter = this.adapters.get(provider);
+    if (!adapter?.fetchQuote) throw new MarketDataError('QUOTE_UNAVAILABLE', 'Provider does not expose a quote endpoint.', provider);
+    const budget = await this.schedulers.get(provider)!.consumeWhenAvailable('ON_DEMAND');
+    if (!budget.allowed) throw new MarketDataError('RATE_LIMITED', `Provider quote blocked by scheduler: ${budget.reason}.`, provider);
+    this.incrementRequests(provider);
+    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 3_000);
+    try { const quote = await adapter.fetchQuote(normalizedPair, controller.signal); return { price: quote.price, ts: quote.ts }; }
+    catch (error) { if (error instanceof ProviderAdapterError) throw new MarketDataError(error.code, error.message, provider); throw error instanceof MarketDataError ? error : new MarketDataError('QUOTE_UNAVAILABLE', 'Provider quote request failed.', provider); }
+    finally { clearTimeout(timeout); }
   }
 
   public async fetchHistoricalCandles(pair: string, timeframe: Timeframe, startDate: string, endDate: string, provider: 'TWELVE_DATA' = 'TWELVE_DATA'): Promise<MarketDataResult> {

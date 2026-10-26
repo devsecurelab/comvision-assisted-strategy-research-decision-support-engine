@@ -13,12 +13,16 @@ export interface ProviderCandlePayload {
   creditsLeft?: number;
 }
 
+export interface ProviderQuotePayload { price: number; ts: string; creditsUsed?: number; creditsLeft?: number }
+
 export interface IForexDataProvider {
   readonly id: MarketDataProvider;
   readonly label: string;
   isConfigured(): boolean;
   canServeFromStream?(pair: string, timeframe: Timeframe): boolean;
   fetchCandles(pair: string, timeframe: Timeframe, signal: AbortSignal): Promise<ProviderCandlePayload>;
+  fetchCandlesBatch?(pairs: string[], timeframe: Timeframe, signal: AbortSignal): Promise<Record<string, ProviderCandlePayload>>;
+  fetchQuote?(pair: string, signal: AbortSignal): Promise<ProviderQuotePayload>;
   fetchHistoricalCandles?(pair: string, timeframe: Timeframe, startDate: string, endDateInclusive: string, signal: AbortSignal): Promise<ProviderCandlePayload>;
 }
 

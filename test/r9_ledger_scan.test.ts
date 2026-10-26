@@ -172,7 +172,7 @@ const run = async () => {
   assert.match(rateLimited.failover_reason || '', /TWELVE_DATA RATE_LIMITED/);
   assert.deepEqual(rateLimitAttempts.slice(0, 2), ['TWELVE_DATA', 'OANDA']);
   // Expired delivery: a signal found after valid_until is SIGNAL_EXPIRED, never ledgered.
-  now = signalClose + 11_000;
+  now = signalClose + 61_000;
   const late = new ScanService({ ...deps, ledger: new SignalLedger(path.join(dir, 'ledger-late.jsonl')) });
   const lateRes = await late.scanPair('EURUSD', '15m');
   assert.match(lateRes.reason, /^SIGNAL_EXPIRED/); assert.equal(late.ledger.signals().length, 0);

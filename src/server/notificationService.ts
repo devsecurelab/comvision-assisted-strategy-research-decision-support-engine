@@ -51,6 +51,10 @@ export class NotificationService {
       `MFCI (confluence score, not probability): ${v3 ? `${v3.mfci.totalMfci.toFixed(3)} (${v3.mfciBand})` : 'UNAVAILABLE'} | Mode: ${v3?.engineMode ?? 'UNAVAILABLE'}`,
       result.status !== 'NO_TRADE' ? 'NEWS: NOT CHECKED (manual)' : '',
       `Signal candle: ${time ? `${time.utcTime} UTC / ${time.bdtTime} BDT` : 'UNAVAILABLE'}`,
+      result.signal_price !== undefined ? `Signal price: ${result.signal_price}` : '',
+      result.quote_price !== undefined ? `Quote: ${result.quote_price} (${result.quote_ts || 'timestamp unavailable'})` : 'Quote: QUOTE_UNAVAILABLE',
+      result.price_tolerance !== undefined ? `${result.status} tolerance: ${result.price_tolerance} (do not enter if broker price is ${result.status === 'CALL' ? 'above' : 'below'} signal price by more than tolerance)` : '',
+      result.valid_until ? `Enter by: ${result.valid_until} UTC / BDT / Broker (display only)` : '',
       result.provider || result.htf_provider ? `Providers: LTF ${result.provider ?? 'UNAVAILABLE'} | HTF ${result.htf_provider ?? 'UNAVAILABLE'}` : '',
       result.signal_id ? `Signal ID: ${result.signal_id} | valid until ${result.valid_until}` : '',
       result.failover_reason ? `Provider failover: ${result.failover_reason}` : '',
@@ -65,6 +69,9 @@ export class NotificationService {
     const loopState = this.scanLoop?.state();
     const ledgerCheck = this.scanService?.ledger.verify();
     const edge = this.scanService?.edge.current();
+    const signals = this.scanService?.ledger.signals() ?? [];
+    const report = buildLedgerReport(signals, 0);
+    const coverage = (count: number) => `${count}/${signals.length}`;
     return [
       'COMVISION /health',
       `Auto-scan: ${loopState ? `${loopState.enabled ? 'ON' : 'OFF'} ${loopState.timeframe}` : 'NOT_WIRED'} | last run ${loopState?.lastRunAt ?? 'never'}${loopState?.lastError ? ` | last error ${loopState.lastError}` : ''}`,
@@ -77,6 +84,9 @@ export class NotificationService {
       'NEWS: NOT CHECKED (manual)',
       `Ledger: ${ledgerCheck ? (ledgerCheck.ok ? `OK (${ledgerCheck.entries} entries)` : `TAMPERED ${ledgerCheck.reason} at ${ledgerCheck.brokenAt}`) : 'NOT_WIRED'}`,
       `SIGNAL_EXPIRED scans: ${this.scanService?.ledger.expiredScanCount() ?? 0}`,
+      `Candle revisions != 0: ${this.scanService?.ledger.signals().filter((s) => (s.candle_revision_pips ?? 0) !== 0).length ?? 0}`,
+      `Telegram close→sent latency p50/p95: ${report.telegramLatencyP50Ms ?? 'UNAVAILABLE'}/${report.telegramLatencyP95Ms ?? 'UNAVAILABLE'} ms`,
+      `PR-1 telemetry coverage: signal price ${coverage(signals.filter((s) => s.signal_price !== undefined).length)} | quote ${coverage(signals.filter((s) => s.quote_price !== undefined).length)} | broker entry ${coverage(signals.filter((s) => s.broker_entry_price !== undefined).length)} | sent timestamp ${coverage(signals.filter((s) => s.telegram_sent_at !== undefined).length)}`,
       `Edge: ${edge ? (edge.paused ? `EDGE_LOST since ${edge.lostAt} — এখন ট্রেড নয় (${edge.reason})` : 'ACTIVE') : 'NOT_WIRED'}`,
     ].join('\n');
   }
@@ -393,8 +403,23 @@ export class NotificationService {
     }
     if (command === '/result') {
       if (!this.scanService) return 'ERROR SCAN_SERVICE_NOT_WIRED.';
-      if (!tokens[1] || !tokens[2]) return 'ERROR INVALID_RESULT: use /result <signal_id> win|loss|tie|skipped.';
-      return this.scanService.recordManualResult(tokens[1], tokens[2]);
+      if (!tokens[1] || !tokens[2]) return 'ERROR INVALID_RESULT: use /result <signal_id> win|loss|tie [broker_close].';
+      const close = tokens[3] === undefined ? undefined : Number(tokens[3]);
+      if (tokens[3] !== undefined && !Number.isFinite(close)) return 'ERROR INVALID_BROKER_CLOSE_PRICE.';
+      return this.scanService.recordManualResult(tokens[1], tokens[2], close);
+    }
+    if (command === '/taken') {
+      if (!this.scanService || !tokens[1] || !tokens[2]) return 'ERROR INVALID_TAKEN: use /taken <signal_id> <broker_price>.';
+      const price = Number(tokens[2]); if (!Number.isFinite(price)) return 'ERROR INVALID_BROKER_ENTRY_PRICE.';
+      return this.scanService.recordManualTaken(tokens[1], price);
+    }
+    if (command === '/brokertime') {
+      const offsetMinutes = Number(process.env.BROKER_UTC_OFFSET_MINUTES || 0);
+      if (!Number.isInteger(offsetMinutes) || offsetMinutes < -720 || offsetMinutes > 840) return 'ERROR INVALID_BROKER_UTC_OFFSET: configure BROKER_UTC_OFFSET_MINUTES between -720 and 840.';
+      const brokerMs = Date.now() + offsetMinutes * 60_000;
+      const time = new Date(brokerMs).toISOString().slice(11, 19);
+      const sign = offsetMinutes >= 0 ? '+' : '-'; const absolute = Math.abs(offsetMinutes);
+      return `Broker time ${time} (UTC${sign}${String(Math.floor(absolute / 60)).padStart(2, '0')}:${String(absolute % 60).padStart(2, '0')}).`;
     }
     if (command === '/health') return this.buildHealthText();
     if (command === '/resume') {
@@ -429,7 +454,7 @@ export class NotificationService {
   /**
    * Formats Message #1: VALID SIGNAL ALERT payload (RDP Strategy V3.0 (Frozen) Specification Section 35)
    */
-  public formatSignalAlert(telemetry: MasterTelemetry, extra: { signalId?: string; validUntil?: string } = {}): string {
+  public formatSignalAlert(telemetry: MasterTelemetry, extra: { signalId?: string; validUntil?: string; signalPrice?: number; quotePrice?: number; quoteTs?: string; priceTolerance?: number } = {}): string {
     const v3 = telemetry.decision_engine_v3;
     const binarySignal = v3?.binarySignal || 'NO_TRADE';
     const pair = telemetry.metadata?.pair || telemetry.metadata?.asset || 'UNAVAILABLE';
@@ -446,7 +471,10 @@ export class NotificationService {
       `HTF (1h) bias: ${telemetry.metadata?.htf_bias || 'UNAVAILABLE'}`,
       `Signal candle open: ${time ? `${time.utcTime} UTC / ${time.bdtTime} BDT` : 'UNAVAILABLE'}`,
       extra.signalId ? `Signal ID: ${extra.signalId}` : '',
-      extra.validUntil ? `Valid until: ${extra.validUntil}` : '',
+      extra.validUntil ? `Enter by: ${extra.validUntil} UTC / BDT / Broker (display only)` : '',
+      extra.signalPrice !== undefined ? `Signal price: ${extra.signalPrice}` : '',
+      extra.quotePrice !== undefined ? `Quote: ${extra.quotePrice} (${extra.quoteTs || 'timestamp unavailable'})` : 'Quote: QUOTE_UNAVAILABLE',
+      extra.priceTolerance !== undefined ? `${binarySignal} tolerance: ${extra.priceTolerance} (do not enter if broker price is ${binarySignal === 'CALL' ? 'above' : 'below'} signal price by more than tolerance)` : '',
       `Payout: ${payout === undefined ? 'UNSET' : `${payout}% (breakeven ${(100 / (1 + payout / 100)).toFixed(1)}%)`}`,
       `MFCI (confluence score, not probability): ${v3 ? v3.mfci.totalMfci.toFixed(3) : 'UNAVAILABLE'} (${v3?.mfciBand || 'UNAVAILABLE'}) | Mode: ${v3?.engineMode || telemetry.metadata?.engine_mode || 'UNAVAILABLE'}`,
       `Gates: ${gateLine || 'UNAVAILABLE'}`,
@@ -507,7 +535,7 @@ export class NotificationService {
   /**
    * Dispatches Message #1: VALID SIGNAL ALERT
    */
-  public async dispatchSignalAlert(telemetry: MasterTelemetry, extra: { signalId?: string; validUntil?: string } = {}): Promise<{
+  public async dispatchSignalAlert(telemetry: MasterTelemetry, extra: { signalId?: string; validUntil?: string; signalPrice?: number; quotePrice?: number; quoteTs?: string; priceTolerance?: number } = {}): Promise<{
     telegram: 'SENT' | 'FAILED' | 'DISABLED';
     email: 'SENT' | 'FAILED' | 'DISABLED';
   }> {
