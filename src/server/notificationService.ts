@@ -408,6 +408,14 @@ export class NotificationService {
       const price = Number(tokens[2]); if (!Number.isFinite(price)) return 'ERROR INVALID_BROKER_ENTRY_PRICE.';
       return this.scanService.recordManualTaken(tokens[1], price);
     }
+    if (command === '/brokertime') {
+      const offsetMinutes = Number(process.env.BROKER_UTC_OFFSET_MINUTES || 0);
+      if (!Number.isInteger(offsetMinutes) || offsetMinutes < -720 || offsetMinutes > 840) return 'ERROR INVALID_BROKER_UTC_OFFSET: configure BROKER_UTC_OFFSET_MINUTES between -720 and 840.';
+      const brokerMs = Date.now() + offsetMinutes * 60_000;
+      const time = new Date(brokerMs).toISOString().slice(11, 19);
+      const sign = offsetMinutes >= 0 ? '+' : '-'; const absolute = Math.abs(offsetMinutes);
+      return `Broker time ${time} (UTC${sign}${String(Math.floor(absolute / 60)).padStart(2, '0')}:${String(absolute % 60).padStart(2, '0')}).`;
+    }
     if (command === '/health') return this.buildHealthText();
     if (command === '/resume') {
       if (!this.scanService) return 'ERROR SCAN_SERVICE_NOT_WIRED.';
