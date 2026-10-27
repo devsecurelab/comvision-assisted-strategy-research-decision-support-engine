@@ -40,5 +40,17 @@ export function buildApiUrl(path: string): string {
 
 export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const url = buildApiUrl(path);
-  return fetch(url, init);
+  return fetch(url, init).then((response) => {
+    if (!response.ok && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('comvision:toast', {
+        detail: { severity: response.status >= 500 ? 'error' : 'warning', message: `Request failed (${response.status})` },
+      }));
+    }
+    return response;
+  }).catch((error) => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('comvision:toast', { detail: { severity: 'error', message: 'Network request failed' } }));
+    }
+    throw error;
+  });
 }

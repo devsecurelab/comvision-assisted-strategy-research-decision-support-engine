@@ -1,7 +1,7 @@
 // Master Application Component
 // ComVision-Assisted Strategy Research & Decision-Support Engine
 
-import React, { lazy, Suspense, useState, useEffect } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useReducer } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { DecisionAlertCard } from './components/DecisionAlertCard';
@@ -38,11 +38,12 @@ import {
 } from './engine/types';
 import { ProviderStatus } from './engine/dataProviders';
 import { apiFetch } from './config/api';
+import { alertReducer, initialAlertState } from './alertState';
 
 export default function App() {
   // Auth state
   const [authToken, setAuthToken] = useState<string | null>(() =>
-    localStorage.getItem('comvision_auth_token')
+    sessionStorage.getItem('comvision_auth_token')
   );
   const [currentUser, setCurrentUser] = useState<Omit<
     UserAccount,
@@ -57,6 +58,18 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<string>('overview');
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
+  const [toast, setToast] = useState<{ severity: 'warning' | 'error'; message: string } | null>(null);
+
+  useEffect(() => {
+    const onToast = (event: Event) => {
+      const detail = (event as CustomEvent<{ severity?: 'warning' | 'error'; message?: string }>).detail;
+      if (!detail?.message) return;
+      setToast({ severity: detail.severity === 'error' ? 'error' : 'warning', message: detail.message });
+      window.setTimeout(() => setToast(null), 5000);
+    };
+    window.addEventListener('comvision:toast', onToast);
+    return () => window.removeEventListener('comvision:toast', onToast);
+  }, []);
 
   // Routing state for public docs and legal pages
   const [currentRoute, setCurrentRoute] = useState<string>(() => {
@@ -103,7 +116,9 @@ export default function App() {
 
   // Engine state
   const [scannerActive, setScannerActive] = useState<boolean>(false);
-  const [currentAlert, setCurrentAlert] = useState<MasterTelemetry | null>(null);
+  const [alertState, dispatchAlert] = useReducer(alertReducer, initialAlertState);
+  const currentAlert = (alertState.selectedSetup ?? alertState.serverActiveAlert) as MasterTelemetry | null;
+  const actionAlert = alertState.actionCardVisible ? currentAlert : null;
   const [candidateHistory, setCandidateHistory] = useState<MasterTelemetry[]>([]);
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | undefined>();
   const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('5m');
@@ -126,7 +141,7 @@ export default function App() {
   ) => {
     setAuthToken(token);
     setCurrentUser(user);
-    localStorage.setItem('comvision_auth_token', token);
+    sessionStorage.setItem('comvision_auth_token', token);
     localStorage.setItem('comvision_user', JSON.stringify(user));
     setInPublicPortal(false);
   };
@@ -140,6 +155,7 @@ export default function App() {
     }
     setAuthToken(null);
     setCurrentUser(null);
+    sessionStorage.removeItem('comvision_auth_token');
     localStorage.removeItem('comvision_auth_token');
     localStorage.removeItem('comvision_user');
     setInPublicPortal(true);
@@ -162,14 +178,20 @@ export default function App() {
 
       if (statusRes.ok && statusRes.headers.get('content-type')?.includes('application/json')) {
         const data = await statusRes.json();
-        if (data.activeAlert) {
-          setCurrentAlert(data.activeAlert);
-        }
+        dispatchAlert({
+          type: 'POLL_SUCCESS',
+          activeAlert: data.activeAlert ?? null,
+          serverNowUtc: data.serverNowUtc,
+          signalAgeSeconds: data.signal_age_seconds,
+          entryWindowExpired: data.entry_window_expired === true,
+        });
         if (data.providerStatus) {
           setProviderStatus(data.providerStatus);
           if (data.providerStatus.provider === 'TWELVE_DATA') setSelectedProvider('TWELVE_DATA');
         }
         setScannerActive(data.settings?.scannerActive ?? false);
+      } else {
+        dispatchAlert({ type: 'API_FAILURE', message: 'Scanner state unknown' });
       }
 
       // 2. Fetch Candidates
@@ -189,13 +211,11 @@ export default function App() {
             }
           }
           setCandidateHistory(uniqueList);
-          if (!currentAlert && uniqueList.length > 0) {
-            setCurrentAlert(uniqueList[0]);
-          }
         }
       }
 
     } catch (err) {
+      dispatchAlert({ type: 'API_FAILURE', message: 'Scanner state unknown' });
       console.error('Error fetching engine data:', err);
     }
   };
@@ -220,6 +240,8 @@ export default function App() {
   // Actions
   const handleToggleScanner = async () => {
     if (!authToken) return;
+    const command = scannerActive ? 'stop' : 'start';
+    dispatchAlert({ type: 'SCANNER_COMMAND_PENDING', command });
     try {
       const res = await apiFetch('/api/engine/toggle-scanner', {
         method: 'POST',
@@ -232,14 +254,19 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setScannerActive(data.scannerActive);
+        dispatchAlert({ type: 'SCANNER_COMMAND_SUCCESS', command });
+      } else {
+        dispatchAlert({ type: 'SCANNER_COMMAND_FAILURE', command });
       }
     } catch (err) {
+      dispatchAlert({ type: 'SCANNER_COMMAND_FAILURE', command });
       console.error('Failed to toggle scanner:', err);
     }
   };
 
   const handleStopScanning = async () => {
     if (!authToken) return;
+    dispatchAlert({ type: 'SCANNER_COMMAND_PENDING', command: 'stop' });
     try {
       const res = await apiFetch('/api/engine/toggle-scanner', {
         method: 'POST',
@@ -251,8 +278,12 @@ export default function App() {
       });
       if (res.ok) {
         setScannerActive(false);
+        dispatchAlert({ type: 'SCANNER_COMMAND_SUCCESS', command: 'stop' });
+      } else {
+        dispatchAlert({ type: 'SCANNER_COMMAND_FAILURE', command: 'stop' });
       }
     } catch (err) {
+      dispatchAlert({ type: 'SCANNER_COMMAND_FAILURE', command: 'stop' });
       console.error('Failed to stop scanner:', err);
     }
   };
@@ -270,7 +301,7 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        setCurrentAlert(data.telemetry);
+        dispatchAlert({ type: 'SELECT_SETUP', setup: data.telemetry });
         if (data.providerStatus) setProviderStatus(data.providerStatus);
         fetchEngineData();
       }
@@ -283,8 +314,8 @@ export default function App() {
     setupId: string,
     action: UserRecordedAction,
     observation?: NextCandleObservation
-  ) => {
-    if (!authToken) return;
+  ): Promise<boolean> => {
+    if (!authToken) return false;
     try {
       // 1. Record User Action (strictly separate operator discretionary field)
       const resAction = await apiFetch('/api/engine/record-action', {
@@ -298,7 +329,7 @@ export default function App() {
 
       // 2. Record only the operator's observation; never invent OHLC data in the client.
       if (observation && observation !== 'PENDING') {
-        await apiFetch('/api/engine/record-outcome', {
+        const outcomeRes = await apiFetch('/api/engine/record-outcome', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -310,23 +341,27 @@ export default function App() {
             notes: `Operator empirical recording: Observation ${observation}, Action ${action}`,
           }),
         });
+        if (!outcomeRes.ok) return false;
       }
 
       if (resAction.ok) {
         fetchEngineData();
         if (currentAlert && currentAlert.metadata.setup_id === setupId) {
-          setCurrentAlert({
+          dispatchAlert({ type: 'SELECT_SETUP', setup: {
             ...currentAlert,
             system_execution: {
               ...currentAlert.system_execution,
               user_recorded_action: action,
             },
             next_candle_observation: observation ? { status: observation } : currentAlert.next_candle_observation,
-          });
+          } });
         }
+        return true;
       }
+      return false;
     } catch (err) {
       console.error('Failed to record action and observation:', err);
+      return false;
     }
   };
 
@@ -441,6 +476,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans select-none">
+      {toast && <div role="status" className={`fixed right-5 top-5 z-[100] max-w-sm rounded-xl border px-4 py-3 text-sm shadow-2xl ${toast.severity === 'error' ? 'border-rose-500 bg-rose-950 text-rose-100' : 'border-amber-500 bg-amber-950 text-amber-100'}`}>{toast.message}</div>}
       {/* Sidebar */}
       <Sidebar
         isOpen={sidebarOpen}
@@ -468,6 +504,12 @@ export default function App() {
 
         {/* Dynamic View Body */}
         <main className="flex-1 overflow-y-auto p-6 space-y-6">
+          {alertState.banner && (
+            <div role="alert" className={`max-w-7xl mx-auto w-full rounded-xl border-2 px-5 py-4 shadow-lg ${alertState.banner.severity === 'critical' ? 'border-rose-500 bg-rose-950/95 text-rose-50' : 'border-amber-500 bg-amber-950/90 text-amber-50'}`}>
+              <div className="text-base sm:text-lg font-black tracking-wide">{alertState.banner.message}</div>
+              <p className="mt-1 text-sm opacity-90">The server state could not be confirmed. No action should be taken until the connection is healthy.</p>
+            </div>
+          )}
           {(!currentAlert || currentAlert.metadata.data_provenance !== 'LIVE_INGESTED' || providerStatus?.status === 'OFFLINE') && (
             <div role="alert" className="max-w-7xl mx-auto w-full rounded-xl border-2 border-rose-500 bg-rose-950/90 px-5 py-4 text-rose-50 shadow-lg shadow-rose-950/40">
               <div className="text-base sm:text-lg font-black tracking-wide">⚠️ LIVE DATA UNAVAILABLE — NO ALERT</div>
@@ -548,21 +590,21 @@ export default function App() {
               <ValidSetupsFeed
                 validSetups={validSetups}
                 selectedSetupId={currentAlert?.metadata.setup_id}
-                onSelectSetup={(setup) => setCurrentAlert(setup)}
+                onSelectSetup={(setup) => dispatchAlert({ type: 'SELECT_SETUP', setup })}
                 onOpenAllList={() => setIsValidSetupsModalOpen(true)}
               />
 
               {/* Primary Dual Column Layout */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-3">
-                  <BinaryStatusCard alert={currentAlert} scannerActive={scannerActive} />
+                  <BinaryStatusCard alert={actionAlert} scannerActive={scannerActive} />
                 </div>
                 {/* Left 2 Cols: Decision Alert Card */}
                 <div className="lg:col-span-2">
                   <DecisionAlertCard
-                    alert={currentAlert}
+                    alert={actionAlert}
                     validSetupsList={validSetups}
-                    onSelectSetup={(setup) => setCurrentAlert(setup)}
+                    onSelectSetup={(setup) => dispatchAlert({ type: 'SELECT_SETUP', setup })}
                     onOpenAllList={() => setIsValidSetupsModalOpen(true)}
                     onMarkTaken={() =>
                       currentAlert &&
@@ -692,7 +734,7 @@ export default function App() {
         validSetups={validSetups}
         selectedSetupId={currentAlert?.metadata.setup_id}
         onSelectSetup={(setup) => {
-          setCurrentAlert(setup);
+          dispatchAlert({ type: 'SELECT_SETUP', setup });
           setActiveTab('overview');
         }}
       />

@@ -219,12 +219,20 @@ app.post('/api/auth/logout', authenticateToken, (req: AuthenticatedRequest, res)
 app.get(['/api/engine/dashboard-state', '/api/engine/status'], requireApprovedUser, (_req, res) => {
   const stats = experimentTracker.getStats();
   const activeAlert = experimentTracker.getActiveAlert();
+  const serverNowUtc = new Date().toISOString();
+  const signalTimestamp = activeAlert?.metadata.signal_timestamp_utc || activeAlert?.metadata.timestamp_utc;
+  const signalAgeSeconds = signalTimestamp ? Math.max(0, Math.floor((Date.parse(serverNowUtc) - Date.parse(signalTimestamp)) / 1000)) : null;
+  const validUntil = (activeAlert?.metadata as Record<string, unknown> | undefined)?.valid_until;
+  const entryWindowExpired = typeof validUntil === 'string' && Number.isFinite(Date.parse(validUntil)) && Date.parse(validUntil) <= Date.parse(serverNowUtc);
   const providerStatus = feedManager.getStatus();
   const validSetups = experimentTracker.getCandidates('PASS');
 
   res.json({
     stats,
     activeAlert,
+    serverNowUtc,
+    signal_age_seconds: signalAgeSeconds,
+    entry_window_expired: entryWindowExpired,
     validSetups,
     settings: { ...currentSettings, scannerActive: scanLoop.state().enabled },
     providerStatus,

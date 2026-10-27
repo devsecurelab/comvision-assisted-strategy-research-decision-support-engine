@@ -14,7 +14,7 @@ interface RecordResultModalProps {
     setupId: string,
     action: UserRecordedAction,
     observation?: NextCandleObservation
-  ) => void;
+  ) => void | boolean | Promise<void | boolean>;
   onClose: () => void;
 }
 
@@ -25,6 +25,8 @@ export const RecordResultModal: React.FC<RecordResultModalProps> = ({
   onSave,
   onClose,
 }) => {
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   // 1. Next Candle Research Observation State (Scientific price movement relative to bias)
   const [selectedObservation, setSelectedObservation] = useState<NextCandleObservation>(
     currentObservation !== 'PENDING' ? currentObservation : 'NEXT_CANDLE_FAVORABLE'
@@ -38,10 +40,22 @@ export const RecordResultModal: React.FC<RecordResultModalProps> = ({
     return 'TAKEN';
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(setupId, selectedAction, selectedObservation);
-    onClose();
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      const result = await onSave(setupId, selectedAction, selectedObservation);
+      if (result === false) {
+        setSaveError('Unable to save this record. The modal remains open so you can retry.');
+        return;
+      }
+      onClose();
+    } catch {
+      setSaveError('Unable to save this record. The modal remains open so you can retry.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -234,12 +248,14 @@ export const RecordResultModal: React.FC<RecordResultModalProps> = ({
             </button>
             <button
               type="submit"
-              className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-xs shadow-lg shadow-indigo-600/30 flex items-center gap-1.5 transition"
+              disabled={isSaving}
+              className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-wait text-white font-semibold rounded-xl text-xs shadow-lg shadow-indigo-600/30 flex items-center gap-1.5 transition"
             >
-              <span>Save Record</span>
+              <span>{isSaving ? 'Saving…' : 'Save Record'}</span>
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
           </div>
+          {saveError && <div role="alert" className="rounded-lg border border-rose-500/50 bg-rose-950/40 px-3 py-2 text-xs text-rose-200">{saveError}</div>}
         </form>
       </div>
     </div>
