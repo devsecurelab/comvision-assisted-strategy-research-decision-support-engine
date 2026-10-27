@@ -43,7 +43,7 @@ import { alertReducer, initialAlertState } from './alertState';
 export default function App() {
   // Auth state
   const [authToken, setAuthToken] = useState<string | null>(() =>
-    localStorage.getItem('comvision_auth_token')
+    sessionStorage.getItem('comvision_auth_token')
   );
   const [currentUser, setCurrentUser] = useState<Omit<
     UserAccount,
@@ -58,6 +58,18 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<string>('overview');
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
+  const [toast, setToast] = useState<{ severity: 'warning' | 'error'; message: string } | null>(null);
+
+  useEffect(() => {
+    const onToast = (event: Event) => {
+      const detail = (event as CustomEvent<{ severity?: 'warning' | 'error'; message?: string }>).detail;
+      if (!detail?.message) return;
+      setToast({ severity: detail.severity === 'error' ? 'error' : 'warning', message: detail.message });
+      window.setTimeout(() => setToast(null), 5000);
+    };
+    window.addEventListener('comvision:toast', onToast);
+    return () => window.removeEventListener('comvision:toast', onToast);
+  }, []);
 
   // Routing state for public docs and legal pages
   const [currentRoute, setCurrentRoute] = useState<string>(() => {
@@ -129,7 +141,7 @@ export default function App() {
   ) => {
     setAuthToken(token);
     setCurrentUser(user);
-    localStorage.setItem('comvision_auth_token', token);
+    sessionStorage.setItem('comvision_auth_token', token);
     localStorage.setItem('comvision_user', JSON.stringify(user));
     setInPublicPortal(false);
   };
@@ -143,6 +155,7 @@ export default function App() {
     }
     setAuthToken(null);
     setCurrentUser(null);
+    sessionStorage.removeItem('comvision_auth_token');
     localStorage.removeItem('comvision_auth_token');
     localStorage.removeItem('comvision_user');
     setInPublicPortal(true);
@@ -301,8 +314,8 @@ export default function App() {
     setupId: string,
     action: UserRecordedAction,
     observation?: NextCandleObservation
-  ) => {
-    if (!authToken) return;
+  ): Promise<boolean> => {
+    if (!authToken) return false;
     try {
       // 1. Record User Action (strictly separate operator discretionary field)
       const resAction = await apiFetch('/api/engine/record-action', {
@@ -316,7 +329,7 @@ export default function App() {
 
       // 2. Record only the operator's observation; never invent OHLC data in the client.
       if (observation && observation !== 'PENDING') {
-        await apiFetch('/api/engine/record-outcome', {
+        const outcomeRes = await apiFetch('/api/engine/record-outcome', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -328,6 +341,7 @@ export default function App() {
             notes: `Operator empirical recording: Observation ${observation}, Action ${action}`,
           }),
         });
+        if (!outcomeRes.ok) return false;
       }
 
       if (resAction.ok) {
@@ -342,9 +356,12 @@ export default function App() {
             next_candle_observation: observation ? { status: observation } : currentAlert.next_candle_observation,
           } });
         }
+        return true;
       }
+      return false;
     } catch (err) {
       console.error('Failed to record action and observation:', err);
+      return false;
     }
   };
 
@@ -459,6 +476,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans select-none">
+      {toast && <div role="status" className={`fixed right-5 top-5 z-[100] max-w-sm rounded-xl border px-4 py-3 text-sm shadow-2xl ${toast.severity === 'error' ? 'border-rose-500 bg-rose-950 text-rose-100' : 'border-amber-500 bg-amber-950 text-amber-100'}`}>{toast.message}</div>}
       {/* Sidebar */}
       <Sidebar
         isOpen={sidebarOpen}
