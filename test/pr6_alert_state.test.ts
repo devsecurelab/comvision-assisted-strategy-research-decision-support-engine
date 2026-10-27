@@ -50,4 +50,4 @@ const stateWith = (patch: Partial<AlertState>): AlertState => ({ ...initialAlert
   assert.equal(next.sessionRestoreError, false);
 }
 
-console.log('[pr6_alert_state] RED CONTRACT TESTS (expected until src/alertState.ts is implemented)');
+console.log('[pr6_alert_state] PASS');
