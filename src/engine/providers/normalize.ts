@@ -6,6 +6,7 @@ function parseTimestamp(value: unknown, timezone = 'UTC', provider: MarketDataPr
   if (typeof value !== 'string' || !value.trim()) throw new ProviderAdapterError(provider, 'INVALID_PROVIDER_RESPONSE', `${provider} returned an invalid candle timestamp.`);
   const raw = value.trim();
   const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw);
+  if (!hasTimezone) throw new ProviderAdapterError(provider, 'DATA_QUALITY_FAIL', `${provider} returned a timezone-less candle timestamp; refusing to infer UTC.`);
   let timestamp: Date;
   if (hasTimezone) {
     timestamp = new Date(raw);
@@ -48,7 +49,7 @@ export function normalizeCandles(
     const volumeValue = row?.volume ?? row?.['5. volume'];
     const volume = volumeValue === undefined || volumeValue === null || volumeValue === '' ? null : Number(volumeValue);
     if (![open, high, low, close].every(Number.isFinite) || (volume !== null && (!Number.isFinite(volume) || volume < 0)) || open <= 0 || high <= 0 || low <= 0 || close <= 0 || high < Math.max(open, close, low) || low > Math.min(open, close, high)) {
-      throw new ProviderAdapterError(provider, 'INVALID_PROVIDER_RESPONSE', `${provider} returned malformed OHLC values.`);
+      throw new ProviderAdapterError(provider, 'DATA_QUALITY_FAIL', `${provider} returned malformed OHLC values.`);
     }
     return {
       timestamp: parseTimestamp(row?.datetime ?? row?.timestamp ?? row?.time ?? row?.date, payload.timezone || 'UTC', provider),
@@ -56,11 +57,13 @@ export function normalizeCandles(
     };
   });
 
-  candles.sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+  const originalOrder = candles.map((candle) => candle.timestamp);
+  const sorted = [...originalOrder].sort((a, b) => Date.parse(a) - Date.parse(b));
+  if (sorted.some((timestamp, index) => timestamp !== originalOrder[index])) throw new ProviderAdapterError(provider, 'DATA_QUALITY_FAIL', `${provider} returned candles out of chronological order.`);
   const intervalMs: Record<Timeframe, number> = { '1m': 60_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000, '1h': 3_600_000 };
   const closed = requireClosed ? candles.filter((candle) => Date.parse(candle.timestamp) + intervalMs[timeframe] <= nowMs) : candles;
-  const deduplicated = closed.filter((candle, index) => index === 0 || candle.timestamp !== closed[index - 1].timestamp);
-  if (deduplicated.length < 25) throw new ProviderAdapterError(provider, 'INSUFFICIENT_HISTORY', `${provider} returned ${deduplicated.length} candles; at least 25 are required.`);
-  const hasVolume = deduplicated.some((candle) => typeof candle.volume === 'number');
-  return { candles: deduplicated, volumeAvailable: payload.volumeAvailable ?? hasVolume };
+  if (closed.some((candle, index) => index > 0 && candle.timestamp === closed[index - 1].timestamp)) throw new ProviderAdapterError(provider, 'DATA_QUALITY_FAIL', `${provider} returned duplicate candle timestamps.`);
+  if (closed.length < 25) throw new ProviderAdapterError(provider, 'INSUFFICIENT_HISTORY', `${provider} returned ${closed.length} candles; at least 25 are required.`);
+  const hasVolume = closed.some((candle) => typeof candle.volume === 'number');
+  return { candles: closed, volumeAvailable: payload.volumeAvailable ?? hasVolume };
 }

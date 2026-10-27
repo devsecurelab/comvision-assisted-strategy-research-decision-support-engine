@@ -150,7 +150,7 @@ async function main(): Promise<void> {
 
     async function testProviderSchedulersIntegrity() {
       const schedulers = createProviderSchedulers();
-      const expected = ['TWELVE_DATA', 'OANDA', 'TIINGO'] as const;
+      const expected = ['TWELVE_DATA'] as const;
       for (const provider of expected) {
         const scheduler = schedulers.get(provider);
         assert.ok(scheduler, `${provider} scheduler must exist`);
@@ -161,8 +161,6 @@ async function main(): Promise<void> {
         assert.ok(snapshot.autoDailyBudget > 0 && snapshot.autoDailyBudget <= snapshot.hardStopDaily);
       }
       assert.equal(schedulers.get('TWELVE_DATA')?.snapshot().minimumIntervalMs, 0);
-      assert.equal(schedulers.get('OANDA')?.snapshot().minimumIntervalMs, 1_000);
-      assert.equal(schedulers.get('TIINGO')?.snapshot().perHour, 50);
     }
 
     async function testFreshDayHourlyInitialization() {

@@ -12,14 +12,12 @@ import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { authService } from './src/server/auth';
 import { feedManager, MarketDataError, MarketDataProvider, timeframeToMinutes } from './src/engine/dataProviders';
-import { newsGuard } from './src/engine/newsGuard';
 import { experimentTracker } from './src/engine/experimentTracker';
 import { executeStrategyPipeline } from './src/engine/pipeline';
 import { STRATEGY_MANIFEST, ACTIVE_EXPERIMENT_ID } from './src/engine/manifest';
 import { EngineSettings, Timeframe, UserAccount, UserRole, UserRecordedAction } from './src/engine/types';
 import { durableStorage, type SignalOutcome as StoredSignalOutcome } from './src/server/storage';
 import { notificationService } from './src/server/notificationService';
-import { formatProviderSwitchWarning } from './src/server/providerSwitchFormatter';
 import { analyticsService } from './src/server/analyticsService';
 import { chatService } from './src/server/chatService';
 import { payoutRegistry, normalizePair, displayPair } from './src/server/payoutRegistry';
@@ -222,7 +220,6 @@ app.get(['/api/engine/dashboard-state', '/api/engine/status'], requireApprovedUs
   const stats = experimentTracker.getStats();
   const activeAlert = experimentTracker.getActiveAlert();
   const providerStatus = feedManager.getStatus();
-  const newsStatus = newsGuard.checkNewsWindow();
   const validSetups = experimentTracker.getCandidates('PASS');
 
   res.json({
@@ -231,10 +228,6 @@ app.get(['/api/engine/dashboard-state', '/api/engine/status'], requireApprovedUs
     validSetups,
     settings: { ...currentSettings, scannerActive: scanLoop.state().enabled },
     providerStatus,
-    newsStatus: {
-      ...newsStatus,
-      windowState: newsStatus.state,
-    },
     manifest: STRATEGY_MANIFEST,
   });
 });
@@ -295,9 +288,7 @@ app.post('/api/engine/select-provider', requireOperator, (req: AuthenticatedRequ
 });
 
 app.post('/api/admin/provider-credentials', requireAdmin, (req: AuthenticatedRequest, res) => {
-  const fields: Array<[string, MarketDataProvider]> = [
-    ['twelveDataKey', 'TWELVE_DATA'], ['oandaPracticeToken', 'OANDA'], ['tiingoApiKey', 'TIINGO'],
-  ];
+  const fields: Array<[string, MarketDataProvider]> = [['twelveDataKey', 'TWELVE_DATA']];
   const keys: Partial<Record<MarketDataProvider, string>> = {};
   const changed: MarketDataProvider[] = [];
   for (const [field, provider] of fields) {
@@ -319,7 +310,7 @@ app.post('/api/admin/provider-credentials', requireAdmin, (req: AuthenticatedReq
     event_type: 'MARKET_DATA_CREDENTIALS_UPDATED', actor_id: req.user?.id, actor_email: req.user?.email,
     details: { providers: changed, storage: 'SERVER_MEMORY_ONLY' },
   });
-  res.json({ success: true, configuredProviders: feedManager.getFallbackProviders(), providerStatus: feedManager.getStatus(), storage: 'SERVER_MEMORY_ONLY' });
+  res.json({ success: true, configuredProviders: feedManager.getProviders(), providerStatus: feedManager.getStatus(), storage: 'SERVER_MEMORY_ONLY' });
 });
 
 // Dashboard Operator Timeframe Authority (Section 3.1)
@@ -433,7 +424,7 @@ app.get('/api/market/feed', requireApprovedUser, async (req, res) => {
 // Never returns request URLs, API keys, raw provider error text, or authentication tokens.
 app.get('/api/engine/provider-health', requireAdmin, async (req, res) => {
   const providerInput = typeof req.query.provider === 'string' ? req.query.provider : '';
-  const provider = ['TWELVE_DATA', 'OANDA', 'TIINGO'].includes(providerInput) ? providerInput as MarketDataProvider : null;
+  const provider = providerInput === 'TWELVE_DATA' ? providerInput as MarketDataProvider : null;
   const symbol = typeof req.query.symbol === 'string' ? req.query.symbol.trim().toUpperCase() : '';
   const timeframeInput = typeof req.query.timeframe === 'string' ? req.query.timeframe : '';
   const timeframe = timeframeInput === '15m' || timeframeInput === '1h' ? timeframeInput : null;
@@ -442,7 +433,7 @@ app.get('/api/engine/provider-health', requireAdmin, async (req, res) => {
   if (!provider || !allowedSymbols.has(symbol) || !timeframe) {
     return res.status(400).json({
       error: 'INVALID_PROBE_PARAMETERS',
-      required: { provider: ['TWELVE_DATA', 'OANDA', 'TIINGO'], symbol: [...allowedSymbols], timeframe: ['15m', '1h'] },
+      required: { provider: ['TWELVE_DATA'], symbol: [...allowedSymbols], timeframe: ['15m', '1h'] },
     });
   }
 
@@ -459,9 +450,7 @@ app.get('/api/engine/provider-health', requireAdmin, async (req, res) => {
     }
     const isExpectedClosedCandlePresent = lastClosed?.timestamp === expectedLastClosedTsUtc;
     const latest = result.candles[result.candles.length - 1];
-    const symbolMapping = provider === 'TWELVE_DATA'
-      ? { symbol }
-      : { from_symbol: symbol.split('/')[0], to_symbol: symbol.split('/')[1] };
+    const symbolMapping = { symbol };
 
     return res.json({
       provider,
@@ -493,23 +482,6 @@ app.get('/api/engine/provider-health', requireAdmin, async (req, res) => {
     return res.status(503).json({ provider, symbol, timeframe, status, provider_state: status, error: safeErrorCode });
   }
 });
-
-app.get('/api/news/status', requireApprovedUser, (_req, res) => {
-  const events = newsGuard.getEvents();
-  const windowCheck = newsGuard.checkNewsWindow();
-  res.json({
-    events,
-    windowStatus: windowCheck,
-    windowCheck: {
-      ...windowCheck,
-      windowState: windowCheck.state,
-    },
-    isOnline: newsGuard.isOnline(),
-    newsSourceOnline: newsGuard.isSourceOnline(),
-  });
-});
-
-
 
 app.get('/api/audit/verify-chain', requireApprovedUser, (_req, res) => {
   const verification = experimentTracker.verifyHashChain();
@@ -621,11 +593,11 @@ const scanService = new ScanService({
   fetchCandles: (pair, timeframe, provider, kind) => feedManager.fetchCandles(pair, timeframe, provider, kind),
   fetchCandlesBatch: (pairs, timeframe, provider, kind) => feedManager.fetchCandlesBatch(pairs, timeframe, provider, kind),
   fetchQuote: (pair) => feedManager.fetchQuote(pair),
-  providers: () => feedManager.getFallbackProviders(),
+  providers: () => feedManager.getProviders(),
   getPayout: (pair) => { const record = payoutRegistry.get(pair); return record ? { pct: record.pct, setAt: record.setAt } : undefined; },
   favorites: () => favoriteRegistry.all().map((item) => item.pair),
-  newsEvents: () => newsGuard.getEvents(),
-  newsSourceOnline: () => newsGuard.isSourceOnline(),
+  newsEvents: () => [],
+  newsSourceOnline: () => true,
   autoBudgetRemaining: () => { const snapshot = feedManager.getSchedulerSnapshot(); return Math.min(snapshot.remainingAuto, snapshot.remainingDay); },
   now: () => Date.now(),
   ledger: signalLedger,
@@ -641,10 +613,6 @@ const scanService = new ScanService({
       const delivery = await notificationService.dispatchSignalAlert(recorded, { signalId: result.signal_id, validUntil: result.valid_until, signalPrice: result.signal_price, quotePrice: result.quote_price, quoteTs: result.quote_ts, priceTolerance: result.price_tolerance });
       if (delivery.telegram === 'SENT' && result.signal_id) signalLedger.recordTelegramSent(result.signal_id);
     }
-  },
-  onProviderSwitches: async (notice) => {
-    const safeText = formatProviderSwitchWarning(notice, feedManager.getStatus().circuits);
-    await notificationService.sendTelegramText(safeText);
   },
   onResolved: async (signal, outcome) => {
     await notificationService.sendTelegramText(`RESULT ${signal.signal_id} ${signal.pair} ${signal.timeframe} ${signal.direction}: ${outcome} (open ${signal.entry_price ?? 'UNAVAILABLE'} -> close ${signal.exit_price ?? 'UNAVAILABLE'}). Research record only.`);
@@ -740,7 +708,7 @@ app.get('/api/admin/settings', requireAdmin, (_req, res) => {
 app.post('/api/admin/settings', requireAdmin, (req: AuthenticatedRequest, res) => {
   const mutations = req.body;
   const auditMutations = { ...mutations };
-  for (const secretField of ['twelveDataKey', 'oandaPracticeToken', 'tiingoApiKey']) {
+  for (const secretField of ['twelveDataKey']) {
     if (secretField in auditMutations) auditMutations[secretField] = '[REDACTED]';
   }
 

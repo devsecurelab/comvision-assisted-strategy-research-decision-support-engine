@@ -42,7 +42,7 @@ grep -RInE 'v2Baseline|v3Refinement|tick_sequence|tick_baseline|pressure_observa
 | `input_snapshot` fallback | `src/App.tsx`, analytics fallback | Reads old candidate records | **Keep for old-record readability** |
 | Historical docs/evidence | `HANDOVER.md`, `docs/evidence/*`, `docs/SPECIFICATION_v3.4.md`, historical README sections | Evidence is explicitly protected; old docs are not active imports | **Evidence keep; old-doc deletion is suspect until owner confirms exact files** |
 | Retired package route strings | `test/pr_a_owner_regressions.test.ts` references `/comvision-engine-v2.0-package.zip` to assert 404 | Security regression test, not an active route; server has no such route | **Keep 404 regression assertion** |
-| “OANDA v20” | Provider adapter label | OANDA API product name, unrelated to Strategy V2 | **Keep** |
+| “legacy provider v20” | Provider adapter label | legacy provider API product name, unrelated to Strategy V2 | **Keep** |
 
 ## Initial deletion set (clear)
 

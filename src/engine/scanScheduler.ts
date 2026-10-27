@@ -34,8 +34,6 @@ export interface ScanResult {
   valid_until?: string;
   provider?: MarketDataProvider;
   htf_provider?: MarketDataProvider;
-  failover_reason?: string;
-  provider_changes?: ProviderSwitchNotice;
   scan_started_at?: string;
   candle_available_at?: string | null;
   delivered_at?: string;
@@ -48,16 +46,7 @@ export interface ScanResult {
   quote_status?: 'OK' | 'QUOTE_UNAVAILABLE';
 }
 
-export interface ProviderSwitchStep { fromProvider: MarketDataProvider; toProvider: MarketDataProvider; reason: string }
-export interface ProviderSwitchNotice {
-  pair: string;
-  timeframe: ScanTimeframe;
-  changedAt: string;
-  changes: Array<ProviderSwitchStep & { series: Array<'LTF' | 'HTF'> }>;
-}
-
-type FetchedMarketData = MarketDataResult & { failoverReason?: string; providerSwitches: ProviderSwitchStep[] };
-
+type FetchedMarketData = MarketDataResult;
 export interface ScanDeps {
   fetchCandles(pair: string, timeframe: Timeframe, provider: MarketDataProvider, kind: 'AUTO' | 'ON_DEMAND'): Promise<MarketDataResult>;
   fetchCandlesBatch?(pairs: string[], timeframe: Timeframe, provider: MarketDataProvider, kind: 'AUTO' | 'ON_DEMAND'): Promise<Record<string, MarketDataResult>>;
@@ -75,7 +64,6 @@ export interface ScanDeps {
   onEdgeLost?(reason: string): Promise<void> | void;
   loadState?(): ScanLoopState | undefined;
   saveState?(state: ScanLoopState): void;
-  onProviderSwitches?(notice: ProviderSwitchNotice): Promise<void> | void;
 }
 
 export interface ScanLoopState { enabled: boolean; timeframe: ScanTimeframe; lastCycleCandleOpen?: string; lastRunAt?: string; lastSummary?: string; lastError?: string }
@@ -97,8 +85,6 @@ export function nextCandleCloseMs(nowMs: number, timeframe: Timeframe): number {
 export class ScanService {
   private readonly cache = new Map<string, ScanResult>();
   private readonly htfCache = new Map<string, { hourOpen: number; result: FetchedMarketData }>();
-  private readonly cycleBatch = new Map<string, MarketDataResult>();
-  private cycleProvider: { cycle: string; provider: MarketDataProvider; reason?: string } | undefined;
   public readonly edge: EdgeMonitor;
 
   constructor(private readonly deps: ScanDeps) { this.edge = new EdgeMonitor(deps.ledger); }
@@ -122,72 +108,20 @@ export class ScanService {
     return timed;
   }
 
-  /** One provider per scan window; a failover is sticky for the window and its reason is preserved. */
-  private async fetchWithFailover(pair: string, timeframe: Timeframe, kind: 'AUTO' | 'ON_DEMAND', windowKey: string): Promise<FetchedMarketData> {
-    let lastError: unknown;
-    let failedProvider: MarketDataProvider | undefined;
-    const attempted = new Set<MarketDataProvider>();
-    const providerSwitches: ProviderSwitchStep[] = [];
-    if (this.cycleProvider?.cycle === windowKey) {
-      const sticky = this.cycleProvider;
-      attempted.add(sticky.provider);
-      try {
-        const batched = this.cycleBatch.get(`${windowKey}|${pair}|${sticky.provider}`);
-        if (batched) return { ...batched, failoverReason: sticky.reason, providerSwitches };
-        const res = await this.deps.fetchCandles(pair, timeframe, sticky.provider, kind);
-        return { ...res, failoverReason: sticky.reason, providerSwitches };
-      } catch (error) {
-        lastError = error;
-        failedProvider = sticky.provider;
-        this.cycleProvider = undefined;
-      }
-    }
-    const providers = this.deps.providers().filter((provider) => !attempted.has(provider));
-    for (const provider of providers) {
-      if (lastError && failedProvider) {
-        const reason = lastError instanceof MarketDataError ? lastError.code : 'PROVIDER_ERROR';
-        providerSwitches.push({ fromProvider: failedProvider, toProvider: provider, reason });
-      }
-      try {
-        const batched = this.cycleBatch.get(`${windowKey}|${pair}|${provider}`);
-        if (batched) {
-          this.cycleProvider = { cycle: windowKey, provider, reason: providerSwitches.at(-1)?.reason };
-          return { ...batched, failoverReason: providerSwitches.at(-1)?.reason, providerSwitches };
-        }
-        const res = await this.deps.fetchCandles(pair, timeframe, provider, kind);
-        const reason = providerSwitches.length ? providerSwitches.map((step) => `${step.fromProvider} ${step.reason} → ${step.toProvider}`).join('; ') : undefined;
-        this.cycleProvider = { cycle: windowKey, provider, reason };
-        return { ...res, failoverReason: reason, providerSwitches };
-      } catch (error) {
-        lastError = error;
-        failedProvider = error instanceof MarketDataError ? error.provider : provider;
-      }
-    }
-    throw lastError ?? new MarketDataError('PROVIDER_NOT_CONFIGURED', 'No market-data provider configured.', 'TWELVE_DATA');
+  /** Fetches the sole configured market-data provider for this scan window. */
+  private async fetchMarketData(pair: string, timeframe: Timeframe, kind: 'AUTO' | 'ON_DEMAND'): Promise<FetchedMarketData> {
+    const provider = this.deps.providers()[0];
+    if (!provider) throw new MarketDataError('PROVIDER_NOT_CONFIGURED', 'Twelve Data is not configured.', 'TWELVE_DATA');
+    return this.deps.fetchCandles(pair, timeframe, provider, kind);
   }
-
-  private async htfCandles(pair: string, nowMs: number, kind: 'AUTO' | 'ON_DEMAND', windowKey: string): Promise<FetchedMarketData> {
+  private async htfCandles(pair: string, nowMs: number, kind: 'AUTO' | 'ON_DEMAND'): Promise<FetchedMarketData> {
     const hourOpen = latestClosedCandleOpenMs(nowMs, '1h');
     const cached = this.htfCache.get(pair);
-    if (cached && cached.hourOpen === hourOpen) return { ...cached.result, candles: cached.result.candles.map((candle) => ({ ...candle })), providerSwitches: [] };
-    const res = await this.fetchWithFailover(pair, '1h', kind, windowKey);
+    if (cached && cached.hourOpen === hourOpen) return { ...cached.result, candles: cached.result.candles.map((candle) => ({ ...candle })) };
+    const res = await this.fetchMarketData(pair, '1h', kind);
     const filtered = { ...res, candles: filterFxOpenMarketCandles(res.candles, '1h') };
     this.htfCache.set(pair, { hourOpen, result: filtered });
     return filtered;
-  }
-
-  private async notifyProviderSwitches(pair: string, timeframe: ScanTimeframe, rows: Array<{ series: 'LTF' | 'HTF'; step: ProviderSwitchStep }>): Promise<ProviderSwitchNotice | undefined> {
-    if (rows.length === 0) return undefined;
-    const grouped = new Map<string, ProviderSwitchNotice['changes'][number]>();
-    for (const { series, step } of rows) {
-      const key = `${step.fromProvider}|${step.toProvider}|${step.reason}`;
-      const existing = grouped.get(key);
-      if (existing) { if (!existing.series.includes(series)) existing.series.push(series); }
-      else grouped.set(key, { ...step, series: [series] });
-    }
-    const notice: ProviderSwitchNotice = { pair, timeframe, changedAt: new Date(this.deps.now()).toISOString(), changes: [...grouped.values()] };
-    try { await this.deps.onProviderSwitches?.(notice); } catch { /* Notifications must not change scan decisions. */ }
-    return notice;
   }
 
   public async scanPair(pairInput: string, timeframe: ScanTimeframe, trigger: ScanTrigger = 'MANUAL', shouldContinue: () => boolean = () => true): Promise<ScanResult> {
@@ -244,26 +178,21 @@ export class ScanService {
     let primary: FetchedMarketData | undefined;
     let htf: FetchedMarketData | undefined;
     try {
-      primary = await this.fetchWithFailover(displayScanPair(pair), timeframe, kind, windowKey);
+      primary = await this.fetchMarketData(displayScanPair(pair), timeframe, kind);
       if (this.deps.now() - generationStartedAt > GENERATION_DEADLINE_MS) return expired();
       markCandleAvailable(new Date(this.deps.now()).toISOString());
-      htf = await this.htfCandles(displayScanPair(pair), nowMs, kind, windowKey);
+      htf = await this.htfCandles(displayScanPair(pair), nowMs, kind);
       if (this.deps.now() - generationStartedAt > GENERATION_DEADLINE_MS) return expired();
     } catch (error) {
-      const providerChanges = primary ? await this.notifyProviderSwitches(displayScanPair(pair), timeframe, primary.providerSwitches.map((step) => ({ series: 'LTF' as const, step }))) : undefined;
       const code = error instanceof MarketDataError ? error.code : 'PROVIDER_ERROR';
       const reason = code === 'RATE_LIMITED' ? `BUDGET_LIMIT: ${error instanceof Error ? error.message : ''}` : `${code}: ${error instanceof Error ? error.message : 'market data unavailable'}`;
-      return this.noTrade(pair, timeframe, trigger, reason, { provider: primary?.provider, provider_changes: providerChanges });
+      return this.noTrade(pair, timeframe, trigger, reason, { provider: primary?.provider });
     }
-    const providerChanges = await this.notifyProviderSwitches(displayScanPair(pair), timeframe, [
-      ...primary.providerSwitches.map((step) => ({ series: 'LTF' as const, step })),
-      ...htf.providerSwitches.map((step) => ({ series: 'HTF' as const, step })),
-    ]);
     const candles = filterFxOpenMarketCandles(primary.candles, timeframe);
     const htfCandles = htf.candles;
     const latest = candles.at(-1);
     if (!latest || Date.parse(latest.timestamp) !== expectedOpen) {
-      return this.noTrade(pair, timeframe, trigger, `DATA_QUALITY_FAIL: LATEST_CLOSED_CANDLE_MISSING (expected ${expectedIso}, got ${latest?.timestamp ?? 'none'})`, { provider: primary.provider, htf_provider: htf.provider, failover_reason: primary.failoverReason, provider_changes: providerChanges });
+      return this.noTrade(pair, timeframe, trigger, `DATA_QUALITY_FAIL: LATEST_CLOSED_CANDLE_MISSING (expected ${expectedIso}, got ${latest?.timestamp ?? 'none'})`, { provider: primary.provider, htf_provider: htf.provider });
     }
 
     const telemetry = executeStrategyPipeline({
@@ -278,7 +207,7 @@ export class ScanService {
       pair: displayScanPair(pair), timeframe, trigger, status: signal,
       reason: v3?.statusReason ?? telemetry.metadata.status_reason ?? telemetry.system_execution.rejection_reason ?? 'NO_QUALIFYING_SETUP',
       signal_candle_open_ts: latest.timestamp, provider: primary.provider, htf_provider: htf.provider,
-      failover_reason: [primary.failoverReason, htf.failoverReason].filter(Boolean).join('; ') || undefined, provider_changes: providerChanges, cached: false, telemetry,
+      cached: false, telemetry,
     };
     if (signal !== 'NO_TRADE' && v3) {
       const entryMs = expectedOpen + timeframeMs(timeframe);
@@ -320,23 +249,6 @@ export class ScanService {
     if (isFxMarketClosed(nowMs) || isFxBarClosed(new Date(expectedOpen).toISOString(), timeframe)) return this.deps.favorites().map((fav) => this.recordUnfetchedScan(this.noTrade(normalizeScanPair(fav), timeframe, 'AUTO', 'MARKET_CLOSED')));
     if (classifySessionAndKillZone(new Date(expectedOpen).toISOString()).kill_zone !== 'INSIDE_KILL_ZONE') return this.deps.favorites().map((fav) => this.recordUnfetchedScan(this.noTrade(normalizeScanPair(fav), timeframe, 'AUTO', 'OUTSIDE_KILL_ZONE')));
     const results: ScanResult[] = [];
-    const prefetchKey = `${timeframe}|${new Date(expectedOpen).toISOString()}`;
-    for (const fav of this.deps.favorites()) {
-      const pair = normalizeScanPair(fav); const payout = this.deps.getPayout(pair);
-      if (!payout || payout.pct < MIN_PAYOUT_PCT) continue;
-      try { await this.htfCandles(displayScanPair(pair), nowMs, 'AUTO', prefetchKey); } catch { /* scan records the provider failure */ }
-    }
-    this.cycleBatch.clear();
-    const batchProvider = this.deps.providers()[0];
-    const batchPairs = this.deps.favorites().map(normalizeScanPair).filter((pair, index, all) => all.indexOf(pair) === index)
-      .filter((pair) => { const payout = this.deps.getPayout(pair); return !!payout && payout.pct >= MIN_PAYOUT_PCT; })
-      .slice(0, MAX_AUTO_PAIRS[timeframe]);
-    if (batchProvider && batchPairs.length > 1 && this.deps.fetchCandlesBatch) {
-      try {
-        const batched = await this.deps.fetchCandlesBatch(batchPairs.map(displayScanPair), timeframe, batchProvider, 'AUTO');
-        for (const [pair, result] of Object.entries(batched)) this.cycleBatch.set(`${prefetchKey}|${pair}|${batchProvider}`, result);
-      } catch { /* partial/failed batch falls back to the normal per-symbol failover path */ }
-    }
     let scanned = 0;
     for (const fav of this.deps.favorites()) {
       if (!shouldContinue()) break;
@@ -369,7 +281,7 @@ export class ScanService {
     for (const [key, signals] of groups) {
       const [pair, timeframe] = key.split('|') as [string, ScanTimeframe];
       let candles: Candle[] = [];
-      try { candles = (await this.fetchWithFailover(pair, timeframe, 'AUTO', `resolve|${key}|${latestClosedCandleOpenMs(nowMs, timeframe)}`)).candles; } catch { /* stays RESOLVE_PENDING */ }
+      try { candles = (await this.fetchMarketData(pair, timeframe, 'AUTO')).candles; } catch { /* stays RESOLVE_PENDING */ }
       for (const s of signals) {
         const c = candles.find((x) => x.timestamp === s.entry_ts || Date.parse(x.timestamp) === Date.parse(s.entry_ts));
         if (!c) {

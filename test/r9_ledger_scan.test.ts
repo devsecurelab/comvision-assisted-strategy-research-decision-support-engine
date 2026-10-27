@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { SignalLedger, signalIdFor, type SignalPayload } from '../src/engine/signalLedger';
 import { buildLedgerReport, EDGE_WINDOW, evaluateEdge, formatLedgerReport } from '../src/engine/edgeMonitor';
-import { latestClosedCandleOpenMs, MAX_AUTO_PAIRS, ScanLoop, ScanService, type ProviderSwitchNotice, type ScanDeps, type ScanLoopState } from '../src/engine/scanScheduler';
+import { latestClosedCandleOpenMs, MAX_AUTO_PAIRS, ScanLoop, ScanService, type ScanDeps, type ScanLoopState } from '../src/engine/scanScheduler';
 import { MarketDataError, type MarketDataProvider, type MarketDataResult } from '../src/engine/dataProviders';
 import type { Candle, Timeframe } from '../src/engine/types';
 import { htfCandlesFor, idealPriceOnlySetup, SIGNAL_TS } from './fixtures/v3Reachability';
@@ -25,10 +25,10 @@ ledger.recordResult({ signal_id: sig(0).signal_id, outcome: 'WIN', source: 'AUTO
 assert.equal(ledger.verify().ok, true);
 assert.equal(ledger.get(sig(0).signal_id)?.outcome, 'WIN');
 const provenanceLedger = new SignalLedger(path.join(dir, 'ledger-provider-provenance.jsonl'));
-const splitProviderSignal = { ...sig(2), provider: 'OANDA', ltf_provider: 'TWELVE_DATA', htf_provider: 'OANDA' };
-assert.equal(provenanceLedger.recordSignal(splitProviderSignal), true);
-assert.equal(provenanceLedger.get(splitProviderSignal.signal_id)?.ltf_provider, 'TWELVE_DATA');
-assert.equal(provenanceLedger.get(splitProviderSignal.signal_id)?.htf_provider, 'OANDA');
+const singleProviderSignal = { ...sig(2), provider: 'TWELVE_DATA', ltf_provider: 'TWELVE_DATA', htf_provider: 'TWELVE_DATA' };
+assert.equal(provenanceLedger.recordSignal(singleProviderSignal), true);
+assert.equal(provenanceLedger.get(singleProviderSignal.signal_id)?.ltf_provider, 'TWELVE_DATA');
+assert.equal(provenanceLedger.get(singleProviderSignal.signal_id)?.htf_provider, 'TWELVE_DATA');
 assert.throws(() => ledger.recordResult({ signal_id: 'SIG-NOPE', outcome: 'WIN', source: 'TELEGRAM_MANUAL' }), /UNKNOWN_SIGNAL/);
 // Tamper 1: edit a historical payload.
 const lines = fs.readFileSync(ledgerPath, 'utf8').trim().split('\n');
@@ -82,7 +82,7 @@ const deps: ScanDeps = {
     }
     return { candles, provider, dataProvenance: 'LIVE_INGESTED', fetchedAt: new Date(now).toISOString(), lastTickAt: candles.at(-1)!.timestamp, latencyMs: 1, cacheHit: false };
   },
-  providers: () => ['TWELVE_DATA', 'OANDA', 'TIINGO'],
+  providers: () => ['TWELVE_DATA'],
   getPayout: (pair) => payouts[pair.replace('/', '').toUpperCase()],
   favorites: () => favs,
   newsEvents: () => [], newsSourceOnline: () => true,
@@ -147,36 +147,12 @@ const run = async () => {
   assert.equal(scanLedger.verify().ok, true);
   console.log('[auto_resolve_and_result] PASS');
 
-  // Provider failover keeps the reason and uses one provider for the window.
-  failTwelve = true; now = signalClose + 3_000;
-  const switchNotices: ProviderSwitchNotice[] = [];
-  const failover = new ScanService({ ...deps, ledger: new SignalLedger(path.join(dir, 'ledger-fo.jsonl')), onProviderSwitches: (notice) => { switchNotices.push(notice); } });
-  const fo = await failover.scanPair('AUDCAD', '15m');
-  assert.equal(fo.provider, 'OANDA'); assert.match(fo.failover_reason || '', /TWELVE_DATA PROVIDER_HTTP_ERROR/);
-  assert.deepEqual(fo.provider_changes?.changes, [{ fromProvider: 'TWELVE_DATA', toProvider: 'OANDA', reason: 'PROVIDER_HTTP_ERROR', series: ['LTF'] }]);
-  assert.equal(switchNotices.length, 1, 'one Telegram warning payload is produced for the provider switch');
-  failTwelve = false;
-  const rateLimitAttempts: MarketDataProvider[] = [];
-  const rateLimitFallback = new ScanService({
-    ...deps,
-    ledger: new SignalLedger(path.join(dir, 'ledger-rate-limit-fallback.jsonl')),
-    providers: () => ['TWELVE_DATA', 'OANDA', 'TIINGO'],
-    fetchCandles: async (pair, timeframe, provider) => {
-      rateLimitAttempts.push(provider);
-      if (provider === 'TWELVE_DATA') throw new MarketDataError('RATE_LIMITED', 'vendor quota', provider);
-      return deps.fetchCandles(pair, timeframe, provider, 'ON_DEMAND');
-    },
-  });
-  const rateLimited = await rateLimitFallback.scanPair('AUDCAD', '15m');
-  assert.equal(rateLimited.provider, 'OANDA');
-  assert.match(rateLimited.failover_reason || '', /TWELVE_DATA RATE_LIMITED/);
-  assert.deepEqual(rateLimitAttempts.slice(0, 2), ['TWELVE_DATA', 'OANDA']);
   // Expired delivery: a signal found after valid_until is SIGNAL_EXPIRED, never ledgered.
   now = signalClose + 61_000;
   const late = new ScanService({ ...deps, ledger: new SignalLedger(path.join(dir, 'ledger-late.jsonl')) });
   const lateRes = await late.scanPair('EURUSD', '15m');
   assert.match(lateRes.reason, /^SIGNAL_EXPIRED/); assert.equal(late.ledger.signals().length, 0);
-  console.log('[failover_and_expiry] PASS');
+  console.log('[single-provider_and_expiry] PASS');
 
   // EDGE_LOST pauses scans (no fetch) and persists across restarts via the ledger; /resume requires a reason.
   const edgeService = new ScanService({ ...deps, ledger: new SignalLedger(path.join(dir, 'ledger-edge.jsonl')) });
@@ -198,6 +174,6 @@ const run = async () => {
   const loop2 = new ScanLoop(service, deps, { timeframe: '15m', enabled: true });
   assert.deepEqual(await loop2.tick(), []); assert.equal(fetches, f1);
   console.log('[restart_safe_loop] PASS');
-  console.log('=== R9 LEDGER/SCAN/RESOLVE/EDGE: tamper, payout, same candle, budget, resolve, /result, failover, expiry, EDGE_LOST, restart passed ===');
+  console.log('=== R9 LEDGER/SCAN/RESOLVE/EDGE: tamper, payout, same candle, budget, resolve, /result, single-provider, expiry, EDGE_LOST, restart passed ===');
 };
 run().catch((error) => { console.error(error); process.exit(1); });

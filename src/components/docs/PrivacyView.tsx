@@ -89,7 +89,7 @@ export const PrivacyView: React.FC = () => {
         </div>
 
         <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-slate-500">
-          <strong>Explicit Negative Declaration:</strong> We do NOT collect bank account numbers, payment cards, Social Security numbers, GPS location, or private trade order tickets. Admin-configured market-data provider API keys/tokens (including the OANDA Practice token) are sensitive server-side credentials and are handled separately; the application does not place broker orders.
+          <strong>Explicit Negative Declaration:</strong> We do NOT collect bank account numbers, payment cards, Social Security numbers, GPS location, or private trade order tickets. The admin-configured Twelve Data API key is a sensitive server-side credential and is handled separately; the application does not place broker orders.
         </div>
       </section>
 
@@ -121,7 +121,7 @@ export const PrivacyView: React.FC = () => {
             <strong>We do NOT sell, rent, monetize, or disclose operator data to any third-party advertisers, brokers, or data brokers.</strong>
           </p>
           <p>
-            <strong>External Data Feed Providers:</strong> If an operator configures credentials for Twelve Data, OANDA Practice, or Tiingo FX, the platform communicates with those services solely to retrieve market-data candles. No operator identity, account handle, or personal information is sent to market-data providers; provider tokens remain server-side.
+            <strong>External Data Feed Provider:</strong> If an operator configures a Twelve Data API key, the platform communicates with Twelve Data solely to retrieve market-data candles. No operator identity, account handle, or personal information is sent to the provider; the key remains server-side.
           </p>
         </div>
       </section>

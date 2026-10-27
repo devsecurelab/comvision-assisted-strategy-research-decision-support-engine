@@ -410,9 +410,11 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
     if (diff < nearestDiff) { nearestDiff = diff; nearest = event.title; }
     if (diff <= 30 * 60_000) newsBlocked = true;
   }
-  const s18Pass = input.newsSourceOnline && !newsBlocked;
-  const newsReason = !input.newsSourceOnline ? 'NEWS_SOURCE_OFFLINE: fail-safe NO_TRADE.' : newsBlocked ? `NEWS_WINDOW_BLOCKED: ${nearest} within +/-30m.` : 'NEWS: NOT CHECKED (manual)';
-  const s18 = stage(18, 'News Guard (Operational Guard)', 'SESSION_RISK', s18Pass, s18Pass ? 1 : 0, 'Manual review required; calendar events are not automatically verified.', { Manual_News_Review: 'NOT_CHECKED (manual)', News_Window_Blocked: bool(newsBlocked), Nearest_High_Impact: Number.isFinite(nearestDiff) ? nearest : 'UNAVAILABLE', Minutes_To_Event: Number.isFinite(nearestDiff) ? String(Math.floor(nearestDiff / 60000)) : 'UNAVAILABLE', Spread_Guard: 'NOT_APPLICABLE_BINARY' }, newsReason);
+  const s18Pass = !newsBlocked;
+  const newsReason = newsBlocked ? `NEWS_WINDOW_BLOCKED: ${nearest} within +/-30m.` : input.newsSourceOnline ? 'NEWS: NOT CHECKED (manual)' : 'NEWS: NOT CHECKED (manual/offline)';
+  const s18 = input.newsSourceOnline
+    ? stage(18, 'News Guard (Operational Guard)', 'SESSION_RISK', s18Pass, s18Pass ? 1 : 0, 'Manual review required; calendar events are not automatically verified.', { Manual_News_Review: 'NOT_CHECKED (manual)', News_Window_Blocked: bool(newsBlocked), Nearest_High_Impact: Number.isFinite(nearestDiff) ? nearest : 'UNAVAILABLE', Minutes_To_Event: Number.isFinite(nearestDiff) ? String(Math.floor(nearestDiff / 60000)) : 'UNAVAILABLE', Spread_Guard: 'NOT_APPLICABLE_BINARY' }, newsReason)
+    : unavailable(stage(18, 'News Guard (Operational Guard)', 'SESSION_RISK', true, 1, 'Manual review required; calendar events are not automatically verified.', { Manual_News_Review: 'NOT_CHECKED (manual)', News_Window_Blocked: bool(newsBlocked), Nearest_High_Impact: Number.isFinite(nearestDiff) ? nearest : 'UNAVAILABLE', Minutes_To_Event: Number.isFinite(nearestDiff) ? String(Math.floor(nearestDiff / 60000)) : 'UNAVAILABLE', Spread_Guard: 'NOT_APPLICABLE_BINARY' }, newsReason), 'NEWS_SOURCE_OFFLINE: manual check not available.');
 
   // S19 — MFCI (weights frozen; M1-M4 act on gates only)
   const meanAvailable = (items: V3Stage[]) => { const xs = items.filter((s) => s.available && s.score !== null).map((s) => s.score as number); return xs.length ? mean(xs) : null; };

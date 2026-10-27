@@ -10,10 +10,8 @@ const productionFiles = [
   'src/App.tsx',
   'src/components/Header.tsx',
   'src/components/Sidebar.tsx',
-  'src/components/views/NewsGuardView.tsx',
   'src/components/views/SettingsView.tsx',
   'src/engine/dataProviders.ts',
-  'src/engine/newsGuard.ts',
   'src/engine/pipeline.ts',
   'src/engine/types.ts',
   'src/server/notificationService.ts',
@@ -32,7 +30,8 @@ for (const file of productionFiles) {
 assert.equal(fs.existsSync(path.join(root, 'src/components/LiveVisionStream.tsx')), false);
 assert.equal(fs.existsSync(path.join(root, 'src/components/views/VisionView.tsx')), false);
 assert.match(read('src/engine/dataProviders.ts'), /private activeProvider: ManuallySelectableProvider = 'TWELVE_DATA'/);
-assert.doesNotMatch(read('src/engine/newsGuard.ts'), /seedDefaultEvents|triggerSimulatedRedFolderEvent/);
+assert.equal(fs.existsSync(path.join(root, 'src/components/views/NewsGuardView.tsx')), false);
+assert.equal(fs.existsSync(path.join(root, 'src/engine/newsGuard.ts')), false);
 assert.match(read('server.ts'), /Valid provider is TWELVE_DATA/);
 assert.doesNotMatch(read('src/engine/providers/contracts.ts'), /FINNHUB|ALPHA_VANTAGE/);
 assert.doesNotMatch(read('src/engine/dataProviders.ts'), /FINNHUB|ALPHA_VANTAGE|finnhub|alphaVantage/i);

@@ -72,11 +72,16 @@ export class TwelveDataAdapter implements IForexDataProvider {
   private parsePayload(payload: any, serverDate: string | null): ProviderCandlePayload {
     if (payload?.status === 'error') {
       const detail = String(payload?.message || '');
-      const rateLimited = /credit|rate.?limit|too many requests/i.test(detail);
+      const code = Number(payload?.code);
+      if (code === 401 || code === 403) throw new ProviderAdapterError(this.id, 'CREDENTIAL_INVALID', 'Twelve Data credentials were rejected.');
+      const rateLimited = code === 429 || /credit|rate.?limit|too many requests/i.test(detail);
       throw new ProviderAdapterError(this.id, rateLimited ? 'RATE_LIMITED' : 'PROVIDER_API_ERROR', rateLimited ? 'Twelve Data credit/rate limit reached.' : 'Twelve Data rejected the request.');
     }
     assertProviderPayload(this.id, Array.isArray(payload?.values), 'INVALID_PROVIDER_RESPONSE', 'Twelve Data response did not contain time-series values.');
     const rows = payload.values as unknown[];
+    if (rows.some((row: any) => typeof row?.datetime !== 'string' || !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(row.datetime.trim()))) {
+      throw new ProviderAdapterError(this.id, 'DATA_QUALITY_FAIL', 'Twelve Data returned a timezone-less candle timestamp; refusing to infer UTC.');
+    }
     const volumeAvailable = rows.some((row: any) => row?.volume !== undefined && row?.volume !== null && row?.volume !== '' && Number.isFinite(Number(row.volume)));
     return { rows, timezone: 'UTC', volumeAvailable, serverDate };
   }
