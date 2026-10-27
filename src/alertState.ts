@@ -6,7 +6,7 @@ export type AlertLike = {
     [key: string]: unknown;
   };
   system_execution?: Record<string, unknown>;
-  [key: string]: unknown;
+  next_candle_observation?: unknown;
 };
 
 export type AlertBannerSeverity = 'info' | 'warning' | 'critical';
@@ -54,8 +54,8 @@ type AlertAction =
   | { type: 'CLEAR_BANNER' }
   | { type: 'RESTORE_SESSION'; raw: string | null };
 
-function visible(state: Pick<AlertState, 'serverActiveAlert' | 'banner'>): boolean {
-  return state.serverActiveAlert !== null && state.banner === null;
+function visible(state: Pick<AlertState, 'serverActiveAlert' | 'selectedSetup' | 'banner'>): boolean {
+  return (state.serverActiveAlert !== null || state.selectedSetup !== null) && state.banner === null;
 }
 
 export function alertReducer(state: AlertState, action: AlertAction): AlertState {
@@ -72,7 +72,8 @@ export function alertReducer(state: AlertState, action: AlertAction): AlertState
       return { ...next, actionCardVisible: visible(next) };
     }
     case 'SELECT_SETUP': {
-      return { ...state, selectedSetup: action.setup };
+      const next = { ...state, selectedSetup: action.setup };
+      return { ...next, actionCardVisible: visible(next) };
     }
     case 'API_FAILURE': {
       const next = { ...state, banner: { message: action.message ?? 'Scanner state unknown', severity: 'warning' as const } };

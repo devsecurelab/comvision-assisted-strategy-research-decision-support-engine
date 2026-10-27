@@ -1,7 +1,7 @@
 // Master Application Component
 // ComVision-Assisted Strategy Research & Decision-Support Engine
 
-import React, { lazy, Suspense, useState, useEffect } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useReducer } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { DecisionAlertCard } from './components/DecisionAlertCard';
@@ -38,6 +38,7 @@ import {
 } from './engine/types';
 import { ProviderStatus } from './engine/dataProviders';
 import { apiFetch } from './config/api';
+import { alertReducer, initialAlertState } from './alertState';
 
 export default function App() {
   // Auth state
@@ -103,7 +104,9 @@ export default function App() {
 
   // Engine state
   const [scannerActive, setScannerActive] = useState<boolean>(false);
-  const [currentAlert, setCurrentAlert] = useState<MasterTelemetry | null>(null);
+  const [alertState, dispatchAlert] = useReducer(alertReducer, initialAlertState);
+  const currentAlert = (alertState.selectedSetup ?? alertState.serverActiveAlert) as MasterTelemetry | null;
+  const actionAlert = alertState.actionCardVisible ? currentAlert : null;
   const [candidateHistory, setCandidateHistory] = useState<MasterTelemetry[]>([]);
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | undefined>();
   const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('5m');
@@ -162,14 +165,20 @@ export default function App() {
 
       if (statusRes.ok && statusRes.headers.get('content-type')?.includes('application/json')) {
         const data = await statusRes.json();
-        if (data.activeAlert) {
-          setCurrentAlert(data.activeAlert);
-        }
+        dispatchAlert({
+          type: 'POLL_SUCCESS',
+          activeAlert: data.activeAlert ?? null,
+          serverNowUtc: data.serverNowUtc,
+          signalAgeSeconds: data.signal_age_seconds,
+          entryWindowExpired: data.entry_window_expired === true,
+        });
         if (data.providerStatus) {
           setProviderStatus(data.providerStatus);
           if (data.providerStatus.provider === 'TWELVE_DATA') setSelectedProvider('TWELVE_DATA');
         }
         setScannerActive(data.settings?.scannerActive ?? false);
+      } else {
+        dispatchAlert({ type: 'API_FAILURE', message: 'Scanner state unknown' });
       }
 
       // 2. Fetch Candidates
@@ -189,13 +198,11 @@ export default function App() {
             }
           }
           setCandidateHistory(uniqueList);
-          if (!currentAlert && uniqueList.length > 0) {
-            setCurrentAlert(uniqueList[0]);
-          }
         }
       }
 
     } catch (err) {
+      dispatchAlert({ type: 'API_FAILURE', message: 'Scanner state unknown' });
       console.error('Error fetching engine data:', err);
     }
   };
@@ -220,6 +227,8 @@ export default function App() {
   // Actions
   const handleToggleScanner = async () => {
     if (!authToken) return;
+    const command = scannerActive ? 'stop' : 'start';
+    dispatchAlert({ type: 'SCANNER_COMMAND_PENDING', command });
     try {
       const res = await apiFetch('/api/engine/toggle-scanner', {
         method: 'POST',
@@ -232,14 +241,19 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setScannerActive(data.scannerActive);
+        dispatchAlert({ type: 'SCANNER_COMMAND_SUCCESS', command });
+      } else {
+        dispatchAlert({ type: 'SCANNER_COMMAND_FAILURE', command });
       }
     } catch (err) {
+      dispatchAlert({ type: 'SCANNER_COMMAND_FAILURE', command });
       console.error('Failed to toggle scanner:', err);
     }
   };
 
   const handleStopScanning = async () => {
     if (!authToken) return;
+    dispatchAlert({ type: 'SCANNER_COMMAND_PENDING', command: 'stop' });
     try {
       const res = await apiFetch('/api/engine/toggle-scanner', {
         method: 'POST',
@@ -251,8 +265,12 @@ export default function App() {
       });
       if (res.ok) {
         setScannerActive(false);
+        dispatchAlert({ type: 'SCANNER_COMMAND_SUCCESS', command: 'stop' });
+      } else {
+        dispatchAlert({ type: 'SCANNER_COMMAND_FAILURE', command: 'stop' });
       }
     } catch (err) {
+      dispatchAlert({ type: 'SCANNER_COMMAND_FAILURE', command: 'stop' });
       console.error('Failed to stop scanner:', err);
     }
   };
@@ -270,7 +288,7 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        setCurrentAlert(data.telemetry);
+        dispatchAlert({ type: 'SELECT_SETUP', setup: data.telemetry });
         if (data.providerStatus) setProviderStatus(data.providerStatus);
         fetchEngineData();
       }
@@ -315,14 +333,14 @@ export default function App() {
       if (resAction.ok) {
         fetchEngineData();
         if (currentAlert && currentAlert.metadata.setup_id === setupId) {
-          setCurrentAlert({
+          dispatchAlert({ type: 'SELECT_SETUP', setup: {
             ...currentAlert,
             system_execution: {
               ...currentAlert.system_execution,
               user_recorded_action: action,
             },
             next_candle_observation: observation ? { status: observation } : currentAlert.next_candle_observation,
-          });
+          } });
         }
       }
     } catch (err) {
@@ -468,6 +486,12 @@ export default function App() {
 
         {/* Dynamic View Body */}
         <main className="flex-1 overflow-y-auto p-6 space-y-6">
+          {alertState.banner && (
+            <div role="alert" className={`max-w-7xl mx-auto w-full rounded-xl border-2 px-5 py-4 shadow-lg ${alertState.banner.severity === 'critical' ? 'border-rose-500 bg-rose-950/95 text-rose-50' : 'border-amber-500 bg-amber-950/90 text-amber-50'}`}>
+              <div className="text-base sm:text-lg font-black tracking-wide">{alertState.banner.message}</div>
+              <p className="mt-1 text-sm opacity-90">The server state could not be confirmed. No action should be taken until the connection is healthy.</p>
+            </div>
+          )}
           {(!currentAlert || currentAlert.metadata.data_provenance !== 'LIVE_INGESTED' || providerStatus?.status === 'OFFLINE') && (
             <div role="alert" className="max-w-7xl mx-auto w-full rounded-xl border-2 border-rose-500 bg-rose-950/90 px-5 py-4 text-rose-50 shadow-lg shadow-rose-950/40">
               <div className="text-base sm:text-lg font-black tracking-wide">⚠️ LIVE DATA UNAVAILABLE — NO ALERT</div>
@@ -548,21 +572,21 @@ export default function App() {
               <ValidSetupsFeed
                 validSetups={validSetups}
                 selectedSetupId={currentAlert?.metadata.setup_id}
-                onSelectSetup={(setup) => setCurrentAlert(setup)}
+                onSelectSetup={(setup) => dispatchAlert({ type: 'SELECT_SETUP', setup })}
                 onOpenAllList={() => setIsValidSetupsModalOpen(true)}
               />
 
               {/* Primary Dual Column Layout */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-3">
-                  <BinaryStatusCard alert={currentAlert} scannerActive={scannerActive} />
+                  <BinaryStatusCard alert={actionAlert} scannerActive={scannerActive} />
                 </div>
                 {/* Left 2 Cols: Decision Alert Card */}
                 <div className="lg:col-span-2">
                   <DecisionAlertCard
-                    alert={currentAlert}
+                    alert={actionAlert}
                     validSetupsList={validSetups}
-                    onSelectSetup={(setup) => setCurrentAlert(setup)}
+                    onSelectSetup={(setup) => dispatchAlert({ type: 'SELECT_SETUP', setup })}
                     onOpenAllList={() => setIsValidSetupsModalOpen(true)}
                     onMarkTaken={() =>
                       currentAlert &&
@@ -692,7 +716,7 @@ export default function App() {
         validSetups={validSetups}
         selectedSetupId={currentAlert?.metadata.setup_id}
         onSelectSetup={(setup) => {
-          setCurrentAlert(setup);
+          dispatchAlert({ type: 'SELECT_SETUP', setup });
           setActiveTab('overview');
         }}
       />
