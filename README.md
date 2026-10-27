@@ -86,11 +86,9 @@ npm ci
 # Step 7: Configure environment variables locally (the .env file is Git-ignored)
 test -f .env || cp .env.example .env
 nano .env
-# Add only server-side provider keys you are entitled to use; never commit or share these secrets.
-# Automatic scan order: Twelve Data -> OANDA Practice -> Tiingo FX.
-# Tiingo FX REST is beta; verify timezone/resampling in your account before operational use.
-# The dashboard selector is for direct feed requests; scanner failover order is fixed.
-# See docs/evidence/provider-adapter-contracts-2026-10-16.md for API, quota and volume caveats.
+# Add the server-side Twelve Data key if authorized; never commit or share this secret.
+# All scans use Twelve Data only; no provider fallback is available.
+# See the Twelve Data adapter and PR-5 contract tests for API, quota and data-quality behavior.
 # Save with Ctrl+O, Enter, then Ctrl+X. Keep HOST=127.0.0.1 for this-phone-only access.
 
 # Step 8: Build the production bundle (builds client assets and standalone server.cjs)

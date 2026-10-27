@@ -67,11 +67,11 @@ async function optionalLiveProvider() {
     console.log('[p3_live_provider] SKIPPED — set P3_LIVE_INTEGRATION=1 to consume a real provider request');
     return;
   }
-  const provider = (process.env.P3_LIVE_PROVIDER || 'TWELVE_DATA') as MarketDataProvider;
+  const provider: MarketDataProvider = 'TWELVE_DATA';
   const pair = process.env.P3_LIVE_PAIR || 'EUR/USD';
-  const key = provider === 'TWELVE_DATA' ? (process.env.TWELVE_DATA_API_KEY || process.env.TWELVEDATA_API_KEY || '') : provider === 'OANDA' ? (process.env.OANDA_PRACTICE_TOKEN || '') : (process.env.TIINGO_API_KEY || '');
+  const key = process.env.TWELVE_DATA_API_KEY || process.env.TWELVEDATA_API_KEY || '';
   if (!key) throw new Error(`P3_LIVE_INTEGRATION=1 requires a configured key for ${provider}.`);
-  const manager = new MarketFeedManager(provider === 'TWELVE_DATA' ? key : '', fetch, provider === 'TWELVE_DATA' ? {} : { [provider]: key });
+  const manager = new MarketFeedManager(key, fetch);
   const result = await manager.fetchCandles(pair, '15m', provider, 'ON_DEMAND');
   assert.equal(result.dataProvenance, 'LIVE_INGESTED');
   assert.equal(result.provider, provider);

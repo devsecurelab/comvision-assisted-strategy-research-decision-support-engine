@@ -206,10 +206,10 @@ EXIT_CODE=0
 [scan_payout_and_same_candle] PASS
 [scheduler_budget_auto_cycle] PASS
 [auto_resolve_and_result] PASS
-[failover_and_expiry] PASS
+[single-provider_and_expiry] PASS
 [edge_pause_resume] PASS
 [restart_safe_loop] PASS
-=== R9 LEDGER/SCAN/RESOLVE/EDGE: tamper, payout, same candle, budget, resolve, /result, failover, expiry, EDGE_LOST, restart passed ===
+=== R9 LEDGER/SCAN/RESOLVE/EDGE: tamper, payout, same candle, budget, resolve, /result, single-provider, expiry, EDGE_LOST, restart passed ===
 === R8 CORE: live pipeline, causal walk-forward, OOS/IS, baselines, N>=200 verdict rule, CSV+SHA-256, pagination, R8_NOT_RUN passed ===
 
 > react-example@0.0.0 test:legacy
@@ -516,10 +516,10 @@ EXIT_CODE=0
 [scan_payout_and_same_candle] PASS
 [scheduler_budget_auto_cycle] PASS
 [auto_resolve_and_result] PASS
-[failover_and_expiry] PASS
+[single-provider_and_expiry] PASS
 [edge_pause_resume] PASS
 [restart_safe_loop] PASS
-=== R9 LEDGER/SCAN/RESOLVE/EDGE: tamper, payout, same candle, budget, resolve, /result, failover, expiry, EDGE_LOST, restart passed ===
+=== R9 LEDGER/SCAN/RESOLVE/EDGE: tamper, payout, same candle, budget, resolve, /result, single-provider, expiry, EDGE_LOST, restart passed ===
 === R8 CORE: live pipeline, causal walk-forward, OOS/IS, baselines, N>=200 verdict rule, CSV+SHA-256, pagination, R8_NOT_RUN passed ===
 
 > react-example@0.0.0 test:legacy
@@ -845,10 +845,10 @@ files generated
 [scan_payout_and_same_candle] PASS
 [scheduler_budget_auto_cycle] PASS
 [auto_resolve_and_result] PASS
-[failover_and_expiry] PASS
+[single-provider_and_expiry] PASS
 [edge_pause_resume] PASS
 [restart_safe_loop] PASS
-=== R9 LEDGER/SCAN/RESOLVE/EDGE: tamper, payout, same candle, budget, resolve, /result, failover, expiry, EDGE_LOST, restart passed ===
+=== R9 LEDGER/SCAN/RESOLVE/EDGE: tamper, payout, same candle, budget, resolve, /result, single-provider, expiry, EDGE_LOST, restart passed ===
 === R8 HISTORICAL FETCH: full inclusive end date, out-of-range clipping, and chunk-boundary continuity passed ===
 === R8 CORE: live pipeline, causal walk-forward, OOS/IS, baselines, N>=200 verdict rule, CSV+SHA-256, pagination, R8_NOT_RUN passed ===
 
@@ -1092,8 +1092,8 @@ RAW_CSV_HASHES_UNCHANGED=PASS
 - **G1 — common live/R8 closure filter:** `filterFxOpenMarketCandles` is applied to both live LTF candles and cached/fetched HTF candles before pipeline evaluation; R8 uses the same helper. The helper removes a candle when its open or close instant overlaps a scheduled closure. Raw CSV inputs remain unchanged.
 - **G2 — DST-aware market closure:** the weekly interval is Friday 17:00 through Sunday 17:00 in `America/New_York`, resolved with `Intl.DateTimeFormat`; this moves the UTC boundary between 21:00 and 22:00 as DST changes. December 25 and January 1 UTC holidays remain. Candle-interval checks and data-gap validation share the boundary predicate.
 - **G3 — kill-zone credit guard:** manual scan and auto-cycle use `classifySessionAndKillZone` from `session.ts`; outside a London/New York kill zone they return `NO_TRADE` / `OUTSIDE_KILL_ZONE` before provider access. The market-closed check also occurs before provider access. A mock 24-hour, 96-window scan-credit regression and a Monday live-vs-R8 equivalence regression were added.
-- **G4 — provenance visibility:** signal ledger records separate LTF/HTF providers. Provider switches are grouped per decision and sent as sanitized Telegram notices with source/destination, failure reason, circuit state and timestamp; health output reports active provider and circuits. Tests assert token/secret values are absent.
-- **G5 — unsupported providers:** Finnhub and Alpha Vantage adapters, Finnhub WebSocket source, key variables, selector options and related adapter tests are removed. Active fallback order is Twelve Data → OANDA Practice → Tiingo FX. `.env.example`, setup/provider docs and the delivered Bengali Termux guide are aligned.
+- **G4 — provenance visibility:** signal ledger records separate LTF/HTF providers. Provider status are grouped per decision and sent as sanitized Telegram notices with source/destination, failure reason, circuit state and timestamp; health output reports active provider and circuits. Tests assert token/secret values are absent.
+- **G5 — unsupported providers:** Finnhub and Alpha Vantage adapters, Finnhub WebSocket source, key variables, selector options and related adapter tests are removed. Active market-data scope is Twelve Data only. `.env.example`, setup/provider docs and the delivered Bengali Termux guide are aligned.
 - **No strategy changes:** only data filtering, scheduling/visibility, provider surface and regression/documentation changes; no threshold, gate, MFCI weight, or FULL-mode default changes.
 
 ### Keyless R8 replay after G1/G2

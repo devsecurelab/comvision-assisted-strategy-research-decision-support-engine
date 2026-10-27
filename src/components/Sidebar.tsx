@@ -5,7 +5,6 @@ import {
   FlaskConical,
   History,
   BarChart2,
-  Globe,
   Shield,
   Settings,
   FileText,
@@ -130,13 +129,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               label="Analytics Matrix"
               active={activeTab === 'analytics'}
               onClick={() => handleItemClick('analytics')}
-            />
-            <SidebarItem
-              id="nav-news"
-              icon={<Globe className="w-4 h-4" />}
-              label="News Guard"
-              active={activeTab === 'news'}
-              onClick={() => handleItemClick('news')}
             />
             <SidebarItem
               id="nav-risk"

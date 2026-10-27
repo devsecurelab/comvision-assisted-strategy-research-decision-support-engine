@@ -17,7 +17,6 @@ import { PublicLanding } from './components/PublicLanding';
 import { ChevronRight } from 'lucide-react';
 const ExperimentView = lazy(() => import('./components/views/ExperimentView').then((module) => ({ default: module.ExperimentView })));
 const AnalyticsView = lazy(() => import('./components/views/AnalyticsView').then((module) => ({ default: module.AnalyticsView })));
-const NewsGuardView = lazy(() => import('./components/views/NewsGuardView').then((module) => ({ default: module.NewsGuardView })));
 const RiskView = lazy(() => import('./components/views/RiskView').then((module) => ({ default: module.RiskView })));
 const SettingsView = lazy(() => import('./components/views/SettingsView').then((module) => ({ default: module.SettingsView })));
 const AuditLogView = lazy(() => import('./components/views/AuditLogView').then((module) => ({ default: module.AuditLogView })));
@@ -618,10 +617,6 @@ export default function App() {
 
           {activeTab === 'analytics' && (
             <AnalyticsView candidates={candidateHistory} />
-          )}
-
-          {activeTab === 'news' && (
-            <NewsGuardView />
           )}
 
           {activeTab === 'risk' && <RiskView />}

@@ -79,7 +79,6 @@ export class NotificationService {
       result.valid_until ? `Enter by: ${result.valid_until} UTC / BDT / Broker (display only)` : '',
       result.provider || result.htf_provider ? `Providers: LTF ${result.provider ?? 'UNAVAILABLE'} | HTF ${result.htf_provider ?? 'UNAVAILABLE'}` : '',
       result.signal_id ? `Signal ID: ${result.signal_id} | valid until ${result.valid_until}` : '',
-      result.failover_reason ? `Provider failover: ${result.failover_reason}` : '',
       'Research alert only — no execution.',
     ].filter(Boolean).join('\n');
   }

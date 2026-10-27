@@ -1,7 +1,6 @@
 // Top Header Status Bar Component
 import React from 'react';
 import {
-  Globe,
   Pause,
   Play,
   Square,
@@ -13,9 +12,7 @@ import {
 import { ProviderStatus } from '../engine/dataProviders';
 import { PWAInstallButton } from './PWAInstallButton';
 
-const PROVIDER_LABELS: Record<string, string> = {
-  TWELVE_DATA: 'Twelve Data', OANDA: 'OANDA Practice', TIINGO: 'Tiingo FX',
-};
+const PROVIDER_LABELS: Record<string, string> = { TWELVE_DATA: 'Twelve Data' };
 
 interface HeaderProps {
   sidebarOpen: boolean;
@@ -66,12 +63,6 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="font-mono text-slate-300 font-semibold text-[11px]">
             {scannerActive ? 'SCANNER: ACTIVE' : 'SCANNER: PAUSED'}
           </span>
-        </div>
-
-        {/* News Guard Status */}
-        <div className="flex items-center gap-2 px-3 py-1 bg-slate-800/80 rounded-full border border-slate-700 text-xs text-slate-300">
-          <Globe className="w-3.5 h-3.5 text-indigo-400" />
-          <span className="text-[11px]">NEWS: NOT CHECKED (manual)</span>
         </div>
 
         {/* Provider Provenance Badge */}

@@ -5,7 +5,6 @@
 
 import { executeStrategyPipeline, detectFractalSwings, evaluateMarketStructure } from '../engine/pipeline';
 import { feedManager } from '../engine/dataProviders';
-import { newsGuard } from '../engine/newsGuard';
 import { analyticsService } from './analyticsService';
 import { durableStorage, ChatMessage } from './storage';
 import { formatSignalTime } from '../utils/timeFormat';
@@ -303,8 +302,8 @@ export class ChatService {
         currentCandleIndex: currentCandles.length - 1,
         selectedTimeframe: '15m',
         higherTimeframeBias,
-        newsEvents: newsGuard.getEvents(),
-        newsSourceOnline: newsGuard.isOnline(),
+        newsEvents: [],
+        newsSourceOnline: true,
         dataProvenance: marketProvenance,
         provider: marketProvider,
         pair,
