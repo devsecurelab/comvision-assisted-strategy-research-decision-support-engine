@@ -13,6 +13,7 @@ import type { ScanLoop, ScanResult, ScanService, ScanTimeframe } from '../engine
 import { SCAN_TIMEFRAMES } from '../engine/scanScheduler';
 import { buildLedgerReport, formatLedgerReport } from '../engine/edgeMonitor';
 import { telegramSend, type TelegramMethod, type TelegramSendOptions, type TelegramSendResult } from './telegramSend';
+import { experimentTracker } from '../engine/experimentTracker';
 
 function alertReason(reason: string): string {
   return reason.replace(/news[^.]*clear/gi, 'manual news review not performed')
@@ -92,6 +93,7 @@ export class NotificationService {
     const edge = this.scanService?.edge.current();
     const signals = this.scanService?.ledger.signals() ?? [];
     const report = buildLedgerReport(signals, 0);
+    const mute = experimentTracker.alertsMuteState();
     const coverage = (count: number) => `${count}/${signals.length}`;
     const failedTelegramDeliveries = durableStorage.loadNotifications()
       .filter((notification) => notification.channel === 'TELEGRAM' && notification.status === 'FAILED').length;
@@ -108,6 +110,8 @@ export class NotificationService {
       `Ledger: ${ledgerCheck ? (ledgerCheck.ok ? `OK (${ledgerCheck.entries} entries)` : `TAMPERED ${ledgerCheck.reason} at ${ledgerCheck.brokenAt}`) : 'NOT_WIRED'}`,
       `SIGNAL_EXPIRED scans: ${this.scanService?.ledger.expiredScanCount() ?? 0}`,
       `Telegram failed deliveries: ${failedTelegramDeliveries}`,
+      `Alerts: ${mute.muted ? `MUTED until ${mute.until}` : 'ENABLED'} | signals remain ledger-backed`,
+      `Storage: compact scan summaries ring=${process.env.SCAN_SUMMARY_RING_SIZE || 200}, cap=${process.env.SUMMARY_STORAGE_CAP_MB || 50}MB; full telemetry=signals only`,
       `Candle revisions != 0: ${this.scanService?.ledger.signals().filter((s) => (s.candle_revision_pips ?? 0) !== 0).length ?? 0}`,
       `Telegram close→sent latency p50/p95: ${report.telegramLatencyP50Ms ?? 'UNAVAILABLE'}/${report.telegramLatencyP95Ms ?? 'UNAVAILABLE'} ms`,
       `PR-1 telemetry coverage: signal price ${coverage(signals.filter((s) => s.signal_price !== undefined).length)} | quote ${coverage(signals.filter((s) => s.quote_price !== undefined).length)} | broker entry ${coverage(signals.filter((s) => s.broker_entry_price !== undefined).length)} | sent timestamp ${coverage(signals.filter((s) => s.telegram_sent_at !== undefined).length)}`,
@@ -557,6 +561,14 @@ export class NotificationService {
       return `Broker time ${time} (UTC${sign}${String(Math.floor(absolute / 60)).padStart(2, '0')}:${String(absolute % 60).padStart(2, '0')}).`;
     }
     if (command === '/health') return this.buildHealthText();
+    if (command === '/mute') {
+      const value = (tokens[1] || '').toLowerCase();
+      if (value === 'off') { experimentTracker.setAlertsMuteForMinutes(null); return 'Alerts enabled. Signals continue to be recorded in the ledger.'; }
+      const minutes = Number(value);
+      if (!Number.isInteger(minutes) || minutes <= 0 || minutes > 7 * 24 * 60) return 'ERROR INVALID_MUTE: use /mute <minutes> or /mute off.';
+      experimentTracker.setAlertsMuteForMinutes(minutes);
+      return `Alerts muted for ${minutes} minute(s). Signals continue to be recorded in the ledger.`;
+    }
     if (command === '/resume') {
       if (!this.scanService) return 'ERROR SCAN_SERVICE_NOT_WIRED.';
       return this.scanService.edge.resume(tokens.slice(1).join(' ')).message;
