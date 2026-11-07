@@ -13,8 +13,6 @@ const KILL_ZONE_START = 7;
 const KILL_ZONE_END = 10;
 const CORE_START_LONDON = 7;
 const CORE_END_NEW_YORK = 16;
-const ASIA_START_UTC = 0;
-const ASIA_END_UTC = 6;
 
 interface ZonedParts { year: number; month: number; day: number; hour: number; minute: number; decimal: number }
 
@@ -73,10 +71,6 @@ export function classifySessionAndKillZone(timestampIso: string): SessionContext
     session = newYork.decimal < KILL_ZONE_START ? 'LONDON' : london.decimal < 16 ? 'LONDON_NEW_YORK_OVERLAP' : 'NEW_YORK';
     sessionStart = hhmm(coreStart);
     sessionEnd = hhmm(coreEnd);
-  } else if (date.getUTCHours() >= ASIA_START_UTC && date.getUTCHours() < ASIA_END_UTC) {
-    session = 'ASIA';
-    sessionStart = '00:00';
-    sessionEnd = '06:00';
   }
 
   let kill_zone: KillZoneState = 'OUTSIDE_KILL_ZONE';

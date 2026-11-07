@@ -59,12 +59,12 @@ assert.equal(kz('2026-10-26T07:30:00Z').kill_zone_name, 'LONDON');
 assert.equal(kz('2026-10-30T11:30:00Z').kill_zone_name, 'NEW_YORK');
 assert.equal(kz('2026-11-02T11:30:00Z').kill_zone, 'OUTSIDE_KILL_ZONE');
 assert.equal(kz('2026-11-02T12:30:00Z').kill_zone_name, 'NEW_YORK');
-// Core session London 07:00 -> New York 16:00 local; Asia 00:00-06:00 UTC context only; no Tokyo kill zone.
+// Core session London 07:00 -> New York 16:00 local; 00:00-06:00 UTC is OFF_PEAK; no Tokyo kill zone.
 assert.equal(isCoreSession(kz('2026-01-14T20:59:00Z').session), true);
 assert.equal(kz('2026-01-14T21:00:00Z').session, 'OFF_PEAK');
 assert.equal(isCoreSession(kz('2026-07-15T20:00:00Z').session), false); // 16:00 EDT
 assert.equal(isCoreSession(kz('2026-07-15T06:00:00Z').session), true); // 07:00 BST
-assert.equal(kz('2026-01-14T03:00:00Z').session, 'ASIA');
+assert.equal(kz('2026-01-14T03:00:00Z').session, 'OFF_PEAK');
 assert.equal(isCoreSession('ASIA'), false);
 assert.equal(kz('2026-01-14T00:30:00Z').kill_zone, 'OUTSIDE_KILL_ZONE'); // 09:30 Tokyo is not a kill zone
 

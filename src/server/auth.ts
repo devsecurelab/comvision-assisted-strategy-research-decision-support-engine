@@ -22,6 +22,7 @@ export class AuthService {
   private ipRequests = new Map<string, WindowCounter>();
   private registrationRequests = new Map<string, WindowCounter>();
   private globalRegistrationRequest: WindowCounter = { count: 0, firstAt: 0 };
+  private pendingRegistrationReservations = 0;
   private dummyPasswordHash = '';
   private ready: Promise<void>;
 
@@ -76,6 +77,7 @@ export class AuthService {
     this.sessions.clear();
     this.registrationRequests.clear();
     this.globalRegistrationRequest = { count: 0, firstAt: 0 };
+    this.pendingRegistrationReservations = 0;
     this.ready = this.initializeFromStorage();
     await this.ready;
   }
@@ -170,24 +172,32 @@ export class AuthService {
     if (normalizedEmail.length > 254) return { success: false, message: 'Email is too long.' };
     if (name.trim().length > 100) return { success: false, message: 'Name is too long.' };
     if (Array.from(this.users.values()).some((user) => user.email === normalizedEmail)) return { success: false, message: 'An account with this email already exists.' };
-    if ((forceStatus || 'PENDING') === 'PENDING' && Array.from(this.users.values()).filter((user) => user.status === 'PENDING').length >= 50) {
-      return { success: false, message: 'Pending account limit reached.' };
+    const isPending = (forceStatus || 'PENDING') === 'PENDING';
+    if (isPending) {
+      this.pendingRegistrationReservations ||= 0;
+      const pendingCount = Array.from(this.users.values()).filter((user) => user.status === 'PENDING').length;
+      if (pendingCount + this.pendingRegistrationReservations >= 50) return { success: false, message: 'Pending account limit reached.' };
+      this.pendingRegistrationReservations += 1;
     }
 
-    const newUser: UserAccount = {
-      id: `usr-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
-      email: normalizedEmail,
-      name: name.trim(),
-      role,
-      status: forceStatus || 'PENDING',
-      createdAt: new Date().toISOString(),
-      passwordHash: await this.hashPassword(password),
-    };
-    this.users.set(newUser.id, newUser);
-    this.persistUsers();
-    durableStorage.recordAuditEvent({ event_type: 'USER_REGISTERED', actor_id: newUser.id, actor_email: newUser.email, details: { role: newUser.role, status: newUser.status } });
-    const { passwordHash: _, ...safeUser } = newUser;
-    return { success: true, message: forceStatus === 'APPROVED' ? 'Account created and approved.' : 'Registration submitted. Account status is PENDING administrator approval.', user: safeUser };
+    try {
+      const newUser: UserAccount = {
+        id: `usr-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
+        email: normalizedEmail,
+        name: name.trim(),
+        role,
+        status: forceStatus || 'PENDING',
+        createdAt: new Date().toISOString(),
+        passwordHash: await this.hashPassword(password),
+      };
+      this.users.set(newUser.id, newUser);
+      this.persistUsers();
+      durableStorage.recordAuditEvent({ event_type: 'USER_REGISTERED', actor_id: newUser.id, actor_email: newUser.email, details: { role: newUser.role, status: newUser.status } });
+      const { passwordHash: _, ...safeUser } = newUser;
+      return { success: true, message: forceStatus === 'APPROVED' ? 'Account created and approved.' : 'Registration submitted. Account status is PENDING administrator approval.', user: safeUser };
+    } finally {
+      if (isPending) this.pendingRegistrationReservations = Math.max(0, this.pendingRegistrationReservations - 1);
+    }
   }
 
   public async login(email: string, password: string, ipAddress = 'unknown'): Promise<{ success: boolean; message: string; token?: string; user?: Omit<UserAccount, 'passwordHash'>; status?: UserStatus }> {
