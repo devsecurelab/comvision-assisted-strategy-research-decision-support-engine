@@ -52,6 +52,7 @@ export interface ScanDeps {
   fetchCandlesBatch?(pairs: string[], timeframe: Timeframe, provider: MarketDataProvider, kind: 'AUTO' | 'ON_DEMAND'): Promise<Record<string, MarketDataResult>>;
   providers(): MarketDataProvider[];
   getPayout(pair: string): { pct: number; setAt: string } | undefined;
+  getPayoutStatus?(pair: string, nowMs: number): string;
   favorites(): string[];
   newsEvents(): NewsEvent[];
   newsSourceOnline(): boolean;
@@ -163,6 +164,7 @@ export class ScanService {
     if (isFxMarketClosed(nowMs) || isFxBarClosed(new Date(expectedOpen).toISOString(), timeframe)) return this.noTrade(pair, timeframe, trigger, 'MARKET_CLOSED');
     if (classifySessionAndKillZone(new Date(expectedOpen).toISOString()).kill_zone !== 'INSIDE_KILL_ZONE') return this.noTrade(pair, timeframe, trigger, 'OUTSIDE_KILL_ZONE');
     const payout = this.deps.getPayout(pair);
+    if (this.deps.getPayoutStatus?.(pair, nowMs) === 'PAYOUT_STALE') return this.noTrade(pair, timeframe, trigger, 'PAYOUT_STALE');
     if (!payout) return this.noTrade(pair, timeframe, trigger, 'PAYOUT_UNSET');
     if (payout.pct < MIN_PAYOUT_PCT) return this.noTrade(pair, timeframe, trigger, `PAYOUT_BELOW_MIN (${payout.pct}%)`);
     const edge = this.edge.current();
@@ -254,6 +256,7 @@ export class ScanService {
       if (!shouldContinue()) break;
       const pair = normalizeScanPair(fav);
       const payout = this.deps.getPayout(pair);
+      if (this.deps.getPayoutStatus?.(pair, nowMs) === 'PAYOUT_STALE') { results.push(this.recordUnfetchedScan(this.noTrade(pair, timeframe, 'AUTO', 'PAYOUT_STALE'))); continue; }
       if (!payout || payout.pct < MIN_PAYOUT_PCT) { results.push(this.recordUnfetchedScan(this.noTrade(pair, timeframe, 'AUTO', payout ? `PAYOUT_BELOW_MIN (${payout.pct}%)` : 'PAYOUT_UNSET'))); continue; }
       if (scanned >= MAX_AUTO_PAIRS[timeframe]) { results.push(this.recordUnfetchedScan(this.noTrade(pair, timeframe, 'AUTO', `BUDGET_LIMIT: ${timeframe} auto-scan cap is ${MAX_AUTO_PAIRS[timeframe]} pair(s) per candle.`))); continue; }
       if (this.deps.autoBudgetRemaining() < 2) { results.push(this.recordUnfetchedScan(this.noTrade(pair, timeframe, 'AUTO', 'BUDGET_LIMIT: daily auto-scan budget (70%) exhausted.'))); continue; }

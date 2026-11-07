@@ -25,6 +25,7 @@ import { favoriteRegistry } from './src/server/favoriteRegistry';
 import { SignalLedger } from './src/engine/signalLedger';
 import { ScanLoop, ScanService, SCAN_TIMEFRAMES, type ScanLoopState, type ScanTimeframe } from './src/engine/scanScheduler';
 import { buildLedgerReport, formatLedgerReport } from './src/engine/edgeMonitor';
+import { runStartupSelfCheck } from './src/server/runtimeSelfCheck';
 
 if (typeof __dirname !== 'undefined' && (__dirname === '.' || !path.isAbsolute(__dirname))) {
   // @ts-ignore
@@ -238,6 +239,12 @@ app.get(['/api/engine/dashboard-state', '/api/engine/status'], requireApprovedUs
     providerStatus,
     manifest: STRATEGY_MANIFEST,
   });
+});
+
+app.get('/status', (_req, res) => {
+  const selfCheck = runStartupSelfCheck({ ...process.env, DATA_DIR: process.env.DATA_DIR || path.join(process.cwd(), 'data') });
+  const mute = experimentTracker.alertsMuteState();
+  res.status(selfCheck.ok ? 200 : 503).json({ ok: selfCheck.ok, selfCheck, serverNowUtc: new Date().toISOString(), alerts: { muted: mute.muted, muteUntil: mute.until }, scanSummaryCount: durableStorage.loadScanSummaries().length, storagePolicy: { ringBuffer: 200, summaryCapBytes: 50 * 1024 * 1024, signalTelemetry: 'durable' } });
 });
 
 app.get('/api/engine/valid-setups', requireApprovedUser, (_req, res) => {
@@ -602,7 +609,8 @@ const scanService = new ScanService({
   fetchCandlesBatch: (pairs, timeframe, provider, kind) => feedManager.fetchCandlesBatch(pairs, timeframe, provider, kind),
   fetchQuote: (pair) => feedManager.fetchQuote(pair),
   providers: () => feedManager.getProviders(),
-  getPayout: (pair) => { const record = payoutRegistry.get(pair); return record ? { pct: record.pct, setAt: record.setAt } : undefined; },
+  getPayout: (pair) => { const record = payoutRegistry.get(pair); return record && payoutRegistry.operationalStatus(pair) !== 'PAYOUT_STALE' ? { pct: record.pct, setAt: record.setAt } : undefined; },
+  getPayoutStatus: (pair, nowMs) => payoutRegistry.operationalStatus(pair, nowMs),
   favorites: () => favoriteRegistry.all().map((item) => item.pair),
   newsEvents: () => [],
   newsSourceOnline: () => true,
@@ -617,7 +625,7 @@ const scanService = new ScanService({
       const delivered = await notificationService.sendTelegramText(`MILESTONE: ${milestone} valid signals recorded. Research tracking continues; no execution is performed.`);
       if (delivered) experimentTracker.markMilestoneNotified(milestone);
     }
-    if (result.status !== 'NO_TRADE' && recorded.system_execution.system_decision === 'PASS') {
+    if (!experimentTracker.isAlertsMuted() && result.status !== 'NO_TRADE' && recorded.system_execution.system_decision === 'PASS') {
       const delivery = await notificationService.dispatchSignalAlert(recorded, { signalId: result.signal_id, validUntil: result.valid_until, signalPrice: result.signal_price, quotePrice: result.quote_price, quoteTs: result.quote_ts, priceTolerance: result.price_tolerance });
       if (delivery.telegram === 'SENT' && result.signal_id) signalLedger.recordTelegramSent(result.signal_id);
     }
@@ -874,6 +882,10 @@ async function startServer() {
     process.env.NODE_ENV === 'production' ||
     (typeof __filename !== 'undefined' && (__filename.endsWith('.cjs') || __filename.includes('dist')));
   const isDev = !isProduction && (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV);
+  if (isProduction) {
+    const selfCheck = runStartupSelfCheck({ ...process.env, DATA_DIR: process.env.DATA_DIR || path.join(process.cwd(), 'data') });
+    if (!selfCheck.ok) throw new Error(`BOOT_SELF_CHECK_FAILED: ${selfCheck.failures.join('; ')}`);
+  }
   if (isDev) {
     const vite = await createViteServer({
       server: { middlewareMode: true },

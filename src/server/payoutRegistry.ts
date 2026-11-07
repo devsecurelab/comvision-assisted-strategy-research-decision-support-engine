@@ -5,6 +5,12 @@ const SYMBOL_RE = /^[A-Z]{6}$/;
 
 export interface PayoutRecord { pct: number; setAt: string; source: 'TELEGRAM_MANUAL'; }
 export type PayoutStatus = 'PAYOUT_UNSET' | 'PAYOUT_BELOW_MIN' | 'ELIGIBLE';
+export type OperationalPayoutStatus = PayoutStatus | 'PAYOUT_STALE';
+export function payoutStatusFor(record: PayoutRecord | undefined, nowMs = Date.now(), maxAgeHours = Number(process.env.PAYOUT_MAX_AGE_HOURS || 24)): OperationalPayoutStatus {
+  if (!record) return 'PAYOUT_UNSET';
+  if (!Number.isFinite(Date.parse(record.setAt)) || nowMs - Date.parse(record.setAt) > maxAgeHours * 3_600_000) return 'PAYOUT_STALE';
+  return record.pct < 85 ? 'PAYOUT_BELOW_MIN' : 'ELIGIBLE';
+}
 
 export function normalizePair(input: string): string {
   return String(input).replace('/', '').replace(/\s+/g, '').toUpperCase();
@@ -39,7 +45,8 @@ export class PayoutRegistry {
 
   public get(pairInput: string): PayoutRecord | undefined { return this.read()[normalizePair(pairInput)]; }
   public status(pairInput: string): PayoutStatus { const value = this.get(pairInput)?.pct; return value === undefined ? 'PAYOUT_UNSET' : value < 85 ? 'PAYOUT_BELOW_MIN' : 'ELIGIBLE'; }
-  public eligible(pairInput: string): boolean { return this.status(pairInput) === 'ELIGIBLE'; }
+  public operationalStatus(pairInput: string, nowMs = Date.now()): OperationalPayoutStatus { return payoutStatusFor(this.get(pairInput), nowMs); }
+  public eligible(pairInput: string): boolean { return this.operationalStatus(pairInput) === 'ELIGIBLE'; }
   public all(): Record<string, PayoutRecord> { return this.read(); }
 }
 

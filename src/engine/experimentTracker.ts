@@ -40,6 +40,7 @@ export class ExperimentManager {
   private isLocked = true; // Scope frozen for 100 setups
   private scannerActive = true;
   private alertsMuted = false;
+  private alertsMuteUntil: string | null = null;
   private notifiedMilestones = new Set<number>();
   private pendingMilestones = new Set<number>();
 
@@ -137,6 +138,7 @@ export class ExperimentManager {
       this.isLocked = state.isLocked !== undefined ? state.isLocked : true;
       this.scannerActive = state.scannerActive !== undefined ? state.scannerActive : true;
       this.alertsMuted = state.alertsMuted !== undefined ? state.alertsMuted : false;
+      this.alertsMuteUntil = state.alertsMuteUntil ?? null;
       this.lastHash = state.lastHash || '0'.repeat(64);
       this.notifiedMilestones = new Set(state.notifiedMilestones ?? []);
       this.pendingMilestones = new Set(state.pendingMilestones ?? []);
@@ -187,6 +189,7 @@ export class ExperimentManager {
       lastHash: this.lastHash,
       targetValidSetups: STRATEGY_MANIFEST.scope_freeze.target_valid_setups,
       updatedAt: new Date().toISOString(),
+      alertsMuteUntil: this.alertsMuteUntil,
       notifiedMilestones: [...this.notifiedMilestones].sort((a, b) => a - b),
       pendingMilestones: [...this.pendingMilestones].sort((a, b) => a - b),
     });
@@ -223,13 +226,22 @@ export class ExperimentManager {
   }
 
   public isAlertsMuted(): boolean {
+    if (this.alertsMuteUntil && Date.parse(this.alertsMuteUntil) <= Date.now()) { this.alertsMuted = false; this.alertsMuteUntil = null; this.persist(); }
     return this.alertsMuted;
   }
 
   public setAlertsMuted(muted: boolean) {
     this.alertsMuted = muted;
+    if (!muted) this.alertsMuteUntil = null;
     this.persist();
   }
+
+  public setAlertsMuteForMinutes(minutes: number | null): void {
+    if (minutes === null) { this.alertsMuted = false; this.alertsMuteUntil = null; }
+    else { this.alertsMuted = true; this.alertsMuteUntil = new Date(Date.now() + minutes * 60_000).toISOString(); }
+    this.persist();
+  }
+  public alertsMuteState(): { muted: boolean; until: string | null } { return { muted: this.isAlertsMuted(), until: this.alertsMuteUntil }; }
 
   public enforceScopeFreeze(paramChange?: string): { allowed: boolean; reason: string } {
     if (this.isLocked) {
