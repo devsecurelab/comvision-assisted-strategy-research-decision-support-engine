@@ -97,7 +97,7 @@ async function verifyHttpAuthAndLegacy404() {
   const cli = path.join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs');
   const child = spawn(process.execPath, [cli, path.join(root, 'server.ts'), '--port', String(port)], {
     cwd: temp,
-    env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(port), DATA_DIR: dataDir, SIGNAL_LEDGER_PATH: path.join(dataDir, 'ledger.jsonl'), ADMIN_BOOTSTRAP_PASSWORD: adminPassword, SESSION_SECRET: sessionSecret, CORS_ALLOWED_ORIGINS: 'http://allowed.example', TELEGRAM_COMMAND_POLLING: 'false', AUTO_SCAN_ENABLED: 'false' },
+    env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(port), DATA_DIR: dataDir, SIGNAL_LEDGER_PATH: path.join(dataDir, 'ledger.jsonl'), SESSION_CONFIG_PATH: path.join(root, 'config', 'sessions.json'), ADMIN_BOOTSTRAP_PASSWORD: adminPassword, SESSION_SECRET: sessionSecret, REGISTRATION_ENABLED: 'true', CORS_ALLOWED_ORIGINS: 'http://allowed.example', TELEGRAM_COMMAND_POLLING: 'false', AUTO_SCAN_ENABLED: 'false' },
     stdio: ['ignore', 'ignore', 'ignore'],
   });
   const base = `http://127.0.0.1:${port}`;

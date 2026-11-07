@@ -1,0 +1,23 @@
+{
+  "version": "PR7-SESSION-1",
+  "entryRule": "TRADE_WITHIN_ZONE",
+  "startMarginMinutes": 30,
+  "endMarginMinutes": 30,
+  "expiryMinutes": {
+    "5m": 5,
+    "15m": 15,
+    "30m": 30
+  },
+  "zones": {
+    "LONDON": {
+      "timezone": "Europe/London",
+      "startLocal": "07:00",
+      "endLocal": "10:00"
+    },
+    "NEW_YORK": {
+      "timezone": "America/New_York",
+      "startLocal": "07:00",
+      "endLocal": "10:00"
+    }
+  }
+}

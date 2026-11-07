@@ -26,6 +26,7 @@ import { SignalLedger } from './src/engine/signalLedger';
 import { ScanLoop, ScanService, SCAN_TIMEFRAMES, type ScanLoopState, type ScanTimeframe } from './src/engine/scanScheduler';
 import { buildLedgerReport, formatLedgerReport } from './src/engine/edgeMonitor';
 import { runStartupSelfCheck } from './src/server/runtimeSelfCheck';
+import { validateRuntimeConfig } from './src/server/runtimeConfig';
 
 if (typeof __dirname !== 'undefined' && (__dirname === '.' || !path.isAbsolute(__dirname))) {
   // @ts-ignore
@@ -54,7 +55,8 @@ function resolvePort(): number {
   return 3000;
 }
 const PORT = resolvePort();
-const HOST = process.env.HOST?.trim() || '0.0.0.0';
+const runtimeConfig = validateRuntimeConfig({ ...process.env, DATA_DIR: process.env.DATA_DIR || path.join(process.cwd(), 'data') });
+const HOST = runtimeConfig.host;
 
 // CORS support with explicit trusted-origin checking (no credential wildcard)
 const allowedOrigins = [
@@ -105,7 +107,8 @@ seedInitialCandidatesIfEmpty();
 
 // --- SERVER-SIDE AUTHENTICATION MIDDLEWARES ---
 
-function authenticateToken(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+async function authenticateToken(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  await authService.whenReady();
   const authHeader = req.headers.authorization;
   const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
 
@@ -128,42 +131,39 @@ function authenticateToken(req: AuthenticatedRequest, res: Response, next: NextF
   next();
 }
 
-function requireApprovedUser(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  authenticateToken(req, res, () => {
-    if (!req.user) return;
-
-    if (req.user.status !== 'APPROVED') {
-      return res.status(403).json({
-        error: 'ACCOUNT_NOT_APPROVED',
-        status: req.user.status,
-        message: `Forbidden: Account status is ${req.user.status}. Access requires APPROVED authorization from Lead Researcher.`,
-      });
-    }
-
-    next();
-  });
+async function requireApprovedUser(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  await authenticateToken(req, res, () => undefined);
+  if (res.headersSent || !req.user) return;
+  if (req.user.status !== 'APPROVED') {
+    return res.status(403).json({
+      error: 'ACCOUNT_NOT_APPROVED',
+      status: req.user.status,
+      message: `Forbidden: Account status is ${req.user.status}. Access requires APPROVED authorization from Lead Researcher.`,
+    });
+  }
+  next();
 }
 
-function requireAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  requireApprovedUser(req, res, () => {
-    if (!req.user || req.user.role !== 'ADMIN') {
-      return res.status(403).json({
-        error: 'FORBIDDEN_ROLE',
-        message: 'Forbidden: This action requires Master Administrator privileges.',
-      });
-    }
-    next();
-  });
+async function requireAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  await requireApprovedUser(req, res, () => undefined);
+  if (res.headersSent || !req.user) return;
+  if (req.user.role !== 'ADMIN') {
+    return res.status(403).json({
+      error: 'FORBIDDEN_ROLE',
+      message: 'Forbidden: This action requires Master Administrator privileges.',
+    });
+  }
+  next();
 }
 
 function requireRole(...roles: UserRole[]) {
-  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    requireApprovedUser(req, res, () => {
-      if (!req.user || !roles.includes(req.user.role)) {
-        return res.status(403).json({ error: 'FORBIDDEN_ROLE', message: `Forbidden: requires one of ${roles.join(', ')}.` });
-      }
-      next();
-    });
+  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    await requireApprovedUser(req, res, () => undefined);
+    if (res.headersSent || !req.user) return;
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({ error: 'FORBIDDEN_ROLE', message: `Forbidden: requires one of ${roles.join(', ')}.` });
+    }
+    next();
   };
 }
 
@@ -178,7 +178,7 @@ app.post('/api/auth/register', async (req, res) => {
     return res.status(400).json({ error: 'Missing required registration parameters' });
   }
 
-  const result = await authService.register(name, email, password);
+  const result = await authService.register(name, email, password, 'ANALYST', undefined, req.ip || req.socket.remoteAddress || 'unknown');
   if (!result.success) {
     return res.status(400).json(result);
   }

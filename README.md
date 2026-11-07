@@ -271,8 +271,8 @@ If the server is not at `http://127.0.0.1:3000`, set `COMVISION_BASE_URL` before
 - Telegram error handlers automatically strip bot token regex patterns from all logged or emitted error strings.
 
 ### 6.2 Administrative Authentication & RBAC
-- Built-in scrypt password hashing with cryptographic salt and timing-safe equality checks.
-- Default administrator bootstrapped via `ADMIN_BOOTSTRAP_KEY` env var or written to protected `data/.admin_bootstrap_secret` (mode 0600).
+- Built-in asynchronous scrypt password hashing with cryptographic salt and timing-safe equality checks.
+- Production administrator bootstrap requires `ADMIN_BOOTSTRAP_PASSWORD`; the plaintext value is never written to disk. Registration is disabled by default and must be explicitly enabled with `REGISTRATION_ENABLED=true`.
 - User accounts require administrator approval (`PENDING` → `APPROVED`).
 - Analyst accounts cannot modify system users or access security audit logs.
 

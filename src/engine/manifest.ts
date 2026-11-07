@@ -168,6 +168,7 @@ export const V2_CONFIG_SNAPSHOT = {
 
 import { sha256 } from '../utils/sha256';
 import { canonicalJson } from '../utils/canonicalJson';
+import { loadSessionConfig, sessionConfigHash } from './sessionConfig';
 
 export const CONFIG_HASH_EPOCH = 'V3_CANONICAL_2026-10-18';
 export const LEGACY_CONFIG_HASH = '1fc0ff3b17b2a077fdaf532615e7ca4ae2b38b36cdfc781059aeda3e7977b9b8';
@@ -206,12 +207,15 @@ export const V3_CONFIG_SNAPSHOT = {
 } as const;
 
 export const CONFIG_HASH = sha256(canonicalJson(V3_CONFIG_SNAPSHOT));
+export const SESSION_CONFIG = loadSessionConfig();
+export const SESSION_CONFIG_HASH = sessionConfigHash(SESSION_CONFIG);
 
 export const STRATEGY_MANIFEST = {
   version: ACTIVE_STRATEGY_VERSION,
   experiment_id: ACTIVE_EXPERIMENT_ID,
   config_hash: CONFIG_HASH,
   config_hash_epoch: CONFIG_HASH_EPOCH,
+  session_config_hash: SESSION_CONFIG_HASH,
   specification_document: 'RDP STRATEGY V3.0 FROZEN RESEARCH & DECISION-SUPPORT SPECIFICATION',
   historical_baseline: {
     version: HISTORICAL_STRATEGY_VERSION,

@@ -1,7 +1,7 @@
 import type { MarketDataResult, MarketDataProvider } from './dataProviders';
 import { MarketDataError } from './dataProviders';
 import { executeStrategyPipeline, MIN_PAYOUT_PCT } from './pipeline';
-import { ACTIVE_EXPERIMENT_ID, CONFIG_HASH, CONFIG_HASH_EPOCH } from './manifest';
+import { ACTIVE_EXPERIMENT_ID, CONFIG_HASH, CONFIG_HASH_EPOCH, SESSION_CONFIG_HASH } from './manifest';
 import type { Candle, MasterTelemetry, NewsEvent, Timeframe } from './types';
 import { timeframeMs } from './dataIntegrity';
 import { breakevenFor, EdgeMonitor } from './edgeMonitor';
@@ -229,7 +229,7 @@ export class ScanService {
           valid_until: new Date(validUntil).toISOString(), payout_pct: payout.pct, breakeven: breakevenFor(payout.pct),
           mfci_total: v3.mfci.totalMfci, mfci_band: v3.mfciBand, engine_mode: v3.engineMode ?? 'PRICE_ONLY', provider: primary.provider,
           ltf_provider: primary.provider, htf_provider: htf.provider,
-          setup_id: telemetry.metadata.setup_id, experiment_id: ACTIVE_EXPERIMENT_ID, config_hash: CONFIG_HASH, config_hash_epoch: CONFIG_HASH_EPOCH, session: telemetry.market_context.session, kill_zone: telemetry.market_context.kill_zone,
+          setup_id: telemetry.metadata.setup_id, experiment_id: ACTIVE_EXPERIMENT_ID, config_hash: CONFIG_HASH, config_hash_epoch: CONFIG_HASH_EPOCH, session_config_hash: SESSION_CONFIG_HASH, session: telemetry.market_context.session, kill_zone: telemetry.market_context.kill_zone,
           signal_price: latest.close, quote_price: quotePrice, quote_ts: quoteTs, price_tolerance: tolerance,
         });
         result = { ...result, signal_id: signalId, valid_until: new Date(validUntil).toISOString(), signal_price: latest.close, quote_price: quotePrice, quote_ts: quoteTs, price_tolerance: tolerance, quote_status: quotePrice === undefined ? 'QUOTE_UNAVAILABLE' : 'OK' };
