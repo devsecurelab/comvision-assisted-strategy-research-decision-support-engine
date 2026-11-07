@@ -1,5 +1,5 @@
 import type { Candle, Timeframe } from './types';
-import { NEW_YORK_TZ, zonedWeekdayMinute } from './session';
+import { isMarketCalendarBarClosed, isMarketCalendarClosed } from './marketCalendar';
 
 export type DataQualityCode =
   | 'INSUFFICIENT_CANDLES'
@@ -23,21 +23,14 @@ export function timeframeMs(timeframe: Timeframe): number {
   return TIMEFRAME_MINUTES[timeframe] * 60_000;
 }
 
-/** Spot FX closure: Friday 17:00 through Sunday 17:00 America/New_York, plus UTC Dec 25 and Jan 1. */
+/** Spot FX closure delegated to the validated, hashable market calendar. */
 export function isScheduledMarketClosure(ms: number): boolean {
-  const date = new Date(ms);
-  const month = date.getUTCMonth();
-  const dom = date.getUTCDate();
-  if ((month === 11 && dom === 25) || (month === 0 && dom === 1)) return true;
-  const { weekday, minuteOfDay } = zonedWeekdayMinute(date, NEW_YORK_TZ);
-  if (weekday === 'Sat') return true;
-  if (weekday === 'Fri') return minuteOfDay >= 17 * 60;
-  return weekday === 'Sun' && minuteOfDay < 17 * 60;
+  return isMarketCalendarClosed(ms);
 }
 
 /** A bar is unavailable when either its open or close boundary falls inside a scheduled closure. */
 export function isScheduledMarketBarClosed(openMs: number, durationMs: number): boolean {
-  return isScheduledMarketClosure(openMs) || isScheduledMarketClosure(openMs + durationMs);
+  return isMarketCalendarBarClosed(openMs, durationMs);
 }
 
 /**
