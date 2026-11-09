@@ -320,6 +320,12 @@ export class NotificationService {
     return Boolean(this.config.telegramBotToken);
   }
 
+  /** Verify bot credentials with getMe; this never sends a chat message. */
+  public async verifyTelegramConnection(): Promise<boolean> {
+    if (!this.config.telegramBotToken) return false;
+    return (await this.requestTelegram('getMe', {})).ok;
+  }
+
   public updateConfig(newConfig: Partial<NotificationConfig>) {
     this.config = { ...this.config, ...newConfig };
     this.initMailTransporter();

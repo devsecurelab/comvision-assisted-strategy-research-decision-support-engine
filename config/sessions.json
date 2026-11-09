@@ -8,6 +8,12 @@
     "15m": 15,
     "30m": 30
   },
+  "coreSession": {
+    "startZone": "LONDON",
+    "startLocal": "07:00",
+    "endZone": "NEW_YORK",
+    "endLocal": "16:00"
+  },
   "zones": {
     "LONDON": {
       "timezone": "Europe/London",

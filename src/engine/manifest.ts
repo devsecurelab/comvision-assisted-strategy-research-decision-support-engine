@@ -171,10 +171,12 @@ import { canonicalJson } from '../utils/canonicalJson';
 import { loadMarketCalendar, marketCalendarHash } from './marketCalendar';
 import { loadSessionConfig, sessionConfigHash } from './sessionConfig';
 
-export const CONFIG_HASH_EPOCH = 'V3_CANONICAL_2026-10-18';
 export const LEGACY_CONFIG_HASH = '1fc0ff3b17b2a077fdaf532615e7ca4ae2b38b36cdfc781059aeda3e7977b9b8';
 export const MARKET_CALENDAR = loadMarketCalendar();
 export const MARKET_CALENDAR_HASH = marketCalendarHash(MARKET_CALENDAR);
+export const SESSION_CONFIG = loadSessionConfig();
+export const SESSION_CONFIG_HASH = sessionConfigHash(SESSION_CONFIG);
+export const CONFIG_HASH_EPOCH = `V3_CANONICAL_2026-10-18_${SESSION_CONFIG_HASH.slice(0, 8)}_${MARKET_CALENDAR_HASH.slice(0, 8)}`;
 
 // Authoritative active V3 parameters. The hash is derived from this object at runtime;
 // it is not a copied V2-era string and it contains no Asia kill-zone rule.
@@ -208,11 +210,17 @@ export const V3_CONFIG_SNAPSHOT = {
   },
   news_guard: { restriction_window_minutes: 30, offline: 'INCONCLUSIVE' },
   market_calendar_hash: MARKET_CALENDAR_HASH,
+  session_config_hash: SESSION_CONFIG_HASH,
 } as const;
 
 export const CONFIG_HASH = sha256(canonicalJson(V3_CONFIG_SNAPSHOT));
-export const SESSION_CONFIG = loadSessionConfig();
-export const SESSION_CONFIG_HASH = sessionConfigHash(SESSION_CONFIG);
+export const ENGINE_FINGERPRINT = sha256(canonicalJson({
+  strategy_version: ACTIVE_STRATEGY_VERSION,
+  config_hash: CONFIG_HASH,
+  config_hash_epoch: CONFIG_HASH_EPOCH,
+  session_config_hash: SESSION_CONFIG_HASH,
+  market_calendar_hash: MARKET_CALENDAR_HASH,
+}));
 
 export const STRATEGY_MANIFEST = {
   version: ACTIVE_STRATEGY_VERSION,
@@ -220,6 +228,7 @@ export const STRATEGY_MANIFEST = {
   config_hash: CONFIG_HASH,
   config_hash_epoch: CONFIG_HASH_EPOCH,
   session_config_hash: SESSION_CONFIG_HASH,
+  engine_fingerprint: ENGINE_FINGERPRINT,
   market_calendar_hash: MARKET_CALENDAR_HASH,
   specification_document: 'RDP STRATEGY V3.0 FROZEN RESEARCH & DECISION-SUPPORT SPECIFICATION',
   historical_baseline: {

@@ -21,6 +21,12 @@ assert.equal(marketCalendarHash(calendar), marketCalendarHash(JSON.parse(JSON.st
 assert.equal(MARKET_CALENDAR_HASH, marketCalendarHash(calendar));
 assert.equal(STRATEGY_MANIFEST.market_calendar_hash, MARKET_CALENDAR_HASH);
 assert.match(CONFIG_HASH, /^[a-f0-9]{64}$/);
+const originalCwd = process.cwd();
+const unrelated = fs.mkdtempSync(path.join(os.tmpdir(), 'pr7-calendar-cwd-'));
+try {
+  process.chdir(unrelated);
+  assert.equal(marketCalendarHash(loadMarketCalendar()), MARKET_CALENDAR_HASH, 'default calendar path resolves independently of the process cwd');
+} finally { process.chdir(originalCwd); }
 
 const invalid = JSON.parse(JSON.stringify(calendar)) as MarketCalendarConfig;
 invalid.timezone = 'Not/AZone';

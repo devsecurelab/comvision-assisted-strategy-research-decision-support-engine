@@ -6,9 +6,15 @@ const SYMBOL_RE = /^[A-Z]{6}$/;
 export interface PayoutRecord { pct: number; setAt: string; source: 'TELEGRAM_MANUAL'; }
 export type PayoutStatus = 'PAYOUT_UNSET' | 'PAYOUT_BELOW_MIN' | 'ELIGIBLE';
 export type OperationalPayoutStatus = PayoutStatus | 'PAYOUT_STALE';
-export function payoutStatusFor(record: PayoutRecord | undefined, nowMs = Date.now(), maxAgeHours = Number(process.env.PAYOUT_MAX_AGE_HOURS || 24)): OperationalPayoutStatus {
+export const DEFAULT_PAYOUT_MAX_AGE_HOURS = 12;
+export function payoutMaxAgeHours(value = process.env.PAYOUT_MAX_AGE_HOURS): number {
+  const configured = value === undefined || value.trim() === '' ? DEFAULT_PAYOUT_MAX_AGE_HOURS : Number(value);
+  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_PAYOUT_MAX_AGE_HOURS;
+}
+export function payoutStatusFor(record: PayoutRecord | undefined, nowMs = Date.now(), maxAgeHours = payoutMaxAgeHours()): OperationalPayoutStatus {
   if (!record) return 'PAYOUT_UNSET';
-  if (!Number.isFinite(Date.parse(record.setAt)) || nowMs - Date.parse(record.setAt) > maxAgeHours * 3_600_000) return 'PAYOUT_STALE';
+  const ageMs = nowMs - Date.parse(record.setAt);
+  if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > maxAgeHours * 3_600_000) return 'PAYOUT_STALE';
   return record.pct < 85 ? 'PAYOUT_BELOW_MIN' : 'ELIGIBLE';
 }
 

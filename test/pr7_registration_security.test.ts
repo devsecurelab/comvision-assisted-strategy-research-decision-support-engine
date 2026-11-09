@@ -10,7 +10,8 @@ function serviceWithEmptyUsers() {
   service.users = new Map();
   service.sessions = new Map();
   service.registrationRequests = new Map();
-  service.globalRegistrationRequest = { count: 0, firstAt: 0 };
+  service.globalRegistrationRequests = [];
+  service.pendingEmailReservations = new Set();
   service.ready = Promise.resolve();
   service.persistUsers = () => {};
   service.persistSessions = () => {};
@@ -63,6 +64,41 @@ try {
   assert.equal(disabledResult.success, false);
   assert.match(disabledResult.message, /disabled/i);
   assert.equal(disabled.users.size, 0);
+
+  process.env.REGISTRATION_ENABLED = 'true';
+  const originalNow = Date.now;
+  let fakeNow = 1_000_000;
+  Date.now = () => fakeNow;
+  try {
+    const rolling = serviceWithEmptyUsers() as any;
+    for (let i = 0; i < 5; i++) await rolling.register('', '', '', 'ANALYST', undefined, '203.0.113.77');
+    fakeNow += 59 * 60 * 1000;
+    const withinRollingHour = await rolling.register('Late', 'late@example.invalid', 'password-long', 'ANALYST', undefined, '203.0.113.77');
+    assert.equal(withinRollingHour.success, false, 'malformed attempts still consume the rolling IP limit');
+    assert.match(withinRollingHour.message, /IP|rate limit/i);
+    fakeNow += 2 * 60 * 1000;
+    const afterRollingHour = await rolling.register('After', 'after@example.invalid', 'password-long', 'ANALYST', undefined, '203.0.113.77');
+    assert.equal(afterRollingHour.success, true, 'expired timestamps leave the rolling window');
+  } finally { Date.now = originalNow; }
+
+  const duplicate = serviceWithEmptyUsers() as any;
+  duplicate.hashPassword = async (password: string) => { await new Promise((resolve) => setTimeout(resolve, 10)); return `salt:${Buffer.from(password).toString('hex')}`; };
+  duplicate.consumeRegistrationAttempt = () => null;
+  const sameEmail = await Promise.all([
+    duplicate.register('First', 'race@example.invalid', 'password-long', 'ANALYST', undefined, '198.18.1.1'),
+    duplicate.register('Second', 'race@example.invalid', 'password-long', 'ANALYST', undefined, '198.18.1.2'),
+  ]);
+  assert.equal(sameEmail.filter((result: any) => result.success).length, 1, 'concurrent duplicate email submissions reserve the normalized email before async hashing');
+
+  const asyncHash = serviceWithEmptyUsers() as any;
+  asyncHash.hashPassword = AuthService.prototype.hashPassword.bind(asyncHash);
+  asyncHash.consumeRegistrationAttempt = () => null;
+  let timerFired = false;
+  const eventLoopProbe = new Promise<void>((resolve) => setImmediate(() => { timerFired = true; resolve(); }));
+  const realHashRegistration = asyncHash.register('Async', 'async@example.invalid', 'password-long', 'ANALYST', undefined, '198.18.1.3');
+  await eventLoopProbe;
+  assert.equal(timerFired, true, 'real password scrypt work yields to the event loop');
+  assert.equal((await realHashRegistration).success, true);
 } finally {
   if (originalRegistration === undefined) delete process.env.REGISTRATION_ENABLED;
   else process.env.REGISTRATION_ENABLED = originalRegistration;

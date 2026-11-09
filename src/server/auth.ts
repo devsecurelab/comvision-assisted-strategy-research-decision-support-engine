@@ -2,11 +2,10 @@
 // Password derivation is asynchronous; raw session tokens are never persisted.
 
 import crypto from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
 import { promisify } from 'node:util';
 import type { UserAccount, UserRole, UserStatus } from '../engine/types';
 import { durableStorage, type StoredSession } from './storage';
+import { enforceBootstrapPasswordPolicy, removeLegacyBootstrapFile } from './runtimeSelfCheck';
 
 interface WindowCounter { count: number; firstAt: number }
 interface LoginFailure extends WindowCounter { lockedUntil: number }
@@ -20,9 +19,10 @@ export class AuthService {
   private verificationQueue: Array<() => void> = [];
   private loginFailures = new Map<string, LoginFailure>();
   private ipRequests = new Map<string, WindowCounter>();
-  private registrationRequests = new Map<string, WindowCounter>();
-  private globalRegistrationRequest: WindowCounter = { count: 0, firstAt: 0 };
+  private registrationRequests = new Map<string, number[]>();
+  private globalRegistrationRequests: number[] = [];
   private pendingRegistrationReservations = 0;
+  private pendingEmailReservations = new Set<string>();
   private dummyPasswordHash = '';
   private ready: Promise<void>;
 
@@ -76,13 +76,15 @@ export class AuthService {
     this.users.clear();
     this.sessions.clear();
     this.registrationRequests.clear();
-    this.globalRegistrationRequest = { count: 0, firstAt: 0 };
+    this.globalRegistrationRequests = [];
     this.pendingRegistrationReservations = 0;
+    this.pendingEmailReservations.clear();
     this.ready = this.initializeFromStorage();
     await this.ready;
   }
 
   private async initializeFromStorage(): Promise<void> {
+    removeLegacyBootstrapFile(durableStorage.getDataDir());
     const storedUsers = durableStorage.loadUsers();
     if (storedUsers && storedUsers.length > 0) {
       for (const user of storedUsers) this.users.set(user.id, user);
@@ -100,15 +102,7 @@ export class AuthService {
   }
 
   private async bootstrapDefaultAccounts(): Promise<void> {
-    const dataDir = process.env.DATA_DIR?.trim() || path.join(process.cwd(), 'data');
-    // Remove the legacy plaintext bootstrap artifact from the configured data directory.
-    const legacyFile = path.join(dataDir, ['.admin', 'bootstrap_secret'].join('_'));
-    try { fs.rmSync(legacyFile, { force: true }); } catch { /* best effort migration */ }
-
-    const bootstrapPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD?.trim();
-    if (!bootstrapPassword && process.env.NODE_ENV === 'production') {
-      throw new Error('BOOTSTRAP_PASSWORD_REQUIRED: set ADMIN_BOOTSTRAP_PASSWORD before production startup.');
-    }
+    const bootstrapPassword = enforceBootstrapPasswordPolicy(process.env.ADMIN_BOOTSTRAP_PASSWORD, process.env.NODE_ENV);
     const password = bootstrapPassword || crypto.randomBytes(24).toString('base64url');
     const adminUser: UserAccount = {
       id: 'usr-admin-001',
@@ -123,9 +117,6 @@ export class AuthService {
     this.users.set(adminUser.id, adminUser);
     this.dummyPasswordHash = await this.hashPassword('dummy-password-for-timing-only');
     this.persistUsers();
-    if (!bootstrapPassword && process.env.NODE_ENV !== 'test') {
-      console.warn('[AuthService] Generated an ephemeral development bootstrap password; it was not persisted.');
-    }
   }
 
   private persistUsers() { durableStorage.saveUsers(Array.from(this.users.values())); }
@@ -134,21 +125,18 @@ export class AuthService {
 
   private consumeRegistrationAttempt(ipAddress: string): string | null {
     this.registrationRequests ||= new Map();
-    this.globalRegistrationRequest ||= { count: 0, firstAt: 0 };
+    this.globalRegistrationRequests ||= [];
     const now = Date.now();
     const hour = 60 * 60 * 1000;
-    const ip = this.registrationRequests.get(ipAddress);
-    if (!ip || now - ip.firstAt >= hour) this.registrationRequests.set(ipAddress, { count: 1, firstAt: now });
-    else if (ip.count >= 5) return 'Registration rate limit exceeded for this IP. Try again later.';
-    else ip.count += 1;
-
-    if (!this.globalRegistrationRequest.firstAt || now - this.globalRegistrationRequest.firstAt >= hour) {
-      this.globalRegistrationRequest = { count: 1, firstAt: now };
-    } else if (this.globalRegistrationRequest.count >= 20) {
-      return 'Global registration rate limit exceeded. Try again later.';
-    } else {
-      this.globalRegistrationRequest.count += 1;
-    }
+    const cutoff = now - hour;
+    const ip = (this.registrationRequests.get(ipAddress) || []).filter((timestamp) => timestamp > cutoff);
+    const global = this.globalRegistrationRequests.filter((timestamp) => timestamp > cutoff);
+    if (ip.length >= 5) return 'Registration rate limit exceeded for this IP. Try again later.';
+    if (global.length >= 20) return 'Global registration rate limit exceeded. Try again later.';
+    ip.push(now);
+    global.push(now);
+    this.registrationRequests.set(ipAddress, ip);
+    this.globalRegistrationRequests = global;
     return null;
   }
 
@@ -161,17 +149,17 @@ export class AuthService {
     ipAddress = 'unknown',
   ): Promise<{ success: boolean; message: string; user?: Omit<UserAccount, 'passwordHash'> }> {
     await this.ready;
+    const rateLimit = this.consumeRegistrationAttempt(ipAddress);
+    if (rateLimit) return { success: false, message: rateLimit };
     if (process.env.REGISTRATION_ENABLED !== 'true' && process.env.REGISTRATION_ENABLED !== '1') {
       return { success: false, message: 'Registration is disabled for this private tool.' };
     }
-    const rateLimit = this.consumeRegistrationAttempt(ipAddress);
-    if (rateLimit) return { success: false, message: rateLimit };
-    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedEmail = String(email ?? '').trim().toLowerCase();
     if (!name || !normalizedEmail || !password) return { success: false, message: 'All fields are required.' };
     if (password.length < 12 || password.length > 128) return { success: false, message: 'Password must be between 12 and 128 characters long.' };
     if (normalizedEmail.length > 254) return { success: false, message: 'Email is too long.' };
     if (name.trim().length > 100) return { success: false, message: 'Name is too long.' };
-    if (Array.from(this.users.values()).some((user) => user.email === normalizedEmail)) return { success: false, message: 'An account with this email already exists.' };
+    if (Array.from(this.users.values()).some((user) => user.email === normalizedEmail) || this.pendingEmailReservations.has(normalizedEmail)) return { success: false, message: 'An account with this email already exists.' };
     const isPending = (forceStatus || 'PENDING') === 'PENDING';
     if (isPending) {
       this.pendingRegistrationReservations ||= 0;
@@ -179,6 +167,7 @@ export class AuthService {
       if (pendingCount + this.pendingRegistrationReservations >= 50) return { success: false, message: 'Pending account limit reached.' };
       this.pendingRegistrationReservations += 1;
     }
+    this.pendingEmailReservations.add(normalizedEmail);
 
     try {
       const newUser: UserAccount = {
@@ -197,6 +186,7 @@ export class AuthService {
       return { success: true, message: forceStatus === 'APPROVED' ? 'Account created and approved.' : 'Registration submitted. Account status is PENDING administrator approval.', user: safeUser };
     } finally {
       if (isPending) this.pendingRegistrationReservations = Math.max(0, this.pendingRegistrationReservations - 1);
+      this.pendingEmailReservations.delete(normalizedEmail);
     }
   }
 

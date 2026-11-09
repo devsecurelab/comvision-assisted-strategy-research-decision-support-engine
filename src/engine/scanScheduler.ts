@@ -1,13 +1,15 @@
 import type { MarketDataResult, MarketDataProvider } from './dataProviders';
 import { MarketDataError } from './dataProviders';
 import { executeStrategyPipeline, MIN_PAYOUT_PCT } from './pipeline';
-import { ACTIVE_EXPERIMENT_ID, CONFIG_HASH, CONFIG_HASH_EPOCH, SESSION_CONFIG_HASH } from './manifest';
+import { ACTIVE_EXPERIMENT_ID, CONFIG_HASH, CONFIG_HASH_EPOCH, SESSION_CONFIG, SESSION_CONFIG_HASH } from './manifest';
 import type { Candle, MasterTelemetry, NewsEvent, Timeframe } from './types';
 import { timeframeMs } from './dataIntegrity';
 import { breakevenFor, EdgeMonitor } from './edgeMonitor';
 import { SignalLedger, type SignalOutcome, type SignalView } from './signalLedger';
 import { filterFxOpenMarketCandles, isFxBarClosed, isFxMarketClosed } from './marketHours';
 import { classifySessionAndKillZone } from './session';
+import { tradeWithinZone } from './sessionConfig';
+import { utcInstantForLocal } from './session';
 import { priceTolerance, slippagePips } from './price';
 
 export type ScanTimeframe = '5m' | '15m' | '30m';
@@ -60,7 +62,7 @@ export interface ScanDeps {
   fetchQuote?(pair: string): Promise<{ price: number; ts: string }>;
   now(): number;
   ledger: SignalLedger;
-  onScan?(result: ScanResult): Promise<void> | void;
+  onScan?(result: ScanResult): Promise<Partial<ScanResult> | void> | Partial<ScanResult> | void;
   onResolved?(signal: SignalView, outcome: SignalOutcome): Promise<void> | void;
   onEdgeLost?(reason: string): Promise<void> | void;
   loadState?(): ScanLoopState | undefined;
@@ -213,8 +215,21 @@ export class ScanService {
     };
     if (signal !== 'NO_TRADE' && v3) {
       const entryMs = expectedOpen + timeframeMs(timeframe);
-      const validUntil = entryWindowBounds(entryMs, timeframe).endMs;
-      if (this.deps.now() - generationStartedAt > GENERATION_DEADLINE_MS || !isWithinEntryWindow(this.deps.now(), entryMs, timeframe)) {
+      const zoneName = classifySessionAndKillZone(new Date(entryMs).toISOString()).kill_zone_name;
+      const zone = zoneName ? SESSION_CONFIG.zones[zoneName] : undefined;
+      const expiryMs = SESSION_CONFIG.expiryMinutes[timeframe] * 60_000;
+      const zoneEnd = zone ? (() => {
+        const [hour, minute] = zone.endLocal.split(':').map(Number);
+        return utcInstantForLocal(new Date(entryMs), zone.timezone, hour, minute).getTime();
+      })() : Number.NaN;
+      const validUntil = zone
+        ? Math.min(entryWindowBounds(entryMs, timeframe).endMs, zoneEnd - SESSION_CONFIG.endMarginMinutes * 60_000, zoneEnd - expiryMs)
+        : entryWindowBounds(entryMs, timeframe).endMs;
+      if (!zone || !tradeWithinZone(new Date(entryMs), zone, SESSION_CONFIG.startMarginMinutes, SESSION_CONFIG.endMarginMinutes, SESSION_CONFIG.expiryMinutes[timeframe])) {
+        result = { ...result, status: 'NO_TRADE', reason: 'SIGNAL_OUTSIDE_WINDOW' };
+        return result;
+      }
+      if (this.deps.now() - generationStartedAt > GENERATION_DEADLINE_MS || !isWithinEntryWindow(this.deps.now(), entryMs, timeframe) || this.deps.now() > validUntil) {
         result = { ...result, status: 'NO_TRADE', reason: `SIGNAL_EXPIRED: ${signal} was not delivered before ${new Date(validUntil).toISOString()}.` };
       } else {
         const signalId = telemetry.metadata.setup_id;
@@ -225,7 +240,7 @@ export class ScanService {
         const tolerance = priceTolerance(displayScanPair(pair), atr14);
         this.deps.ledger.recordSignal({
           signal_id: signalId, pair: displayScanPair(pair), timeframe, direction: signal,
-          signal_candle_open_ts: latest.timestamp, entry_ts: new Date(entryMs).toISOString(), expiry_ts: new Date(entryMs + timeframeMs(timeframe)).toISOString(),
+          signal_candle_open_ts: latest.timestamp, entry_ts: new Date(entryMs).toISOString(), expiry_ts: new Date(entryMs + expiryMs).toISOString(),
           valid_until: new Date(validUntil).toISOString(), payout_pct: payout.pct, breakeven: breakevenFor(payout.pct),
           mfci_total: v3.mfci.totalMfci, mfci_band: v3.mfciBand, engine_mode: v3.engineMode ?? 'PRICE_ONLY', provider: primary.provider,
           ltf_provider: primary.provider, htf_provider: htf.provider,
@@ -238,9 +253,10 @@ export class ScanService {
     // A stop may arrive while the provider request is in flight. Do not dispatch
     // an AUTO alert after that stop; the scan record remains auditable.
     if (trigger === 'AUTO' && !shouldContinue()) return result;
+    const operationalOverride = await this.deps.onScan?.(result);
+    if (operationalOverride) result = { ...result, ...operationalOverride };
     this.cache.set(cacheKey, result);
     if (this.cache.size > 500) this.cache.delete(this.cache.keys().next().value as string);
-    await this.deps.onScan?.(result);
     return result;
   }
 
@@ -333,7 +349,7 @@ export class ScanLoop {
   private running = false;
   private generation = 0;
 
-  constructor(private readonly service: ScanService, private readonly deps: Pick<ScanDeps, 'now' | 'loadState' | 'saveState'>, private readonly defaults: { timeframe: ScanTimeframe; enabled: boolean }) {}
+  constructor(private readonly service: ScanService, private readonly deps: Pick<ScanDeps, 'now' | 'loadState' | 'saveState'> & { onCycle?: (state: ScanLoopState, results: ScanResult[]) => void | Promise<void> }, private readonly defaults: { timeframe: ScanTimeframe; enabled: boolean }) {}
 
   public state(): ScanLoopState {
     return this.deps.loadState?.() ?? { enabled: this.defaults.enabled, timeframe: this.defaults.timeframe };
@@ -369,9 +385,10 @@ export class ScanLoop {
     const candleOpen = new Date(latestClosedCandleOpenMs(this.deps.now(), state.timeframe)).toISOString();
     if (state.lastCycleCandleOpen === candleOpen) return [];
     this.running = true;
+    let results: ScanResult[] = [];
     try {
       this.save({ lastCycleCandleOpen: candleOpen });
-      const results = await this.service.runAutoCycle(state.timeframe, undefined, () => expectedGeneration === this.generation && this.state().enabled);
+      results = await this.service.runAutoCycle(state.timeframe, undefined, () => expectedGeneration === this.generation && this.state().enabled);
       if (expectedGeneration !== this.generation || !this.state().enabled) return results;
       await this.service.resolvePending();
       this.save({ lastRunAt: new Date(this.deps.now()).toISOString(), lastSummary: results.map((r) => `${r.pair}:${r.status}`).join(','), lastError: undefined });
@@ -379,6 +396,9 @@ export class ScanLoop {
     } catch (error) {
       this.save({ lastError: error instanceof Error ? error.message : String(error) });
       return [];
-    } finally { this.running = false; }
+    } finally {
+      this.running = false;
+      try { await this.deps.onCycle?.(this.state(), results); } catch { /* monitoring must never halt scanning */ }
+    }
   }
 }

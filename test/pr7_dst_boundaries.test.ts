@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { classifySessionAndKillZone } from '../src/engine/session';
 import { loadSessionConfig, tradeWithinZone } from '../src/engine/sessionConfig';
+import { utcInstantForLocal } from '../src/engine/session';
 
 const config = loadSessionConfig();
 const timeframes = ['5m', '15m', '30m'] as const;
@@ -13,10 +14,17 @@ const cases = [
 ] as const;
 
 for (const item of cases) {
-  assert.equal(tradeWithinZone(new Date(item.before), item.zone, 30, 30, 15), false, `${item.label}: before start margin`);
-  assert.equal(tradeWithinZone(new Date(item.first), item.zone, 30, 30, 15), true, `${item.label}: first valid 15m entry`);
-  assert.equal(tradeWithinZone(new Date(item.last), item.zone, 30, 30, 15), true, `${item.label}: last valid entry`);
-  assert.equal(tradeWithinZone(new Date(item.beyond), item.zone, 30, 30, 15), false, `${item.label}: after end margin`);
+  assert.equal(tradeWithinZone(new Date(item.before), item.zone, config.startMarginMinutes, config.endMarginMinutes, 15), false, `${item.label}: before start margin`);
+  const [endHour, endMinute] = item.zone.endLocal.split(':').map(Number);
+  const zoneEnd = utcInstantForLocal(new Date(item.first), item.zone.timezone, endHour, endMinute).getTime();
+  for (const timeframe of timeframes) {
+    const expiry = config.expiryMinutes[timeframe];
+    const exactLast = new Date(Math.min(zoneEnd - config.endMarginMinutes * 60_000, zoneEnd - expiry * 60_000));
+    const justBeyond = new Date(exactLast.getTime() + 1_000);
+    assert.equal(tradeWithinZone(new Date(item.first), item.zone, config.startMarginMinutes, config.endMarginMinutes, expiry), true, `${item.label} ${timeframe}: first valid entry`);
+    assert.equal(tradeWithinZone(exactLast, item.zone, config.startMarginMinutes, config.endMarginMinutes, expiry), true, `${item.label} ${timeframe}: last valid entry`);
+    assert.equal(tradeWithinZone(justBeyond, item.zone, config.startMarginMinutes, config.endMarginMinutes, expiry), false, `${item.label} ${timeframe}: one second beyond last valid`);
+  }
 }
 
 for (const timeframe of timeframes) {
@@ -34,8 +42,12 @@ assert.equal(classifySessionAndKillZone('2026-10-26T07:30:00Z').kill_zone, 'INSI
 assert.equal(classifySessionAndKillZone('2026-10-26T11:30:00Z').kill_zone, 'INSIDE_KILL_ZONE');
 assert.equal(classifySessionAndKillZone('2026-10-26T07:30:00Z').session, 'LONDON');
 assert.equal(classifySessionAndKillZone('2026-10-26T11:30:00Z').session, 'LONDON_NEW_YORK_OVERLAP');
+// A second mismatch window (UK already on GMT, New York still on EST).
+assert.equal(classifySessionAndKillZone('2027-03-22T07:30:00Z').kill_zone, 'INSIDE_KILL_ZONE');
 
 // New classification has no Asia output; compatibility readers may still accept ASIA records.
 assert.notEqual(classifySessionAndKillZone('2026-10-26T02:00:00Z').session, 'ASIA');
+assert.equal(classifySessionAndKillZone('2026-10-31T22:00:00Z').session, 'CLOSED');
+assert.equal(classifySessionAndKillZone('2026-12-25T16:00:00Z').session, 'CLOSED');
 
 console.log('[pr7_dst_boundaries] PASS — 2026/2027 DST, mismatch-week, margin, expiry, and timeframe matrix verified');

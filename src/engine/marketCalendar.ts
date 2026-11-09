@@ -1,6 +1,5 @@
 import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolveRepositoryConfigPath } from './configPath';
 import { canonicalJson } from '../utils/canonicalJson';
 import { sha256 } from '../utils/sha256';
 import { utcInstantForLocal, zonedWeekdayMinute } from './session';
@@ -27,7 +26,7 @@ export interface MarketCalendarConfig {
 const WEEKDAYS: CalendarWeekday[] = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
 const HHMM = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 const MONTH_DAY = /^(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/;
-const defaultPath = fileURLToPath(new URL('../../config/market-calendar.json', import.meta.url));
+const defaultPath = resolveRepositoryConfigPath('market-calendar.json', process.env.MARKET_CALENDAR_PATH);
 
 function assertTimezone(timezone: string): void {
   try { new Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(); }
@@ -75,7 +74,7 @@ export function validateMarketCalendar(value: unknown): MarketCalendarConfig {
   };
 }
 
-export function loadMarketCalendar(filePath = process.env.MARKET_CALENDAR_PATH || defaultPath): MarketCalendarConfig {
+export function loadMarketCalendar(filePath = defaultPath): MarketCalendarConfig {
   try { return validateMarketCalendar(JSON.parse(fs.readFileSync(filePath, 'utf8'))); }
   catch (error) {
     if (error instanceof Error && error.message.startsWith('INVALID_MARKET_CALENDAR')) throw error;

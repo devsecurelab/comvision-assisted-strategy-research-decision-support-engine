@@ -5,6 +5,7 @@
 // STRICT NON-EXECUTION BOUNDARY: Decision-Support Only. No automated broker orders.
 
 import 'dotenv/config';
+import './src/server/preflight';
 
 import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
@@ -14,19 +15,24 @@ import { authService } from './src/server/auth';
 import { feedManager, MarketDataError, MarketDataProvider, timeframeToMinutes } from './src/engine/dataProviders';
 import { experimentTracker } from './src/engine/experimentTracker';
 import { executeStrategyPipeline } from './src/engine/pipeline';
-import { STRATEGY_MANIFEST, ACTIVE_EXPERIMENT_ID } from './src/engine/manifest';
+import { STRATEGY_MANIFEST, ACTIVE_EXPERIMENT_ID, CONFIG_HASH, ENGINE_FINGERPRINT, SESSION_CONFIG, SESSION_CONFIG_HASH } from './src/engine/manifest';
 import { EngineSettings, Timeframe, UserAccount, UserRole, UserRecordedAction } from './src/engine/types';
 import { durableStorage, type SignalOutcome as StoredSignalOutcome } from './src/server/storage';
 import { notificationService } from './src/server/notificationService';
 import { analyticsService } from './src/server/analyticsService';
 import { chatService } from './src/server/chatService';
-import { payoutRegistry, normalizePair, displayPair } from './src/server/payoutRegistry';
+import { payoutRegistry, normalizePair, displayPair, FAVORITE_SYMBOLS } from './src/server/payoutRegistry';
 import { favoriteRegistry } from './src/server/favoriteRegistry';
 import { SignalLedger } from './src/engine/signalLedger';
 import { ScanLoop, ScanService, SCAN_TIMEFRAMES, type ScanLoopState, type ScanTimeframe } from './src/engine/scanScheduler';
 import { buildLedgerReport, formatLedgerReport } from './src/engine/edgeMonitor';
-import { runStartupSelfCheck } from './src/server/runtimeSelfCheck';
+import { createOperationalBootChecks, evaluateSelfChecks, validateDataDirectory } from './src/server/runtimeSelfCheck';
 import { validateRuntimeConfig } from './src/server/runtimeConfig';
+import { buildOperationalStatus, payoutReminderMessages, detectScanGap, pingDeadManSwitch, scanGapActionState, deliverPendingScanGapNotification } from './src/server/operations';
+import { classifySessionAndKillZone } from './src/engine/session';
+import { isFxMarketClosed } from './src/engine/marketHours';
+import { loadSessionConfig, sessionConfigHash, signalDeliveryWithinConfiguredSession } from './src/engine/sessionConfig';
+import { loadMarketCalendar, marketCalendarHash } from './src/engine/marketCalendar';
 
 if (typeof __dirname !== 'undefined' && (__dirname === '.' || !path.isAbsolute(__dirname))) {
   // @ts-ignore
@@ -55,8 +61,9 @@ function resolvePort(): number {
   return 3000;
 }
 const PORT = resolvePort();
-const runtimeConfig = validateRuntimeConfig({ ...process.env, DATA_DIR: process.env.DATA_DIR || path.join(process.cwd(), 'data') });
+const runtimeConfig = validateRuntimeConfig(process.env);
 const HOST = runtimeConfig.host;
+let bootSelfCheckSnapshot = { ok: false, checks: {}, failures: ['BOOT_NOT_RUN'], degraded: [] } as Awaited<ReturnType<typeof evaluateSelfChecks>>;
 
 // CORS support with explicit trusted-origin checking (no credential wildcard)
 const allowedOrigins = [
@@ -173,12 +180,8 @@ const requireOperator = requireRole('ADMIN');
 // --- AUTHENTICATION API ROUTES ---
 
 app.post('/api/auth/register', async (req, res) => {
-  const { name, email, password } = req.body;
-  if (!name || !email || !password) {
-    return res.status(400).json({ error: 'Missing required registration parameters' });
-  }
-
-  const result = await authService.register(name, email, password, 'ANALYST', undefined, req.ip || req.socket.remoteAddress || 'unknown');
+  const { name, email, password } = req.body ?? {};
+  const result = await authService.register(typeof name === 'string' ? name : '', typeof email === 'string' ? email : '', typeof password === 'string' ? password : '', 'ANALYST', undefined, req.ip || req.socket.remoteAddress || 'unknown');
   if (!result.success) {
     return res.status(400).json(result);
   }
@@ -241,10 +244,32 @@ app.get(['/api/engine/dashboard-state', '/api/engine/status'], requireApprovedUs
   });
 });
 
-app.get('/status', (_req, res) => {
-  const selfCheck = runStartupSelfCheck({ ...process.env, DATA_DIR: process.env.DATA_DIR || path.join(process.cwd(), 'data') });
+app.get('/health', (_req, res) => {
+  res.json({ ok: bootSelfCheckSnapshot.ok, serverNowUtc: new Date().toISOString() });
+});
+
+app.get('/status', requireApprovedUser, (_req, res) => {
+  const nowMs = Date.now();
+  const providerBudget = feedManager.getSchedulerSnapshot();
+  const session = classifySessionAndKillZone(new Date(nowMs).toISOString());
+  const payoutPairs = [...new Set([...FAVORITE_SYMBOLS, ...Object.keys(payoutRegistry.all()).map(displayPair)])];
+  const payouts = Object.fromEntries(payoutPairs.map((pair) => [pair, payoutRegistry.get(pair)]));
+  const brokerOffsetMinutes = Number(process.env.BROKER_UTC_OFFSET_MINUTES || 0);
+  const status = buildOperationalStatus({
+    nowMs,
+    brokerOffsetMinutes: Number.isFinite(brokerOffsetMinutes) ? brokerOffsetMinutes : 0,
+    sessionConfig: SESSION_CONFIG,
+    sessionConfigHash: SESSION_CONFIG_HASH,
+    configHash: CONFIG_HASH,
+    engineFingerprint: ENGINE_FINGERPRINT,
+    session,
+    market: isFxMarketClosed(nowMs) ? { state: 'CLOSED', reason: 'FX_WEEKLY_OR_HOLIDAY_CLOSURE' } : { state: 'OPEN', reason: 'FX_SCHEDULE_OPEN' },
+    scanner: scanLoop.state(),
+    payouts,
+    providerBudget: { remainingDay: providerBudget.remainingDay, remainingAuto: providerBudget.remainingAuto },
+  });
   const mute = experimentTracker.alertsMuteState();
-  res.status(selfCheck.ok ? 200 : 503).json({ ok: selfCheck.ok, selfCheck, serverNowUtc: new Date().toISOString(), alerts: { muted: mute.muted, muteUntil: mute.until }, scanSummaryCount: durableStorage.loadScanSummaries().length, storagePolicy: { ringBuffer: 200, summaryCapBytes: 50 * 1024 * 1024, signalTelemetry: 'durable' } });
+  res.status(bootSelfCheckSnapshot.ok ? 200 : 503).json({ ok: bootSelfCheckSnapshot.ok, selfCheck: bootSelfCheckSnapshot, ...status, alerts: { muted: mute.muted, muteUntil: mute.until } });
 });
 
 app.get('/api/engine/valid-setups', requireApprovedUser, (_req, res) => {
@@ -626,6 +651,21 @@ const scanService = new ScanService({
       if (delivered) experimentTracker.markMilestoneNotified(milestone);
     }
     if (!experimentTracker.isAlertsMuted() && result.status !== 'NO_TRADE' && recorded.system_execution.system_decision === 'PASS') {
+      const signal = result.signal_id ? signalLedger.get(result.signal_id) : undefined;
+      const entryMs = signal ? Date.parse(signal.entry_ts) : Number.NaN;
+      const zoneName = Number.isFinite(entryMs) ? classifySessionAndKillZone(new Date(entryMs).toISOString()).kill_zone_name : undefined;
+      const deliveryNow = Date.now();
+      const deliverable = Boolean(signal && result.valid_until && signalDeliveryWithinConfiguredSession({
+        deliveryMs: deliveryNow,
+        entryMs,
+        validUntil: result.valid_until,
+        timeframe: signal.timeframe,
+        zoneName,
+        config: SESSION_CONFIG,
+      }));
+      if (!deliverable) {
+        return { status: 'NO_TRADE' as const, reason: 'SIGNAL_OUTSIDE_WINDOW' };
+      }
       const delivery = await notificationService.dispatchSignalAlert(recorded, { signalId: result.signal_id, validUntil: result.valid_until, signalPrice: result.signal_price, quotePrice: result.quote_price, quoteTs: result.quote_ts, priceTolerance: result.price_tolerance });
       if (delivery.telegram === 'SENT' && result.signal_id) signalLedger.recordTelegramSent(result.signal_id);
     }
@@ -639,7 +679,14 @@ const scanService = new ScanService({
   loadState: loadScanState,
   saveState: saveScanState,
 });
-scanLoop = new ScanLoop(scanService, { now: () => Date.now(), loadState: loadScanState, saveState: saveScanState }, {
+scanLoop = new ScanLoop(scanService, {
+  now: () => Date.now(), loadState: loadScanState, saveState: saveScanState,
+  onCycle: async (_state, _results) => {
+    if (!process.env.DEAD_MAN_SWITCH_URL) return;
+    const healthy = await pingDeadManSwitch(process.env.DEAD_MAN_SWITCH_URL);
+    if (!healthy) console.warn('[ComVision Engine] Dead-man switch ping failed; target and payload are intentionally not logged.');
+  },
+}, {
   timeframe: (SCAN_TIMEFRAMES as string[]).includes(process.env.AUTO_SCAN_TIMEFRAME || '') ? (process.env.AUTO_SCAN_TIMEFRAME as ScanTimeframe) : '15m',
   enabled: process.env.AUTO_SCAN_ENABLED === 'true',
 });
@@ -877,15 +924,123 @@ app.use((req, res, next) => {
 
 // --- VITE / STATIC SERVING INTEGRATION ---
 
+async function checkRepositoryVisibility(): Promise<{ ok: boolean; code?: string }> {
+  const repository = String(process.env.GITHUB_REPOSITORY || '').trim();
+  if (!repository) return { ok: false, code: 'REPOSITORY_IDENTITY_UNKNOWN' };
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) return { ok: false, code: 'INVALID_REPOSITORY_ID' };
+  try {
+    const headers: Record<string, string> = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+    if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+    const response = await fetch(`https://api.github.com/repos/${repository}`, { headers, signal: AbortSignal.timeout(5000) });
+    if (!response.ok) return { ok: false, code: response.status === 404 ? 'REPOSITORY_VISIBILITY_UNVERIFIED' : 'REPOSITORY_API_UNAVAILABLE' };
+    const metadata = await response.json() as { visibility?: string; private?: boolean };
+    return metadata.private === true || metadata.visibility === 'private' ? { ok: true } : { ok: false, code: 'PUBLIC_REPOSITORY' };
+  } catch { return { ok: false, code: 'REPOSITORY_API_UNAVAILABLE' }; }
+}
+
+async function runOperationalBootChecks(): Promise<void> {
+  const repoIdentitySet = Boolean(process.env.GITHUB_REPOSITORY);
+  const checks = createOperationalBootChecks({
+    runtime_config: () => { validateRuntimeConfig(process.env); return { ok: true }; },
+    session_config: () => sessionConfigHash(loadSessionConfig()) === SESSION_CONFIG_HASH ? { ok: true } : { ok: false, code: 'SESSION_CONFIG_CHANGED_RESTART_REQUIRED' },
+    market_calendar: () => marketCalendarHash(loadMarketCalendar()) === STRATEGY_MANIFEST.market_calendar_hash ? { ok: true } : { ok: false, code: 'MARKET_CALENDAR_CHANGED_RESTART_REQUIRED' },
+    broker_offset: () => {
+      const brokerOffset = Number(process.env.BROKER_UTC_OFFSET_MINUTES || 0);
+      return Number.isInteger(brokerOffset) && brokerOffset >= -840 && brokerOffset <= 840 ? { ok: true } : { ok: false, code: 'INVALID_BROKER_UTC_OFFSET' };
+    },
+    data_directory: () => { validateDataDirectory(runtimeConfig.dataDir); return { ok: true }; },
+    signal_ledger: () => {
+      const verification = signalLedger.verify();
+      return verification.ok ? { ok: true } : { ok: false, code: 'LEDGER_TAMPERED' };
+    },
+    repository_identity: async () => repoIdentitySet ? { ok: true } : { ok: false, code: 'REPOSITORY_IDENTITY_UNKNOWN' },
+    repository_visibility: checkRepositoryVisibility,
+    provider_price: async () => {
+      if (!feedManager.getProviders().includes('TWELVE_DATA')) return { ok: false, code: 'PROVIDER_NOT_CONFIGURED' };
+      const quote = await feedManager.fetchQuote('EUR/USD');
+      return Number.isFinite(quote.price) && quote.price > 0 ? { ok: true } : { ok: false, code: 'INVALID_PROVIDER_PRICE' };
+    },
+    telegram_probe: async () => await notificationService.verifyTelegramConnection() ? { ok: true } : { ok: false, code: 'TELEGRAM_PROBE_FAILED' },
+    clock_drift: () => {
+      const state = feedManager.getClockState();
+      const maxDrift = Math.max(1000, Number(process.env.CLOCK_MAX_DRIFT_MS || 5000));
+      return state.status === 'CLOCK_OK' && state.driftMs !== null && Math.abs(state.driftMs) <= maxDrift ? { ok: true } : { ok: false, code: 'CLOCK_DRIFT_UNVERIFIED' };
+    },
+  }, repoIdentitySet);
+  bootSelfCheckSnapshot = await evaluateSelfChecks(checks);
+  const issues = [...bootSelfCheckSnapshot.failures, ...bootSelfCheckSnapshot.degraded];
+  if (issues.length && notificationService.isTelegramEnabled()) {
+    await notificationService.sendTelegramText(`BOOT SELF-CHECK ${bootSelfCheckSnapshot.ok ? 'DEGRADED' : 'FAILED'}: ${issues.join('; ')}. No broker execution is performed.`);
+  }
+  if (!bootSelfCheckSnapshot.ok) throw new Error(`BOOT_SELF_CHECK_FAILED: ${bootSelfCheckSnapshot.failures.join('; ')}`);
+}
+
+function localDateForZone(nowMs: number, zone: 'LONDON' | 'NEW_YORK'): string {
+  const config = SESSION_CONFIG.zones[zone];
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: config.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(nowMs));
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+async function maybeSendPayoutFreshnessReminder(): Promise<void> {
+  const nowMs = Date.now();
+  const session = classifySessionAndKillZone(new Date(nowMs).toISOString());
+  const zone = session.kill_zone_name;
+  if (!zone || session.kill_zone !== 'INSIDE_KILL_ZONE') return;
+  const localDate = localDateForZone(nowMs, zone);
+  const key = `${zone}:${localDate}`;
+  const settings = durableStorage.loadAppSettings();
+  if (settings.lastPayoutFreshnessReminder === key) return;
+  const payoutPairs = [...new Set([...FAVORITE_SYMBOLS, ...Object.keys(payoutRegistry.all()).map(displayPair)])];
+  const payouts = Object.fromEntries(payoutPairs.map((pair) => [pair, payoutRegistry.get(pair)]));
+  const messages = payoutReminderMessages({ nowMs, zone, localDate, payouts });
+  const delivered = await notificationService.sendTelegramText(messages.join('\n'));
+  if (delivered) durableStorage.saveAppSettings({ ...durableStorage.loadAppSettings(), lastPayoutFreshnessReminder: key });
+}
+
+async function recordStartupScanGap(): Promise<void> {
+  const state = scanLoop.state();
+  if (state.enabled) {
+    const gap = detectScanGap(state.lastRunAt, Date.now(), state.timeframe);
+    if (gap) {
+      const key = `${state.timeframe}:${gap.lastRunAt}:${gap.missedCandles}`;
+      const settings = durableStorage.loadAppSettings();
+      const actions = scanGapActionState({ key, recordedKey: settings.lastRecordedScanGap, notifiedKey: settings.lastNotifiedScanGap });
+      const alreadyInLedger = signalLedger.readAll().some((entry) => entry.type === 'SCAN_GAP' && entry.payload.scan_gap_key === key);
+      if (actions.appendEvent && !alreadyInLedger) {
+        signalLedger.append('SCAN_GAP', { scan_gap_key: key, timeframe: state.timeframe, missed_candles: gap.missedCandles, last_run_at: gap.lastRunAt, detected_at: gap.detectedAt, recovery: 'PERSISTED_STATE_RESTORED' });
+      }
+      if (settings.lastRecordedScanGap !== key) {
+        const message = `SCAN_GAP: ${gap.missedCandles} ${state.timeframe} candle(s) missed since ${gap.lastRunAt}. Scanner state was restored; inspect before relying on alerts.`;
+        durableStorage.saveAppSettings({ ...durableStorage.loadAppSettings(), lastRecordedScanGap: key, ...(settings.lastNotifiedScanGap === key ? {} : { pendingScanGapNotification: { key, message } }) });
+      }
+    }
+  }
+  const settings = durableStorage.loadAppSettings();
+  const pending = settings.pendingScanGapNotification;
+  if (!pending || typeof pending.key !== 'string' || typeof pending.message !== 'string') return;
+  await deliverPendingScanGapNotification({
+    key: pending.key,
+    notifiedKey: settings.lastNotifiedScanGap,
+    message: pending.message,
+    send: (message) => notificationService.sendTelegramText(message),
+    markNotified: () => {
+      const latest = durableStorage.loadAppSettings();
+      const { pendingScanGapNotification: _pending, ...remaining } = latest;
+      durableStorage.saveAppSettings({ ...remaining, lastNotifiedScanGap: pending.key });
+    },
+  });
+}
+
 async function startServer() {
   const isProduction =
     process.env.NODE_ENV === 'production' ||
     (typeof __filename !== 'undefined' && (__filename.endsWith('.cjs') || __filename.includes('dist')));
   const isDev = !isProduction && (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV);
-  if (isProduction) {
-    const selfCheck = runStartupSelfCheck({ ...process.env, DATA_DIR: process.env.DATA_DIR || path.join(process.cwd(), 'data') });
-    if (!selfCheck.ok) throw new Error(`BOOT_SELF_CHECK_FAILED: ${selfCheck.failures.join('; ')}`);
-  }
+  await authService.whenReady();
+  await runOperationalBootChecks();
+  await recordStartupScanGap();
+  setInterval(() => { void recordStartupScanGap().catch(() => undefined); }, 30_000);
   if (isDev) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -893,7 +1048,7 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    const distPath = path.join(process.env.APP_ROOT || process.cwd(), 'dist');
     app.use((req, res, next) => {
       if (/^\/server\.cjs(?:\.map)?$/i.test(req.path)) return res.status(404).json({ error: 'NOT_FOUND' });
       next();
@@ -905,6 +1060,8 @@ async function startServer() {
   }
 
   scanLoop.start();
+  void maybeSendPayoutFreshnessReminder().catch(() => undefined);
+  setInterval(() => { void maybeSendPayoutFreshnessReminder().catch(() => undefined); }, 30_000);
   let telegramPollBusy = false;
   if (process.env.TELEGRAM_COMMAND_POLLING !== 'false') {
     setInterval(() => {
@@ -926,8 +1083,12 @@ async function startServer() {
     console.log(`[ComVision Engine] Server running on http://${HOST}:${PORT}`);
     console.log(`[ComVision Engine] Architecture: Strictly Non-Execution Manual Alert Engine`);
     console.log(`[ComVision Engine] Experiment Freeze: ${ACTIVE_EXPERIMENT_ID} Scope Immutable`);
-    console.log(`[ComVision Engine] Durable Persistence: Active (data/)`);
+    console.log(`[ComVision Engine] Durable Persistence: Active (${runtimeConfig.dataDir})`);
   });
 }
 
-startServer();
+startServer().catch((error) => {
+  const message = error instanceof Error ? error.message : 'STARTUP_FAILED';
+  console.error(`[ComVision Engine] Startup aborted: ${message.split(':')[0]}`);
+  process.exit(1);
+});
