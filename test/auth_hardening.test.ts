@@ -22,7 +22,8 @@ async function main() {
 
   const createHarness = () => {
     const service = Object.create(AuthService.prototype) as any;
-    const passwordHash = service.hashPassword('test-only-password-123');
+    const testSalt = crypto.randomBytes(16).toString('hex');
+    const passwordHash = `${testSalt}:${crypto.scryptSync('test-only-password-123', testSalt, 64).toString('hex')}`;
     service.users = new Map([['user-1', {
       id: 'user-1', email: 'person@example.invalid', name: 'Test User', role: 'ANALYST',
       status: 'APPROVED', createdAt: new Date().toISOString(), passwordHash,

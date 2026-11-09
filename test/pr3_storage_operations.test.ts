@@ -29,6 +29,6 @@ assert.equal(payoutStatusFor({ pct: 90, setAt: '2026-01-01T00:00:00.000Z', sourc
 assert.equal(payoutStatusFor({ pct: 90, setAt: '2026-01-01T00:00:00.000Z', source: 'TELEGRAM_MANUAL' }, Date.parse('2026-01-01T12:00:00.000Z'), 24), 'ELIGIBLE');
 assert.equal(isEarlyClose('2026-11-27T17:00:00.000Z'), true);
 assert.equal(isCalendarSessionValid({ timezone: 'America/New_York', closeLocal: '13:00', earlyCloseDates: ['2026-11-27'] }), true);
-assert.throws(() => validateRuntimeConfig({ SESSION_SECRET: '', DATA_DIR: temp }), /SESSION_SECRET/);
-assert.doesNotThrow(() => validateRuntimeConfig({ SESSION_SECRET: 'long-enough-secret', DATA_DIR: temp }));
+assert.throws(() => validateRuntimeConfig({ NODE_ENV: 'production', SESSION_SECRET: '', DATA_DIR: temp }), /SESSION_SECRET/);
+assert.doesNotThrow(() => validateRuntimeConfig({ NODE_ENV: 'production', SESSION_SECRET: '0123456789abcdef0123456789abcdef', DATA_DIR: temp }));
 console.log('[pr3_storage_operations] RED/PASS contract assertions');

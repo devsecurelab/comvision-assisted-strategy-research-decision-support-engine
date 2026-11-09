@@ -1,4 +1,4 @@
-export type TelegramMethod = 'sendMessage' | 'getUpdates';
+export type TelegramMethod = 'sendMessage' | 'getUpdates' | 'getMe';
 
 export interface TelegramSendOptions {
   token: string;
@@ -99,7 +99,7 @@ export async function telegramSend(options: TelegramSendOptions): Promise<Telegr
     }
 
     try {
-      const method = options.method === 'getUpdates' ? 'GET' : 'POST';
+      const method = options.method === 'sendMessage' ? 'POST' : 'GET';
       const response = await fetchImpl(buildUrl(options.token, options.method, payload), {
         method,
         headers: method === 'POST'
@@ -132,7 +132,7 @@ export async function telegramSend(options: TelegramSendOptions): Promise<Telegr
           ok: true,
           attempts: attempt,
           ...(Number.isFinite(messageId) && messageId > 0 ? { messageId } : {}),
-          ...(options.method === 'getUpdates' ? { data: safeData } : {}),
+          ...(options.method !== 'sendMessage' ? { data: safeData } : {}),
           ...(expired ? { expired: true } : {}),
         };
       }

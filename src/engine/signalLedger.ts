@@ -2,13 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { slippagePips } from './price';
+import { CONFIG_HASH, CONFIG_HASH_EPOCH, ENGINE_FINGERPRINT, SESSION_CONFIG, SESSION_CONFIG_HASH, STRATEGY_MANIFEST } from './manifest';
 
 /**
  * Append-only signal ledger (JSON Lines) with a SHA-256 hash chain.
  * Every line commits to the previous line's hash, so editing, deleting or
  * reordering any historical record is detected by verify().
  */
-export type LedgerEventType = 'SIGNAL' | 'SCAN' | 'RESULT' | 'TRADE_TAKEN' | 'CANDLE_REVISION' | 'SIGNAL_SENT' | 'EDGE_LOST' | 'EDGE_RESUMED';
+export type LedgerEventType = 'SIGNAL' | 'SCAN' | 'RESULT' | 'TRADE_TAKEN' | 'CANDLE_REVISION' | 'SIGNAL_SENT' | 'EDGE_LOST' | 'EDGE_RESUMED' | 'SCAN_GAP';
 export type SignalOutcome = 'WIN' | 'LOSS' | 'TIE' | 'SKIPPED' | 'UNRESOLVED';
 
 export interface LedgerEntry<T = Record<string, unknown>> { seq: number; type: LedgerEventType; ts: string; payload: T; prevHash: string; hash: string }
@@ -34,6 +35,7 @@ export interface SignalPayload {
   experiment_id: string;
   config_hash?: string;
   config_hash_epoch?: string;
+  session_config_hash?: string;
   session?: string;
   kill_zone?: string;
   signal_price?: number;
@@ -90,6 +92,29 @@ export interface LedgerStats { signals: number; resolved: number; wins: number; 
 
 export const GENESIS_HASH = '0'.repeat(64);
 
+function identityMetadata(payload: Record<string, unknown>) {
+  const timeframe = payload.timeframe;
+  const tf = timeframe === '5m' || timeframe === '15m' || timeframe === '30m' ? timeframe : undefined;
+  const entryWindowSeconds = tf ? Number(process.env[`ENTRY_WINDOW_${tf.toUpperCase()}_SECONDS`] || ({ '5m': 45, '15m': 60, '30m': 90 } as const)[tf]) : null;
+  const expiryMinutes = tf ? SESSION_CONFIG.expiryMinutes[tf] : null;
+  return {
+    config_hash: CONFIG_HASH,
+    config_hash_epoch: CONFIG_HASH_EPOCH,
+    session_config_hash: SESSION_CONFIG_HASH,
+    engine_fingerprint: ENGINE_FINGERPRINT,
+    rule_variant: SESSION_CONFIG.entryRule,
+    operational_parameters: {
+      timeframe: tf ?? null,
+      entry_window_seconds: entryWindowSeconds,
+      expiry_minutes: expiryMinutes,
+      start_margin_minutes: SESSION_CONFIG.startMarginMinutes,
+      end_margin_minutes: SESSION_CONFIG.endMarginMinutes,
+      session_version: SESSION_CONFIG.version,
+      market_calendar_hash: STRATEGY_MANIFEST.market_calendar_hash,
+    },
+  };
+}
+
 export function signalIdFor(pair: string, timeframe: string, signalCandleOpenTs: string): string {
   return `SIG-${createHash('sha256').update(`${pair}|${timeframe}|${signalCandleOpenTs}`).digest('hex').slice(0, 12).toUpperCase()}`;
 }
@@ -98,12 +123,21 @@ function hashEntry(entry: Omit<LedgerEntry, 'hash'>): string {
   return createHash('sha256').update(JSON.stringify({ seq: entry.seq, type: entry.type, ts: entry.ts, payload: entry.payload, prevHash: entry.prevHash })).digest('hex').toLowerCase();
 }
 
+function defaultLedgerPath(): string {
+  const explicit = String(process.env.SIGNAL_LEDGER_PATH || '').trim();
+  if (explicit) return explicit;
+  const dataDir = String(process.env.DATA_DIR || '').trim();
+  if (dataDir) return path.join(dataDir, 'signal-ledger.jsonl');
+  if (process.env.NODE_ENV === 'test') return path.join(process.cwd(), 'data', 'signal-ledger.jsonl');
+  throw new Error('SIGNAL_LEDGER_PATH_REQUIRED: configure DATA_DIR or SIGNAL_LEDGER_PATH before creating the signal ledger.');
+}
+
 export class SignalLedger {
   private cachedEntries: LedgerEntry[] | undefined;
   private cachedSignature: string | undefined;
   private cacheVerified = false;
 
-  constructor(private readonly filePath: string = process.env.SIGNAL_LEDGER_PATH || path.join(process.env.DATA_DIR || path.join(process.cwd(), 'data'), 'signal-ledger.jsonl')) {
+  constructor(private readonly filePath: string = defaultLedgerPath()) {
     this.recoverPartialTail();
   }
 
@@ -188,7 +222,8 @@ export class SignalLedger {
     if (!check.ok) throw new Error(`LEDGER_TAMPERED: ${check.reason} at entry ${check.brokenAt ?? 'unknown'}; refusing to append.`);
     const entries = this.cachedEntries!;
     const prevHash = entries.at(-1)?.hash ?? GENESIS_HASH;
-    const base = { seq: entries.length, type, ts, payload: payload as Record<string, unknown>, prevHash };
+    const committedPayload = { ...(payload as Record<string, unknown>), ...identityMetadata(payload as Record<string, unknown>) };
+    const base = { seq: entries.length, type, ts, payload: committedPayload, prevHash };
     const entry = { ...base, hash: hashEntry(base) };
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
     const fd = fs.openSync(this.filePath, 'a');

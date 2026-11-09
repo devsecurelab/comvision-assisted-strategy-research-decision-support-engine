@@ -1,4 +1,6 @@
 import type { KillZoneState, MarketSession, SessionContext } from './types';
+import { loadSessionConfig } from './sessionConfig';
+import { isMarketCalendarClosed } from './marketCalendar';
 
 /**
  * Owner session rules (N1): London kill zone 07:00-10:00 Europe/London local,
@@ -9,12 +11,8 @@ import type { KillZoneState, MarketSession, SessionContext } from './types';
  */
 export const LONDON_TZ = 'Europe/London';
 export const NEW_YORK_TZ = 'America/New_York';
-const KILL_ZONE_START = 7;
-const KILL_ZONE_END = 10;
-const CORE_START_LONDON = 7;
-const CORE_END_NEW_YORK = 16;
-const ASIA_START_UTC = 0;
-const ASIA_END_UTC = 6;
+let activeSessionConfig: ReturnType<typeof loadSessionConfig> | undefined;
+function getSessionConfig() { return activeSessionConfig ??= loadSessionConfig(); }
 
 interface ZonedParts { year: number; month: number; day: number; hour: number; minute: number; decimal: number }
 
@@ -59,10 +57,20 @@ export function classifySessionAndKillZone(timestampIso: string): SessionContext
   if (!Number.isFinite(date.getTime())) {
     return { session: 'UNKNOWN', kill_zone: 'UNKNOWN', session_start_utc: 'NONE', session_end_utc: 'NONE', timestamp_utc: 'INVALID', timestamp_bdt: 'INVALID' };
   }
-  const london = zonedParts(date, LONDON_TZ);
-  const newYork = zonedParts(date, NEW_YORK_TZ);
-  const coreStart = utcInstantForLocal(date, LONDON_TZ, CORE_START_LONDON);
-  const coreEnd = utcInstantForLocal(date, NEW_YORK_TZ, CORE_END_NEW_YORK);
+  if (isMarketCalendarClosed(date)) {
+    return { session: 'CLOSED', kill_zone: 'OUTSIDE_KILL_ZONE', session_start_utc: 'NONE', session_end_utc: 'NONE', timestamp_utc: date.toISOString(), timestamp_bdt: new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Dhaka', dateStyle: 'short', timeStyle: 'medium' }).format(date) };
+  }
+  const config = getSessionConfig();
+  const londonZone = config.zones.LONDON;
+  const newYorkZone = config.zones.NEW_YORK;
+  const london = zonedParts(date, londonZone.timezone);
+  const newYork = zonedParts(date, newYorkZone.timezone);
+  const [coreStartHour, coreStartMinute] = config.coreSession.startLocal.split(':').map(Number);
+  const [coreEndHour, coreEndMinute] = config.coreSession.endLocal.split(':').map(Number);
+  const coreStartZone = config.zones[config.coreSession.startZone];
+  const coreEndZone = config.zones[config.coreSession.endZone];
+  const coreStart = utcInstantForLocal(date, coreStartZone.timezone, coreStartHour, coreStartMinute);
+  const coreEnd = utcInstantForLocal(date, coreEndZone.timezone, coreEndHour, coreEndMinute);
   const t = date.getTime();
   const inCore = t >= coreStart.getTime() && t < coreEnd.getTime();
 
@@ -70,29 +78,34 @@ export function classifySessionAndKillZone(timestampIso: string): SessionContext
   let sessionStart = 'NONE';
   let sessionEnd = 'NONE';
   if (inCore) {
-    session = newYork.decimal < KILL_ZONE_START ? 'LONDON' : london.decimal < 16 ? 'LONDON_NEW_YORK_OVERLAP' : 'NEW_YORK';
+    const newYorkStart = Number(newYorkZone.startLocal.slice(0, 2)) + Number(newYorkZone.startLocal.slice(3, 5)) / 60;
+    session = newYork.decimal < newYorkStart ? 'LONDON' : london.decimal < 16 ? 'LONDON_NEW_YORK_OVERLAP' : 'NEW_YORK';
     sessionStart = hhmm(coreStart);
     sessionEnd = hhmm(coreEnd);
-  } else if (date.getUTCHours() >= ASIA_START_UTC && date.getUTCHours() < ASIA_END_UTC) {
-    session = 'ASIA';
-    sessionStart = '00:00';
-    sessionEnd = '06:00';
   }
 
   let kill_zone: KillZoneState = 'OUTSIDE_KILL_ZONE';
   let kill_zone_start_utc: string | undefined;
   let kill_zone_end_utc: string | undefined;
   let kill_zone_name: 'LONDON' | 'NEW_YORK' | undefined;
-  if (london.decimal >= KILL_ZONE_START && london.decimal < KILL_ZONE_END) {
+  const londonStart = Number(londonZone.startLocal.slice(0, 2)) + Number(londonZone.startLocal.slice(3, 5)) / 60;
+  const londonEnd = Number(londonZone.endLocal.slice(0, 2)) + Number(londonZone.endLocal.slice(3, 5)) / 60;
+  const nyStart = Number(newYorkZone.startLocal.slice(0, 2)) + Number(newYorkZone.startLocal.slice(3, 5)) / 60;
+  const nyEnd = Number(newYorkZone.endLocal.slice(0, 2)) + Number(newYorkZone.endLocal.slice(3, 5)) / 60;
+  if (london.decimal >= londonStart && london.decimal < londonEnd) {
     kill_zone = 'INSIDE_KILL_ZONE';
     kill_zone_name = 'LONDON';
-    kill_zone_start_utc = hhmm(utcInstantForLocal(date, LONDON_TZ, KILL_ZONE_START));
-    kill_zone_end_utc = hhmm(utcInstantForLocal(date, LONDON_TZ, KILL_ZONE_END));
-  } else if (newYork.decimal >= KILL_ZONE_START && newYork.decimal < KILL_ZONE_END) {
+    const [startHour, startMinute] = londonZone.startLocal.split(':').map(Number);
+    const [endHour, endMinute] = londonZone.endLocal.split(':').map(Number);
+    kill_zone_start_utc = hhmm(utcInstantForLocal(date, londonZone.timezone, startHour, startMinute));
+    kill_zone_end_utc = hhmm(utcInstantForLocal(date, londonZone.timezone, endHour, endMinute));
+  } else if (newYork.decimal >= nyStart && newYork.decimal < nyEnd) {
     kill_zone = 'INSIDE_KILL_ZONE';
     kill_zone_name = 'NEW_YORK';
-    kill_zone_start_utc = hhmm(utcInstantForLocal(date, NEW_YORK_TZ, KILL_ZONE_START));
-    kill_zone_end_utc = hhmm(utcInstantForLocal(date, NEW_YORK_TZ, KILL_ZONE_END));
+    const [startHour, startMinute] = newYorkZone.startLocal.split(':').map(Number);
+    const [endHour, endMinute] = newYorkZone.endLocal.split(':').map(Number);
+    kill_zone_start_utc = hhmm(utcInstantForLocal(date, newYorkZone.timezone, startHour, startMinute));
+    kill_zone_end_utc = hhmm(utcInstantForLocal(date, newYorkZone.timezone, endHour, endMinute));
   }
 
   return {

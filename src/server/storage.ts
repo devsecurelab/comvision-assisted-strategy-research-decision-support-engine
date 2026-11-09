@@ -4,6 +4,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { MasterTelemetry, UserAccount, UserRecordedAction } from '../engine/types';
 import { compactScanSummary, ScanSummaryRing, shouldWriteSummary, type CompactScanSummary } from './operationalStorage';
 
@@ -119,11 +120,13 @@ export class DurableStorage {
   private readonly jsonCache = new Map<string, { signature: string; value: unknown }>();
 
   constructor(customDir?: string) {
-    this.setDataDir(customDir || process.env.DATA_DIR || path.join(process.cwd(), 'data'));
+    const configuredDir = customDir || process.env.DATA_DIR?.trim();
+    if (!configuredDir && process.env.NODE_ENV === 'production') throw new Error('DATA_DIR_REQUIRED: configure a persistent DATA_DIR before production startup.');
+    this.setDataDir(configuredDir || path.join(os.tmpdir(), `comvision-test-data-${process.pid}`));
   }
 
   public setDataDir(dir: string) {
-    this.dataDir = dir;
+    this.dataDir = path.resolve(dir);
     this.ensureDirExists(this.dataDir);
     const cutoff = Date.now() - 60 * 60 * 1000;
     for (const name of fs.readdirSync(this.dataDir)) {
@@ -144,6 +147,8 @@ export class DurableStorage {
     this.experimentFile = path.join(this.dataDir, 'experiment_state.json');
     this.settingsFile = path.join(this.dataDir, 'app_settings.json');
   }
+
+  public getDataDir(): string { return this.dataDir; }
 
   public clearAll() {
     const files = [

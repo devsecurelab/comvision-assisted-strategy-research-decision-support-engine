@@ -175,7 +175,7 @@ export interface MomentumStateInfo {
 }
 
 // Stage 16 & 17: Session & Kill Zone Context
-export type MarketSession = 'ASIA' | 'LONDON' | 'NEW_YORK' | 'LONDON_NEW_YORK_OVERLAP' | 'OFF_PEAK' | 'UNKNOWN';
+export type MarketSession = 'ASIA' | 'LONDON' | 'NEW_YORK' | 'LONDON_NEW_YORK_OVERLAP' | 'OFF_PEAK' | 'CLOSED' | 'UNKNOWN';
 export type KillZoneState = 'INSIDE_KILL_ZONE' | 'OUTSIDE_KILL_ZONE' | 'UNKNOWN';
 
 export interface SessionContext {

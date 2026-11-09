@@ -1,12 +1,20 @@
 {
+  "version": "PR7-CALENDAR-1",
   "timezone": "America/New_York",
-  "regularCloseLocal": "17:00",
-  "earlyCloseDates": [
-    "2026-11-27",
-    "2026-12-24",
-    "2027-11-26",
-    "2027-12-24"
-  ],
-  "source": "operator-maintained-calendar",
-  "policy": "No automatic signal generation during configured early-close windows"
+  "weeklyClose": {
+    "weekday": "FRIDAY",
+    "localTime": "17:00"
+  },
+  "weeklyOpen": {
+    "weekday": "SUNDAY",
+    "localTime": "17:00"
+  },
+  "holidays": {
+    "fixedDates": ["01-01", "12-25"],
+    "goodFriday": true
+  },
+  "earlyCloseRules": [
+    { "monthDay": "12-24", "closeLocal": "12:00" },
+    { "monthDay": "12-31", "closeLocal": "12:00" }
+  ]
 }

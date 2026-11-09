@@ -100,6 +100,9 @@ const run = async () => {
   assert.match((await service.scanPair('gbp/usd', '15m')).reason, /^PAYOUT_BELOW_MIN/);
   assert.equal((await service.scanPair('NOTAPAIR', '15m')).reason, 'UNSUPPORTED_SYMBOL');
   assert.equal(fetches, before, 'no fetch without eligible payout');
+  const staleService = new ScanService({ ...deps, ledger: new SignalLedger(path.join(dir, 'ledger-stale-payout.jsonl')), getPayoutStatus: () => 'PAYOUT_STALE' });
+  assert.equal((await staleService.scanPair('EURUSD', '15m')).reason, 'PAYOUT_STALE');
+  assert.equal(fetches, before, 'stale payout fails closed before provider fetch');
   // Latest closed candle -> CALL, recorded once in the ledger.
   const first = await service.scanPair('eurusd', '15m');
   assert.equal(first.status, 'CALL'); assert.equal(first.signal_candle_open_ts, SIGNAL_TS); assert.ok(first.signal_id);
@@ -112,6 +115,14 @@ const run = async () => {
   assert.equal(second.cached, true); assert.equal(second.status, first.status); assert.equal(second.signal_id, first.signal_id); assert.equal(fetches, used);
   assert.equal(scanLedger.signals().length, 1);
   console.log('[scan_payout_and_same_candle] PASS');
+
+  const suppressedLedger = new SignalLedger(path.join(dir, 'ledger-delivery-suppressed.jsonl'));
+  const suppressedService = new ScanService({ ...deps, ledger: suppressedLedger, onScan: () => ({ status: 'NO_TRADE', reason: 'SIGNAL_OUTSIDE_WINDOW' }) });
+  const suppressed = await suppressedService.scanPair('EURUSD', '15m');
+  assert.equal(suppressed.status, 'NO_TRADE');
+  assert.equal(suppressed.reason, 'SIGNAL_OUTSIDE_WINDOW');
+  assert.equal(suppressedLedger.readAll().filter((entry) => entry.type === 'SCAN').at(-1)?.payload.reason, 'SIGNAL_OUTSIDE_WINDOW');
+  console.log('[delivery_window_suppression] PASS');
 
   // A stop during an in-flight AUTO scan must not dispatch a late alert.
   let autoAlerts = 0;

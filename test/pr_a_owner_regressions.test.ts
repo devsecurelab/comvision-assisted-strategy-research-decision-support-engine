@@ -71,7 +71,11 @@ async function verifyLedger() {
     const started = '2026-10-14T10:00:00.000Z';
     ledger.recordScan({ scan_id: 'test-scan', pair: 'EUR/USD', timeframe: '15m', trigger: 'MANUAL', status: 'NO_TRADE', reason: 'SIGNAL_EXPIRED', scan_started_at: started, candle_available_at: '2026-10-14T10:00:01.000Z', delivered_at: '2026-10-14T10:00:02.000Z' });
     assert.equal(ledger.expiredScanCount(), 1);
-    assert.deepEqual(ledger.scanEntries()[0], { scan_id: 'test-scan', pair: 'EUR/USD', timeframe: '15m', trigger: 'MANUAL', status: 'NO_TRADE', reason: 'SIGNAL_EXPIRED', scan_started_at: started, candle_available_at: '2026-10-14T10:00:01.000Z', delivered_at: '2026-10-14T10:00:02.000Z' });
+    const scanEntry = ledger.scanEntries()[0] as unknown as Record<string, unknown>;
+    const { config_hash, config_hash_epoch, session_config_hash, engine_fingerprint, rule_variant, operational_parameters, ...scanFields } = scanEntry;
+    assert.deepEqual(scanFields, { scan_id: 'test-scan', pair: 'EUR/USD', timeframe: '15m', trigger: 'MANUAL', status: 'NO_TRADE', reason: 'SIGNAL_EXPIRED', scan_started_at: started, candle_available_at: '2026-10-14T10:00:01.000Z', delivered_at: '2026-10-14T10:00:02.000Z' });
+    assert.ok(config_hash && config_hash_epoch && session_config_hash && engine_fingerprint && rule_variant);
+    assert.equal((operational_parameters as { timeframe?: string } | undefined)?.timeframe, '15m');
     ledger.recordSignal({ signal_id: 'SIG-TEST', pair: 'EUR/USD', timeframe: '15m', direction: 'CALL', signal_candle_open_ts: started, entry_ts: '2026-10-14T10:15:00.000Z', expiry_ts: '2026-10-14T10:30:00.000Z', valid_until: '2026-10-14T10:15:10.000Z', payout_pct: 90, breakeven: 52.63, mfci_total: 0.9, mfci_band: 'ABOVE_THRESHOLD', engine_mode: 'PRICE_ONLY', provider: 'TWELVE_DATA', setup_id: 'setup-test', experiment_id: 'experiment-test' });
     ledger.recordResult({ signal_id: 'SIG-TEST', outcome: 'WIN', source: 'AUTO_PROVIDER' });
     ledger.recordResult({ signal_id: 'SIG-TEST', outcome: 'LOSS', source: 'TELEGRAM_MANUAL' });
@@ -97,7 +101,7 @@ async function verifyHttpAuthAndLegacy404() {
   const cli = path.join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs');
   const child = spawn(process.execPath, [cli, path.join(root, 'server.ts'), '--port', String(port)], {
     cwd: temp,
-    env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(port), DATA_DIR: dataDir, SIGNAL_LEDGER_PATH: path.join(dataDir, 'ledger.jsonl'), ADMIN_BOOTSTRAP_PASSWORD: adminPassword, SESSION_SECRET: sessionSecret, CORS_ALLOWED_ORIGINS: 'http://allowed.example', TELEGRAM_COMMAND_POLLING: 'false', AUTO_SCAN_ENABLED: 'false' },
+    env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(port), DATA_DIR: dataDir, SIGNAL_LEDGER_PATH: path.join(dataDir, 'ledger.jsonl'), SESSION_CONFIG_PATH: path.join(root, 'config', 'sessions.json'), ADMIN_BOOTSTRAP_PASSWORD: adminPassword, SESSION_SECRET: sessionSecret, REGISTRATION_ENABLED: 'true', CORS_ALLOWED_ORIGINS: 'http://allowed.example', TELEGRAM_COMMAND_POLLING: 'false', AUTO_SCAN_ENABLED: 'false' },
     stdio: ['ignore', 'ignore', 'ignore'],
   });
   const base = `http://127.0.0.1:${port}`;
