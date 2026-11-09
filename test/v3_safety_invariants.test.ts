@@ -99,7 +99,7 @@ for (const line of envExample.split(/\r?\n/)) {
   const match = line.match(/^\s*([A-Z0-9_]*(?:_KEY|_TOKEN|PASSWORD[A-Z0-9_]*|_SECRET|_PASS))\s*=(.*)$/);
   if (match) assert.equal(match[2].trim(), '', `${match[1]} must not contain a value in .env.example`);
 }
-for (const [name, value] of [['ENGINE_FULL_MODE_ENABLED', 'false'], ['AUTO_SCAN_ENABLED', 'false'], ['AUTO_SCAN_TIMEFRAME', '15m'], ['TELEGRAM_COMMAND_POLLING', 'false'], ['TELEGRAM_POLL_MS', '10000'], ['SIGNAL_LEDGER_PATH', 'data/signal-ledger.jsonl']]) {
+for (const [name, value] of [['ENGINE_FULL_MODE_ENABLED', 'false'], ['AUTO_SCAN_ENABLED', 'false'], ['AUTO_SCAN_TIMEFRAME', '15m'], ['TELEGRAM_COMMAND_POLLING', 'false'], ['TELEGRAM_POLL_MS', '10000'], ['DATA_DIR', ''], ['SIGNAL_LEDGER_PATH', 'signal-ledger.jsonl']]) {
   assert.match(envExample, new RegExp(`^${name}=${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'), `${name} safe default is present`);
 }
 console.log('[env_example_secrets] PASS');
