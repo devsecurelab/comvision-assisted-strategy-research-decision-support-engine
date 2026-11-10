@@ -2,6 +2,28 @@ import type { Candle, NewsEvent, Timeframe } from './types';
 import { computeVolumeWeightedPoc, detectBprFromCandles, evaluateIfvg } from './marketStructureV3';
 import { classifySessionAndKillZone, isCoreSession } from './session';
 import { validateCandleSeries } from './dataIntegrity';
+import {
+  ANALYSIS_WINDOW,
+  ATR_PERIOD,
+  BREAKER_DELTA_SAMPLE,
+  BREAKER_DELTA_Z_MINIMUM,
+  CHOCH_VOLUME_SPIKE_MULTIPLIER,
+  EVENT_LOOKBACK,
+  FVG_SEARCH_LOOKBACK,
+  FRACTAL_N,
+  MFCI_THRESHOLD,
+  MIN_ENGINE_CANDLES,
+  MIN_FVG_GAP_ATR,
+  NEWS_RESTRICTION_WINDOW_MINUTES,
+  OTE_WINDOW,
+  POOL_LOOKBACK,
+  POOL_MERGE_DISTANCE_ATR,
+  POOL_TOLERANCE_ATR,
+  REFERENCE_LOOKBACK,
+  SWEEP_LOOKBACK,
+  V3_STRATEGY_PARAMS,
+  BPR_LOOKBACK,
+} from './params';
 
 export type Direction = 'BULLISH' | 'BEARISH' | 'NEUTRAL';
 export type HtfBias = 'BULLISH' | 'BEARISH' | 'UNCLEAR';
@@ -47,14 +69,7 @@ export interface V3Input {
   gate4Mode?: 'A' | 'B';
 }
 
-export const MFCI_THRESHOLD = 0.85;
-export const MIN_ENGINE_CANDLES = 30;
-const ANALYSIS_WINDOW = 120;
-const FRACTAL_N = 2;
-const EVENT_LOOKBACK = 20;
-const SWEEP_LOOKBACK = 10;
-const POOL_LOOKBACK = 20;
-const BREAKER_DELTA_SAMPLE = 50;
+export { MFCI_THRESHOLD, MIN_ENGINE_CANDLES } from './params';
 
 type Swing = { index: number; type: 'SWING_HIGH' | 'SWING_LOW'; price: number; confirmedAt: number };
 
@@ -148,7 +163,7 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
   const cs = input.candles.slice(-ANALYSIS_WINDOW);
   const n = cs.length; const last = n - 1; const cur = cs[last];
   const isBull = d === 'BULLISH';
-  const a14 = atr(cs, 14);
+  const a14 = atr(cs, ATR_PERIOD);
   if (a14 === null || a14 <= 0) return failClosed(input, d, 'DATA_QUALITY_FAIL: ATR14 is zero or unavailable (flat or insufficient window).');
 
   const fullCapable = cs.every((c) => typeof c.volume === 'number' && Number.isFinite(c.volume)) && cs.every((c) => c.volumeDelta !== undefined || c.cvd !== undefined);
@@ -183,7 +198,7 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
   const bosLevel = isBull ? lastHigh : lastLow;
   const displacement = body(cur) / a14;
   const s2Pass = !!bosLevel && (isBull ? cur.close > bosLevel.price : cur.close < bosLevel.price);
-  const s2 = stage(2, 'BOS (Body Close Beyond Confirmed Swing)', 'STRUCTURE', s2Pass, s2Pass ? (displacement >= 1.5 ? 1 : displacement >= 1.2 ? .95 : .85) : .2, isBull ? 'Close_t > latest confirmed Swing High' : 'Close_t < latest confirmed Swing Low', { Swing_Level: fixed(bosLevel?.price), Close: fixed(cur.close), Body_Closed_Beyond: bool(s2Pass), Displacement_ATR: fixed(displacement, 2) }, s2Pass ? 'Body-close break of structure confirmed.' : 'No body-close break of the latest confirmed swing.');
+  const s2 = stage(2, 'BOS (Body Close Beyond Confirmed Swing)', 'STRUCTURE', s2Pass, s2Pass ? (displacement >= V3_STRATEGY_PARAMS.structure.bosDisplacementStrong ? 1 : displacement >= V3_STRATEGY_PARAMS.structure.bosDisplacementNormal ? .95 : .85) : .2, isBull ? 'Close_t > latest confirmed Swing High' : 'Close_t < latest confirmed Swing Low', { Swing_Level: fixed(bosLevel?.price), Close: fixed(cur.close), Body_Closed_Beyond: bool(s2Pass), Displacement_ATR: fixed(displacement, 2) }, s2Pass ? 'Body-close break of structure confirmed.' : 'No body-close break of the latest confirmed swing.');
 
   // S3 — CHoCH: body-close break of the first opposite swing after an opposite-trend sequence
   const volumes = cs.map((c) => (typeof c.volume === 'number' ? c.volume : NaN));
@@ -201,7 +216,7 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
   let chochFlow = true; let chochVol = 'NOT_APPLIED_PRICE_ONLY'; let chochDelta = 'NOT_APPLIED_PRICE_ONLY';
   if (full && choch) {
     const k = choch.breakIndex; const hist = volumes.slice(Math.max(0, k - 10), k);
-    const volSpike = hist.length > 0 && volumes[k] > 1.5 * mean(hist);
+    const volSpike = hist.length > 0 && volumes[k] > CHOCH_VOLUME_SPIKE_MULTIPLIER * mean(hist);
     const delta = deltaOf(k);
     const aligned = delta !== undefined && (isBull ? delta > 0 : delta < 0);
     chochFlow = volSpike && aligned; chochVol = bool(volSpike); chochDelta = bool(aligned);
@@ -210,7 +225,7 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
   const s3 = stage(3, 'CHoCH (Price Structure; Volume/Delta FULL-only)', 'STRUCTURE', s3Pass, s3Pass ? .95 : choch ? .5 : .15, isBull ? 'Lower-high sequence then Close_k > that swing high' : 'Higher-low sequence then Close_k < that swing low', { Counter_Swing: fixed(choch?.swing.price), Break_Bar_Offset: choch ? String(last - choch.breakIndex) : 'NONE', Volume_Spike: chochVol, Delta_Aligned: chochDelta }, s3Pass ? 'Change of character confirmed by body close.' : 'No price CHoCH in the lookback.');
 
   // S4 — FVG with CE tracking (ATR-normalized minimum gap)
-  const minGap = .2 * a14;
+  const minGap = MIN_FVG_GAP_ATR * a14;
   const fvgAt = (k: number) => {
     const a = cs[k - 2]; const c = cs[k];
     if (isBull && c.low > a.high) { const gap = c.low - a.high; const ce = a.high + gap / 2; const status = cur.close <= a.high ? 'COMPLETELY_FILLED' : cur.close < ce ? 'CE_BREACHED' : cur.close < c.low ? 'PARTIAL_FILL' : 'UNMITIGATED'; return { gap, ce, status, valid: gap >= minGap, bottom: a.high, top: c.low }; }
@@ -218,24 +233,24 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
     return undefined;
   };
   let fvg: ReturnType<typeof fvgAt>;
-  for (let k = last; k >= Math.max(2, last - 5) && !fvg?.valid; k--) { const f = fvgAt(k); if (f && (f.status === 'UNMITIGATED' || f.status === 'PARTIAL_FILL')) fvg = f; }
+  for (let k = last; k >= Math.max(2, last - FVG_SEARCH_LOOKBACK) && !fvg?.valid; k--) { const f = fvgAt(k); if (f && (f.status === 'UNMITIGATED' || f.status === 'PARTIAL_FILL')) fvg = f; }
   const s4Pass = !!fvg && fvg.valid && (fvg.status === 'UNMITIGATED' || fvg.status === 'PARTIAL_FILL');
   const s4 = stage(4, 'FVG Mechanics (Fair Value Gap & CE Tracking)', 'IMBALANCE', s4Pass, s4Pass ? (fvg!.status === 'PARTIAL_FILL' ? .95 : .85) : .1, 'Gap >= 0.2*ATR14; CE = gap midpoint', { Gap_Size: fixed(fvg?.gap), Min_Required_Gap: fixed(minGap), CE_Level: fixed(fvg?.ce), Status: fvg?.status ?? 'NONE' }, s4Pass ? 'Active directional imbalance.' : 'No active directional FVG in the last 6 candles.');
 
   // S5 — IFVG from a real prior FVG: body-close inversion then retest
-  const ifvg = evaluateIfvg(cs.slice(-40), isBull ? 'BULLISH' : 'BEARISH');
+  const ifvg = evaluateIfvg(cs.slice(-REFERENCE_LOOKBACK), isBull ? 'BULLISH' : 'BEARISH');
   const s5Pass = ifvg.status === 'PASS';
   const s5 = stage(5, 'IFVG (Prior FVG Body-Close Inversion + Retest)', 'IMBALANCE', s5Pass, s5Pass ? .95 : ifvg.ifvg_status === 'IFVG_CANDIDATE' ? .5 : .2, 'Prior FVG -> opposite body close -> retest -> close beyond zone', { IFVG_Status: ifvg.ifvg_status, Original_FVG_Zone: ifvg.original_fvg_zone ? `[${fixed(ifvg.original_fvg_zone[0])}, ${fixed(ifvg.original_fvg_zone[1])}]` : 'NONE', Invalidation_Boundary: fixed(ifvg.invalidation_boundary) }, ifvg.reason ?? 'No IFVG state.');
 
   // S6 — BPR
-  const bpr = detectBprFromCandles(cs.slice(-30));
+  const bpr = detectBprFromCandles(cs.slice(-BPR_LOOKBACK));
   const s6Pass = bpr.status === 'PASS';
   const s6 = stage(6, 'BPR (Balanced Price Range)', 'IMBALANCE', s6Pass, s6Pass ? .9 : bpr.bpr_status === 'BPR_CANDIDATE' ? .5 : .2, 'Overlap of independently detected opposing FVGs, retested by signal candle', { BPR_Status: bpr.bpr_status, BPR_Lower_Bound: fixed(bpr.bpr_zone_low), BPR_Upper_Bound: fixed(bpr.bpr_zone_high), Overlap_Size: fixed(bpr.bpr_overlap_size) }, bpr.reason ?? 'No BPR state.');
 
   // Order-block detector shared by S7 (same direction) and S8 (failed opposite OB)
   const findOrderBlocks = (dir: 'BULLISH' | 'BEARISH') => {
     const out: Array<{ index: number; fvg: boolean }> = [];
-    for (let i = Math.max(0, last - 40); i + 3 <= last; i++) {
+    for (let i = Math.max(0, last - REFERENCE_LOOKBACK); i + 3 <= last; i++) {
       const ob = cs[i]; const e1 = cs[i + 1]; const e2 = cs[i + 2]; const e3 = cs[i + 3];
       const oppositeCandle = dir === 'BULLISH' ? bearish(ob) : bullish(ob);
       const expansion = dir === 'BULLISH'
@@ -256,7 +271,7 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
     const poc = computeVolumeWeightedPoc([cs[ob.index]]);
     if (poc.available && poc.price !== undefined && range(cs[ob.index]) > 0) {
       const rel = (poc.price - cs[ob.index].low) / range(cs[ob.index]);
-      obPocPass = isBull ? rel <= .35 : rel >= .65; obPocText = `${(rel * 100).toFixed(1)}%`; pocLabel = 'PROVIDER_VOLUME_POC';
+      obPocPass = isBull ? rel <= V3_STRATEGY_PARAMS.orderBlock.pocRelativeBullishMax : rel >= V3_STRATEGY_PARAMS.orderBlock.pocRelativeBearishMin; obPocText = `${(rel * 100).toFixed(1)}%`; pocLabel = 'PROVIDER_VOLUME_POC';
     } else { obPocPass = false; obPocText = 'POC_UNAVAILABLE'; }
   }
   const s7Pass = !!ob && obPocPass;
@@ -289,7 +304,7 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
     const deltas = cs.slice(0, breaker.breakIndex).map((_, k) => deltaOf(k)).filter((v): v is number => v !== undefined).slice(-BREAKER_DELTA_SAMPLE);
     const dk = deltaOf(breaker.breakIndex);
     if (deltas.length < BREAKER_DELTA_SAMPLE || dk === undefined) s8Unavailable = 'BREAKER_DELTA_SAMPLE_LT_50';
-    else { const sd = stdev(deltas); const z = sd > 0 ? (Math.abs(dk) - mean(deltas.map(Math.abs))) / sd : NaN; s8Flow = Number.isFinite(z) && z >= 2; s8DeltaText = fixed(z, 2); }
+    else { const sd = stdev(deltas); const z = sd > 0 ? (Math.abs(dk) - mean(deltas.map(Math.abs))) / sd : NaN; s8Flow = Number.isFinite(z) && z >= BREAKER_DELTA_Z_MINIMUM; s8DeltaText = fixed(z, 2); }
   }
   const s8Pass = !!breaker && s8Flow;
   const s8Raw = stage(8, 'Breaker Block (Sweep + Failed OB Body-Close Break)', 'IMBALANCE', s8Pass, s8Pass ? .92 : breaker ? .55 : .3, 'Real sweep (S9 rule) before body close through a failed opposite OB; FULL adds |delta| z >= 2.0 over 50', { Failed_OB_Level: fixed(breaker ? (isBull ? cs[breaker.obIndex].high : cs[breaker.obIndex].low) : null), Break_Bar_Offset: breaker ? String(last - breaker.breakIndex) : 'NONE', Liquidity_Sweep_Preceded: bool(!!breaker), Sweep_Bar_Offset: breaker ? String(last - breaker.sweepIndex) : 'NONE', Delta_Z: s8DeltaText }, s8Pass ? 'Breaker block confirmed.' : 'No breaker transition.');
@@ -309,7 +324,7 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
   // S10/S11 — BSL/SSL pools (ATR-normalized), with untouched tracking for Gate 9
   const poolStart = Math.max(0, n - POOL_LOOKBACK);
   const pools = (side: 'BSL' | 'SSL') => {
-    const tolerance = .10 * a14; const mergeDistance = .05 * a14;
+    const tolerance = POOL_TOLERANCE_ATR * a14; const mergeDistance = POOL_MERGE_DISTANCE_ATR * a14;
     const merged: Array<{ price: number; touches: number; extreme: number; lastTouch: number }> = [];
     for (let i = poolStart; i < n - 1; i++) for (let j = i + 1; j < n; j++) {
       const vi = side === 'BSL' ? cs[i].high : cs[i].low; const vj = side === 'BSL' ? cs[j].high : cs[j].low;
@@ -363,7 +378,7 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
   }
   const gate4ReasonCode = classifyGate4Reason(isBull ? 'BULLISH' : 'BEARISH', rangeHigh, rangeLow, referenceZones.map((z) => z.midpoint));
   const favourableMidpoints = gate4ReasonCode === 'PASS';
-  const legacyWindow20 = cs.slice(-20);
+  const legacyWindow20 = cs.slice(-V3_STRATEGY_PARAMS.gate4.legacyWindow);
   const legacyHigh = Math.max(...legacyWindow20.map((c) => c.high)); const legacyLow = Math.min(...legacyWindow20.map((c) => c.low));
   const legacyEquilibrium = legacyLow + (legacyHigh - legacyLow) / 2;
   const s12Pass = input.gate4Mode === 'A' ? (isBull ? cur.close <= legacyEquilibrium : cur.close >= legacyEquilibrium) : favourableMidpoints;
@@ -372,12 +387,12 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
     Reference_Midpoints: referenceZones.map((z) => `${z.name}[${z.direction}]=${fixed(z.midpoint)}`).join(',') || 'NONE', Gate4_Reason_Code: gate4ReasonCode, Midpoints_Favourable: bool(favourableMidpoints), Signal_Candle_Excluded: 'true'
   }, gate4ReasonCode === 'RANGE_UNAVAILABLE' ? 'RANGE_UNAVAILABLE: no confirmed pre-signal swing range.' : gate4ReasonCode === 'ZONE_UNAVAILABLE' ? 'ZONE_UNAVAILABLE: no valid directional OB/Breaker/FVG/IFVG/BPR zone.' : gate4ReasonCode === 'MID_AT_EQ' ? 'MID_AT_EQ: a reference-zone midpoint equals equilibrium.' : gate4ReasonCode === 'ZONE_ON_WRONG_SIDE' ? 'ZONE_ON_WRONG_SIDE: a reference-zone midpoint is unfavourable.' : 'Every reference-zone midpoint is in the favourable half.');
   // OTE remains the pre-existing 20-candle confluence calculation; it never blocks Gate 4.
-  const oteWindow = cs.slice(-20);
+  const oteWindow = cs.slice(-OTE_WINDOW);
   const anchorHigh = Math.max(...oteWindow.map((c) => c.high)); const anchorLow = Math.min(...oteWindow.map((c) => c.low));
   const span = anchorHigh - anchorLow;
   const fib = (r: number) => isBull ? anchorHigh - span * r : anchorLow + span * r;
-  const inOte = isBull ? cur.close <= fib(.618) && cur.close >= fib(.786) : cur.close >= fib(.618) && cur.close <= fib(.786);
-  const sweet = inOte && Math.abs(cur.close - fib(.705)) <= span * .05;
+  const inOte = isBull ? cur.close <= fib(V3_STRATEGY_PARAMS.ote.start) && cur.close >= fib(V3_STRATEGY_PARAMS.ote.end) : cur.close >= fib(V3_STRATEGY_PARAMS.ote.start) && cur.close <= fib(V3_STRATEGY_PARAMS.ote.end);
+  const sweet = inOte && Math.abs(cur.close - fib(V3_STRATEGY_PARAMS.ote.sweetSpot)) <= span * V3_STRATEGY_PARAMS.ote.sweetSpotTolerance;
   const s13 = stage(13, 'OTE (61.8-78.6%, 70.5% Sweet Spot) — confluence', 'EQUILIBRIUM', inOte, sweet ? 1 : inOte ? .85 : .3, 'OTE = [61.8%, 78.6%]', { 'Fib_61.8': fixed(fib(.618)), 'Fib_70.5': fixed(fib(.705)), 'Fib_78.6': fixed(fib(.786)), In_OTE: bool(inOte), Sweet_Spot: bool(sweet) }, inOte ? 'Entry within OTE.' : 'Outside OTE (confluence only).');
 
   // S14 — wick pushback
@@ -408,7 +423,7 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
     if (event.impact !== 'HIGH') continue;
     const diff = Math.abs(at - Date.parse(event.timestamp));
     if (diff < nearestDiff) { nearestDiff = diff; nearest = event.title; }
-    if (diff <= 30 * 60_000) newsBlocked = true;
+    if (diff <= NEWS_RESTRICTION_WINDOW_MINUTES * 60_000) newsBlocked = true;
   }
   const s18Pass = !newsBlocked;
   const newsReason = newsBlocked ? `NEWS_WINDOW_BLOCKED: ${nearest} within +/-30m.` : input.newsSourceOnline ? 'NEWS: NOT CHECKED (manual)' : 'NEWS: NOT CHECKED (manual/offline)';
@@ -421,7 +436,7 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
   const sStructure = meanAvailable([s1, s2]);
   const sOrderFlow = full ? meanAvailable([s3, s7, s9]) : null;
   const sLiquidity = full ? meanAvailable([s9, s10, s11, s8]) : meanAvailable([s9, s10, s11]);
-  const totalMfci = sStructure === null || sLiquidity === null ? null : sOrderFlow === null ? (.35 * sStructure + .20 * sLiquidity) / .55 : (.35 * sStructure + .25 * sOrderFlow + .20 * sLiquidity) / .80;
+    const totalMfci = sStructure === null || sLiquidity === null ? null : sOrderFlow === null ? (V3_STRATEGY_PARAMS.mfci.priceOnlyWeights.structure * sStructure + V3_STRATEGY_PARAMS.mfci.priceOnlyWeights.liquidity * sLiquidity) / .55 : (V3_STRATEGY_PARAMS.mfci.fullWeights.structure * sStructure + V3_STRATEGY_PARAMS.mfci.fullWeights.orderFlow * sOrderFlow + V3_STRATEGY_PARAMS.mfci.fullWeights.liquidity * sLiquidity) / .80;
   const meets = totalMfci !== null && totalMfci >= MFCI_THRESHOLD;
   const s19 = stage(19, 'Multi-Factor Confluence Index (MFCI)', 'CONFLUENCE', meets, totalMfci ?? 0, full ? 'MFCI = (0.35*S + 0.25*OF + 0.20*L) / 0.80' : 'MFCI = (0.35*S + 0.20*L) / 0.55', { S_Structure: fixed(sStructure, 3), S_OrderFlow: fixed(sOrderFlow, 3), S_Liquidity: fixed(sLiquidity, 3), Total_MFCI: fixed(totalMfci, 3), Threshold: MFCI_THRESHOLD.toFixed(3) }, meets ? 'MFCI met the frozen threshold.' : 'MFCI below frozen threshold.');
 

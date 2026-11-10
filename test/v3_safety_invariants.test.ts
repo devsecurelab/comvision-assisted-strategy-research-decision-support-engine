@@ -92,7 +92,7 @@ for (const file of ['src/engine/strategyV3Engine.ts', 'src/engine/types.ts', 'sr
 }
 assert.doesNotMatch(fs.readFileSync(path.join(root, 'src/engine/types.ts'), 'utf8').split('export interface V3DecisionTelemetry')[1].split('}')[0], /stopLoss|takeProfit/);
 assert.equal((fs.readFileSync(path.join(root, 'src/engine/pipeline.ts'), 'utf8').match(/function classifySessionAndKillZone/g) || []).length, 0, 'single session implementation');
-assert.match(fs.readFileSync(path.join(root, 'src/engine/strategyV3Engine.ts'), 'utf8'), /MFCI_THRESHOLD = 0\.85;/);
+assert.match(fs.readFileSync(path.join(root, 'src/engine/params.ts'), 'utf8'), /threshold: 0\.85/);
 console.log('[forbidden_patterns] PASS');
 const envExample = fs.readFileSync(path.join(root, '.env.example'), 'utf8');
 for (const line of envExample.split(/\r?\n/)) {

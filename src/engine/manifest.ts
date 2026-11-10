@@ -170,6 +170,7 @@ import { sha256 } from '../utils/sha256';
 import { canonicalJson } from '../utils/canonicalJson';
 import { loadMarketCalendar, marketCalendarHash } from './marketCalendar';
 import { loadSessionConfig, sessionConfigHash } from './sessionConfig';
+import { V3_STRATEGY_PARAMS } from './params';
 
 export const LEGACY_CONFIG_HASH = '1fc0ff3b17b2a077fdaf532615e7ca4ae2b38b36cdfc781059aeda3e7977b9b8';
 export const MARKET_CALENDAR = loadMarketCalendar();
@@ -185,30 +186,37 @@ export const V3_CONFIG_SNAPSHOT = {
   strategy_version: ACTIVE_STRATEGY_VERSION,
   experiment_id: ACTIVE_EXPERIMENT_ID,
   engine: 'strategyV3Engine',
-  minimum_candles: 30,
-  analysis_window: 120,
-  fractal_n: 2,
-  event_lookback: 20,
-  sweep_lookback: 10,
-  pool_lookback: 20,
-  breaker_delta_sample: 50,
-  gates: 9,
-  stages: 19,
+  minimum_candles: V3_STRATEGY_PARAMS.engine.minimumCandles,
+  analysis_window: V3_STRATEGY_PARAMS.engine.analysisWindow,
+  fractal_n: V3_STRATEGY_PARAMS.engine.fractalN,
+  event_lookback: V3_STRATEGY_PARAMS.engine.eventLookback,
+  sweep_lookback: V3_STRATEGY_PARAMS.engine.sweepLookback,
+  pool_lookback: V3_STRATEGY_PARAMS.engine.poolLookback,
+  breaker_delta_sample: V3_STRATEGY_PARAMS.engine.breakerDeltaSample,
+  gates: V3_STRATEGY_PARAMS.engine.gateCount,
+  stages: V3_STRATEGY_PARAMS.engine.stageCount,
   mfci: {
-    threshold: 0.85,
-    full_weights: { structure: 0.35, order_flow: 0.25, liquidity: 0.20 },
-    price_only_weights: { structure: 0.35, liquidity: 0.20 },
+    threshold: V3_STRATEGY_PARAMS.mfci.threshold,
+    full_weights: {
+      structure: V3_STRATEGY_PARAMS.mfci.fullWeights.structure,
+      order_flow: V3_STRATEGY_PARAMS.mfci.fullWeights.orderFlow,
+      liquidity: V3_STRATEGY_PARAMS.mfci.fullWeights.liquidity,
+    },
+    price_only_weights: {
+      structure: V3_STRATEGY_PARAMS.mfci.priceOnlyWeights.structure,
+      liquidity: V3_STRATEGY_PARAMS.mfci.priceOnlyWeights.liquidity,
+    },
   },
-  wick_ratio_max: 0.50,
-  fib_equilibrium_level: 0.50,
-  ote: { start: 0.618, end: 0.786 },
+  wick_ratio_max: V3_STRATEGY_PARAMS.wick.maxRatio,
+  fib_equilibrium_level: V3_STRATEGY_PARAMS.gate4.fibEquilibriumLevel,
+  ote: { start: V3_STRATEGY_PARAMS.ote.start, end: V3_STRATEGY_PARAMS.ote.end },
   session: {
     london_timezone: 'Europe/London',
     new_york_timezone: 'America/New_York',
     kill_zone_local_start: '07:00',
     kill_zone_local_end: '10:00',
   },
-  news_guard: { restriction_window_minutes: 30, offline: 'INCONCLUSIVE' },
+  news_guard: { restriction_window_minutes: V3_STRATEGY_PARAMS.news.restrictionWindowMinutes, offline: 'INCONCLUSIVE' },
   market_calendar_hash: MARKET_CALENDAR_HASH,
   session_config_hash: SESSION_CONFIG_HASH,
 } as const;
