@@ -1,0 +1,45 @@
+
+> react-example@0.0.0 build
+> vite build && mkdir -p build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=build/server.cjs
+
+vite v8.3.0 building client environment for production...
+transforming...
+[plugin rolldown:vite-resolve] Module "node:fs" has been externalized for browser compatibility, imported by "/home/ubuntu/comvision-assisted-strategy-research-decision-support-engine/src/engine/marketCalendar.ts". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.
+[plugin rolldown:vite-resolve] Module "node:fs" has been externalized for browser compatibility, imported by "/home/ubuntu/comvision-assisted-strategy-research-decision-support-engine/src/engine/sessionConfig.ts". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.
+[plugin rolldown:vite-resolve] Module "node:fs" has been externalized for browser compatibility, imported by "/home/ubuntu/comvision-assisted-strategy-research-decision-support-engine/src/engine/configPath.ts". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.
+[plugin rolldown:vite-resolve] Module "node:path" has been externalized for browser compatibility, imported by "/home/ubuntu/comvision-assisted-strategy-research-decision-support-engine/src/engine/configPath.ts". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.
+[32m✓[0m 2110 modules transformed.
+rendering chunks...
+computing gzip size...
+[2mdist/[0m[32mregisterSW.js                          [0m[1;2m  0.13 kB[0m
+[2mdist/[0m[32mmanifest.webmanifest                   [0m[1;2m  0.52 kB[0m
+[2mdist/[0m[32mindex.html                             [0m[1;2m  1.72 kB[0m[2m │ gzip:   0.63 kB[0m
+[2mdist/[0m[2massets/[0m[35mindex-B5Mo8sWq.css              [0m[1;2m 35.68 kB[0m[2m │ gzip:   6.68 kB[0m
+[2mdist/[0m[2massets/[0m[36mhash-DQ7twSo6.js                [0m[1;2m  0.28 kB[0m[2m │ gzip:   0.18 kB[0m
+[2mdist/[0m[2massets/[0m[36mRiskView-DaKJBmmu.js            [0m[1;2m  2.33 kB[0m[2m │ gzip:   0.80 kB[0m
+[2mdist/[0m[2massets/[0m[36mAuditLogView-D8yRhimH.js        [0m[1;2m  2.74 kB[0m[2m │ gzip:   1.08 kB[0m
+[2mdist/[0m[2massets/[0m[36mAnalyticsView-CehedH5J.js       [0m[1;2m  3.68 kB[0m[2m │ gzip:   1.13 kB[0m
+[2mdist/[0m[2massets/[0m[36mUserManagementView-D6YIUPpO.js  [0m[1;2m  4.34 kB[0m[2m │ gzip:   1.47 kB[0m
+[2mdist/[0m[2massets/[0m[36mTermsView-B6d2zHRV.js           [0m[1;2m  6.70 kB[0m[2m │ gzip:   2.42 kB[0m
+[2mdist/[0m[2massets/[0m[36mAboutView-CcCfjv5j.js           [0m[1;2m  7.53 kB[0m[2m │ gzip:   2.65 kB[0m
+[2mdist/[0m[2massets/[0m[36mSecurityView-DBhcZMCg.js        [0m[1;2m  7.95 kB[0m[2m │ gzip:   2.38 kB[0m
+[2mdist/[0m[2massets/[0m[36mPrivacyView-xI7CNEil.js         [0m[1;2m 10.52 kB[0m[2m │ gzip:   3.06 kB[0m
+[2mdist/[0m[2massets/[0m[36mTelegramAdminTool-DkYvCF7p.js   [0m[1;2m 14.23 kB[0m[2m │ gzip:   3.68 kB[0m
+[2mdist/[0m[2massets/[0m[36mSettingsView-5cIkkYCb.js        [0m[1;2m 14.24 kB[0m[2m │ gzip:   4.15 kB[0m
+[2mdist/[0m[2massets/[0m[36mExperimentView-Sa9ghvzf.js      [0m[1;2m 20.52 kB[0m[2m │ gzip:   7.37 kB[0m
+[2mdist/[0m[2massets/[0m[36mDocsView-DV_Laj-w.js            [0m[1;2m 59.77 kB[0m[2m │ gzip:  12.94 kB[0m
+[2mdist/[0m[2massets/[0m[36mindex-DLtJg2OQ.js               [0m[1;2m464.42 kB[0m[2m │ gzip: 137.99 kB[0m
+
+✓ built in 735ms
+
+PWA v1.3.0
+mode      generateSW
+precache  28 entries (656.48 KiB)
+files generated
+  dist/sw.js
+  dist/workbox-9c191d2f.js
+
+  build/server.cjs      376.8kb
+  build/server.cjs.map  703.2kb
+
+⚡ Done in 13ms
