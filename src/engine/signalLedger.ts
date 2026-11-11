@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { slippagePips } from './price';
-import { CONFIG_HASH, CONFIG_HASH_EPOCH, ENGINE_FINGERPRINT, SESSION_CONFIG, SESSION_CONFIG_HASH, STRATEGY_MANIFEST } from './manifest';
+import { CONFIG_HASH, CONFIG_HASH_EPOCH, ENGINE_FINGERPRINT, PREVIOUS_V3_CONFIG_HASH, PREVIOUS_V3_CONFIG_HASH_EPOCH, PREVIOUS_V3_ENGINE_FINGERPRINT, SESSION_CONFIG, SESSION_CONFIG_HASH, STRATEGY_MANIFEST } from './manifest';
 
 /**
  * Append-only signal ledger (JSON Lines) with a SHA-256 hash chain.
@@ -197,8 +197,12 @@ export class SignalLedger {
       const e = entries[i];
       if (e.seq !== i) return { ok: false, entries: entries.length, brokenAt: i, reason: 'SEQUENCE_BROKEN' };
       if (e.prevHash !== prev) return { ok: false, entries: entries.length, brokenAt: i, reason: 'PREV_HASH_MISMATCH' };
-      const fingerprint = e.payload && typeof e.payload === 'object' ? (e.payload as Record<string, unknown>).engine_fingerprint : undefined;
-      if (fingerprint !== undefined && fingerprint !== ENGINE_FINGERPRINT) return { ok: false, entries: entries.length, brokenAt: i, reason: 'ENGINE_FINGERPRINT_MISMATCH' };
+      const payload = e.payload && typeof e.payload === 'object' ? e.payload as Record<string, unknown> : {};
+      const fingerprint = payload.engine_fingerprint;
+      const isKnownPreviousIdentity = fingerprint === PREVIOUS_V3_ENGINE_FINGERPRINT
+        && payload.config_hash === PREVIOUS_V3_CONFIG_HASH
+        && payload.config_hash_epoch === PREVIOUS_V3_CONFIG_HASH_EPOCH;
+      if (fingerprint !== undefined && fingerprint !== ENGINE_FINGERPRINT && !isKnownPreviousIdentity) return { ok: false, entries: entries.length, brokenAt: i, reason: 'ENGINE_FINGERPRINT_MISMATCH' };
       if (hashEntry(e) !== e.hash) return { ok: false, entries: entries.length, brokenAt: i, reason: 'HASH_MISMATCH' };
       prev = e.hash;
     }

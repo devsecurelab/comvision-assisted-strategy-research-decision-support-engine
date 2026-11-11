@@ -46,10 +46,8 @@ const telemetry = executeStrategyPipeline({
   pair: 'EUR/USD', asset: 'EUR/USD', payoutPct: 90, nowMs: Date.parse(fixtureCandles.at(-1)!.timestamp) + 900_000,
 });
 assert.equal(telemetry.decision_engine_v3?.binarySignal, 'CALL', 'the positive alert fixture must reach a signal');
-assert.equal(telemetry.pressure_observation.classification, 'UNAVAILABLE');
-assert.equal(telemetry.pressure_observation.magnitude, 'UNAVAILABLE');
-assert.equal(telemetry.pressure_observation.consistency, 'UNAVAILABLE');
-assert.equal(telemetry.pressure_observation.speedPxPerSec, undefined);
+assert.equal(telemetry.pressure_observation, undefined, 'new telemetry must not emit the retired pressure projection');
+assert.equal(telemetry.validation_metrics, undefined, 'new telemetry must not emit the retired validation projection');
 assert.equal(telemetry.guardrails.news_guard.news_source, 'NOT_CHECKED (manual)');
 const positiveDecision = telemetry.decision_engine_v3!;
 assert.match(positiveDecision.statusReason, /NEWS: NOT CHECKED \(manual\)/);

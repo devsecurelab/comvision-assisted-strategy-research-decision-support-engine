@@ -170,66 +170,47 @@ import { sha256 } from '../utils/sha256';
 import { canonicalJson } from '../utils/canonicalJson';
 import { loadMarketCalendar, marketCalendarHash } from './marketCalendar';
 import { loadSessionConfig, sessionConfigHash } from './sessionConfig';
-import { V3_STRATEGY_PARAMS } from './params';
+import { V3_STRATEGY_PARAMS, V3_PARAMS_CANONICAL_HASH } from './params';
 
 export const LEGACY_CONFIG_HASH = '1fc0ff3b17b2a077fdaf532615e7ca4ae2b38b36cdfc781059aeda3e7977b9b8';
 export const MARKET_CALENDAR = loadMarketCalendar();
 export const MARKET_CALENDAR_HASH = marketCalendarHash(MARKET_CALENDAR);
 export const SESSION_CONFIG = loadSessionConfig();
 export const SESSION_CONFIG_HASH = sessionConfigHash(SESSION_CONFIG);
-export const CONFIG_HASH_EPOCH = `V3_CANONICAL_2026-10-18_${SESSION_CONFIG_HASH.slice(0, 8)}_${MARKET_CALENDAR_HASH.slice(0, 8)}`;
+export const CONFIG_HASH_EPOCH = `V3_CANONICAL_2026-11-12_${SESSION_CONFIG_HASH.slice(0, 8)}_${MARKET_CALENDAR_HASH.slice(0, 8)}`;
+// Prior PR-8 projection hash remains identifiable for historical ledger/read compatibility.
+export const PREVIOUS_V3_CONFIG_HASH = '0a2418d28d76710e9fdae9ce54a4be3a6d9c1004695496d2068631f9cc6a1003';
+export const PREVIOUS_V3_CONFIG_HASH_EPOCH = 'V3_CANONICAL_2026-10-18_28ab43a2_bf1f14da';
+export const PREVIOUS_V3_ENGINE_FINGERPRINT = '7ff16d8643ca931963e31936da624d265a3417ed2799dc4ad454f6a8195435e7';
 
-// Authoritative active V3 parameters. The hash is derived from this object at runtime;
-// it is not a copied V2-era string and it contains no Asia kill-zone rule.
+// Generated from the canonical parameter object and active environment config hashes.
+// Do not maintain a second, hand-mapped list of strategy parameters here.
 export const V3_CONFIG_SNAPSHOT = {
   hash_epoch: CONFIG_HASH_EPOCH,
   strategy_version: ACTIVE_STRATEGY_VERSION,
   experiment_id: ACTIVE_EXPERIMENT_ID,
   engine: 'strategyV3Engine',
-  minimum_candles: V3_STRATEGY_PARAMS.engine.minimumCandles,
-  analysis_window: V3_STRATEGY_PARAMS.engine.analysisWindow,
-  fractal_n: V3_STRATEGY_PARAMS.engine.fractalN,
-  event_lookback: V3_STRATEGY_PARAMS.engine.eventLookback,
-  sweep_lookback: V3_STRATEGY_PARAMS.engine.sweepLookback,
-  pool_lookback: V3_STRATEGY_PARAMS.engine.poolLookback,
-  breaker_delta_sample: V3_STRATEGY_PARAMS.engine.breakerDeltaSample,
-  gates: V3_STRATEGY_PARAMS.engine.gateCount,
-  stages: V3_STRATEGY_PARAMS.engine.stageCount,
-  mfci: {
-    threshold: V3_STRATEGY_PARAMS.mfci.threshold,
-    full_weights: {
-      structure: V3_STRATEGY_PARAMS.mfci.fullWeights.structure,
-      order_flow: V3_STRATEGY_PARAMS.mfci.fullWeights.orderFlow,
-      liquidity: V3_STRATEGY_PARAMS.mfci.fullWeights.liquidity,
-    },
-    price_only_weights: {
-      structure: V3_STRATEGY_PARAMS.mfci.priceOnlyWeights.structure,
-      liquidity: V3_STRATEGY_PARAMS.mfci.priceOnlyWeights.liquidity,
-    },
-  },
-  wick_ratio_max: V3_STRATEGY_PARAMS.wick.maxRatio,
-  fib_equilibrium_level: V3_STRATEGY_PARAMS.gate4.fibEquilibriumLevel,
-  ote: { start: V3_STRATEGY_PARAMS.ote.start, end: V3_STRATEGY_PARAMS.ote.end },
-  session: {
-    london_timezone: 'Europe/London',
-    new_york_timezone: 'America/New_York',
-    kill_zone_local_start: '07:00',
-    kill_zone_local_end: '10:00',
-  },
-  news_guard: { restriction_window_minutes: V3_STRATEGY_PARAMS.news.restrictionWindowMinutes, offline: 'INCONCLUSIVE' },
-  market_calendar_hash: MARKET_CALENDAR_HASH,
+  parameters: V3_STRATEGY_PARAMS,
+  params_canonical_hash: V3_PARAMS_CANONICAL_HASH,
   session_config_hash: SESSION_CONFIG_HASH,
+  market_calendar_hash: MARKET_CALENDAR_HASH,
 } as const;
-
 export const CONFIG_HASH = sha256(canonicalJson(V3_CONFIG_SNAPSHOT));
-export const ENGINE_FINGERPRINT = sha256(canonicalJson({
+const engineFingerprintPayload = {
   strategy_version: ACTIVE_STRATEGY_VERSION,
   config_hash: CONFIG_HASH,
   config_hash_epoch: CONFIG_HASH_EPOCH,
+  params_canonical_hash: V3_PARAMS_CANONICAL_HASH,
   session_config_hash: SESSION_CONFIG_HASH,
   market_calendar_hash: MARKET_CALENDAR_HASH,
-}));
-
+};
+export const ENGINE_FINGERPRINT = sha256(canonicalJson(engineFingerprintPayload));
+/** Current engine identity snapshot is generated from canonical config plus its derived hashes. */
+export const ENGINE_SNAPSHOT = {
+  config: V3_CONFIG_SNAPSHOT,
+  config_hash: CONFIG_HASH,
+  engine_fingerprint: ENGINE_FINGERPRINT,
+} as const;
 export const STRATEGY_MANIFEST = {
   version: ACTIVE_STRATEGY_VERSION,
   experiment_id: ACTIVE_EXPERIMENT_ID,
@@ -237,6 +218,7 @@ export const STRATEGY_MANIFEST = {
   config_hash_epoch: CONFIG_HASH_EPOCH,
   session_config_hash: SESSION_CONFIG_HASH,
   engine_fingerprint: ENGINE_FINGERPRINT,
+  engine_snapshot: ENGINE_SNAPSHOT,
   market_calendar_hash: MARKET_CALENDAR_HASH,
   specification_document: 'RDP STRATEGY V3.0 FROZEN RESEARCH & DECISION-SUPPORT SPECIFICATION',
   historical_baseline: {
@@ -273,10 +255,13 @@ export const STRATEGY_MANIFEST = {
     'Stage 8: T-10s Pressure Observation (Non-Filtering)',
     'Stage 9: Telemetry Schema & Manual Alert Output',
   ],
-  parameters: V3_CONFIG_SNAPSHOT,
+  parameters: V3_CONFIG_SNAPSHOT.parameters,
   legacy_compatibility: {
     config_snapshot: V2_CONFIG_SNAPSHOT,
     config_hash: LEGACY_CONFIG_HASH,
+    previous_v3_config_hash: PREVIOUS_V3_CONFIG_HASH,
+    previous_v3_config_hash_epoch: PREVIOUS_V3_CONFIG_HASH_EPOCH,
+    previous_v3_engine_fingerprint: PREVIOUS_V3_ENGINE_FINGERPRINT,
     note: 'Retained for reading and verifying historical records only; not used for active decisions or the current CONFIG_HASH.',
   },
 } as const;

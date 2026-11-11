@@ -2,27 +2,29 @@
 
 ## Completed
 
-`customSettings` and `liveTickPressure` were removed from `PipelineInput`. Neither field participated in the V3-native decision calculation after the legacy pipeline removal; retaining them would have suggested that a caller-controlled threshold or tick proxy could affect the active engine. The pipeline now emits the compatibility `pressure_observation` as unavailable rather than calculating or accepting a legacy pressure input.
+`customSettings` and `liveTickPressure` are absent from `PipelineInput`, the source/API contracts, and new calls. Neither participates in V3-native decisions; keeping them would imply caller-controlled thresholds or a legacy tick proxy could affect the active engine.
 
-A centralized read-only helper, `src/engine/legacyTelemetry.ts`, now handles historical aliases at read boundaries. It never writes aliases and never feeds a new V3 decision. Supported compatibility mappings include:
+`validation_metrics` and `pressure_observation` are now optional compatibility fields on `MasterTelemetry`. The pipeline no longer constructs or emits either projection for successful or fail-closed new records. `ExperimentTracker.recordCandidate()` strips both fields before hashing and persistence. Historical values remain accessible at read boundaries through `readLegacyOptional()` in the UI and tracker; stored historical hash chains use this same helper when verifying old records.
+
+The centralized read-only helper, `src/engine/legacyTelemetry.ts`, continues to handle historical aliases without writing aliases or feeding a new V3 decision. Supported mappings include:
 
 - `user_recorded_action` ↔ historical `userAction`
 - `signal_outcome` ↔ historical `outcome`
 - `next_candle_observation` ↔ historical `nextCandle`
 - historical next-candle open/close aliases
 
-Analytics uses this helper when resolving archived outcome and action records. Existing canonical V3 fields remain preferred; legacy aliases are fallback reads only. Historical `WIN`/`LOSS` values are still normalized to frozen `NEXT_CANDLE_FAVORABLE`/`NEXT_CANDLE_UNFAVORABLE` research semantics.
+Analytics keeps canonical V3 fields preferred and uses the compatibility helper only as fallback. Historical `WIN`/`LOSS` values remain normalized to frozen `NEXT_CANDLE_FAVORABLE`/`NEXT_CANDLE_UNFAVORABLE` research semantics.
 
 ## Verification
 
-- Red contract captured before implementation: `docs/evidence/pr-8/legacy-read-inputs-red-test.txt`
-- Focused legacy-read/input contract: PASS
+- Consumer search completed before removal; see `telemetry-consumer-inventory.md`
+- Red-to-green generated-snapshot/backward-read test: `test/pr8_snapshot_legacy_backward_read.test.ts`
+- New pipeline absence asserted by `test/pr_a_owner_regressions.test.ts`
+- Historical chart/read and storage suites: PASS
+- Exact prior ledger config/fingerprint tuple remains readable; mismatched stale identities fail closed
 - `npm run lint`: PASS
-- Gate 4 parity: PASS; 24,024 cases; non-G4 gates/stages/MFCI unchanged
-- R8 Gate 4 comparison: PASS
-- R8 core/golden: PASS
-- `v3_safety_invariants`: PASS
-- Full `npm test`: PASS
-- Live provider integration: explicit `SKIPPED` unless `P3_LIVE_INTEGRATION=1`
+- `npm run build`: PASS
+- Full `npm test`: PASS (exit code 0); complete output archived in `final-npm-test.txt`
+- Real-provider integration remains explicitly `SKIPPED` unless `P3_LIVE_INTEGRATION=1`
 
-No strategy threshold, parameter, golden count, Gate 4 parity rule, or safety invariant was changed.
+No strategy threshold, formula, Gate 4 parity rule, golden count, or V3 safety invariant was changed. The config-hash/fingerprint values changed only because the active canonical snapshot schema now covers the complete canonical parameter object; the previous identity remains a backward-read compatibility entry.

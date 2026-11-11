@@ -8,6 +8,7 @@ import { durableStorage, SignalOutcome, SignalOutcomeRecord } from '../server/st
 import { canonicalJson } from '../utils/canonicalJson';
 import { sha256 } from '../utils/sha256';
 import { milestonesToNotify, type Milestone } from './milestones';
+import { readLegacyOptional } from './legacyTelemetry';
 
 export interface ExperimentStats {
   experimentId: string;
@@ -296,6 +297,9 @@ export class ExperimentManager {
    */
   public recordCandidate(telemetry: MasterTelemetry): MasterTelemetry {
     const previousValid = this.candidatesHistory.filter((item) => item.system_execution.system_decision === 'PASS').length;
+    // New candidate writes carry V3-native telemetry only; old fields are read for historical chain verification.
+    delete telemetry.validation_metrics;
+    delete telemetry.pressure_observation;
     // Ensure frozen metadata defaults
     telemetry.metadata.strategy_version = ACTIVE_STRATEGY_VERSION;
     telemetry.metadata.experiment_id = ACTIVE_EXPERIMENT_ID;
@@ -318,7 +322,7 @@ export class ExperimentManager {
       timeframe: telemetry.market_context.selected_timeframe,
       decision: telemetry.system_execution.system_decision,
       final_action: telemetry.system_execution.final_action,
-      validation: telemetry.validation_metrics,
+      validation: readLegacyOptional(telemetry, 'validation_metrics'),
     };
 
     const currentHash = this.computeCanonicalHash(canonicalPayload);
@@ -394,7 +398,7 @@ export class ExperimentManager {
         timeframe: record.market_context.selected_timeframe,
         decision: record.system_execution.system_decision,
         final_action: record.system_execution.final_action,
-        validation: record.validation_metrics,
+        validation: readLegacyOptional(record, 'validation_metrics'),
       };
 
       const recomputedHash = record.metadata.config_hash_epoch

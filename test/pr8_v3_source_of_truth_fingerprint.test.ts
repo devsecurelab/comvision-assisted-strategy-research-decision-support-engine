@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { canonicalJson } from '../src/utils/canonicalJson';
 import { sha256 } from '../src/utils/sha256';
 import { CONFIG_HASH, ENGINE_FINGERPRINT, V3_CONFIG_SNAPSHOT } from '../src/engine/manifest';
-import { V3_STRATEGY_PARAMS } from '../src/engine/params';
+import { V3_STRATEGY_PARAMS, V3_PARAMS_CANONICAL_HASH } from '../src/engine/params';
 
 const root = process.cwd();
 const pipeline = fs.readFileSync(path.join(root, 'src/engine/pipeline.ts'), 'utf8');
@@ -28,6 +28,7 @@ const expectedFingerprint = sha256(canonicalJson({
   strategy_version: V3_CONFIG_SNAPSHOT.strategy_version,
   config_hash: CONFIG_HASH,
   config_hash_epoch: V3_CONFIG_SNAPSHOT.hash_epoch,
+  params_canonical_hash: V3_PARAMS_CANONICAL_HASH,
   session_config_hash: V3_CONFIG_SNAPSHOT.session_config_hash,
   market_calendar_hash: V3_CONFIG_SNAPSHOT.market_calendar_hash,
 }));

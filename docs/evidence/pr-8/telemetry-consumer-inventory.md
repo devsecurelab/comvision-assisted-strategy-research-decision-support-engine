@@ -1,85 +1,54 @@
-# PR-8 V3 Telemetry Producer-Consumer Inventory
+# PR-8 V3 Telemetry Producer–Consumer Inventory
 
-This inventory maps the authoritative V3 telemetry path, consumers, persistence surfaces, and legacy fields that may remain readable. It is an audit artefact only; no telemetry behavior is changed by this document.
+This inventory records the source-of-truth rule, direct consumers, and compatibility behavior after the PR-8 removals. The consumer search was run before removing legacy projections and unused inputs, then repeated after implementation.
 
-**Verification update: 2026-11-11.** Source references and test anchors were rechecked against the current PR-8 branch. The companion expected-behavior register is `docs/evidence/pr-8/old-tests-expected-behavior.md`.
+**Verification update: 2026-11-12.** Source references and test anchors were rechecked against the current PR-8 branch. The companion expected-behavior register is `docs/evidence/pr-8/old-tests-expected-behavior.md`.
 
 ## Source-of-truth rule
 
-`executeStrategyPipeline()` produces one `MasterTelemetry` record. `decision_engine_v3`, its nine gates, nineteen stages, MFCI, binary signal, status reason, provenance, and identity metadata are authoritative for new decisions. Consumers must read V3 fields first. Legacy fields are readable only where explicitly marked `BACKWARD_READ`; they must not create a new PASS, signal, outcome, price, risk claim, or strategy calculation.
+`executeStrategyPipeline()` calls `evaluateStrategyV3()` once. Its native gates, stages, MFCI, binary signal, status reason, and operational guards are the only decision-calculation source for new V3 records. `validation_metrics` and `pressure_observation` are optional historical fields: new pipeline outputs do not write them, and tracker writes strip them before persistence. A read-only helper provides old records to backward-compatible consumers. Legacy data cannot create a new V3 signal or PASS.
 
-## Producers
+## Producers and persistence
 
-| Producer | Source | Output | Persistence/hand-off | Status |
-|---|---|---|---|---|
-| V3 evaluator | `src/engine/strategyV3Engine.ts:evaluateStrategyV3` | `V3DecisionTelemetry` with stages, gates, MFCI, `binarySignal`, status | Returned to pipeline | AUTHORITATIVE |
-| Pipeline | `src/engine/pipeline.ts:executeStrategyPipeline` | `MasterTelemetry` with V3 decision plus metadata, validation, context, guards, observation state | Candidate tracker, scan service, chat, notifications | AUTHORITATIVE ADAPTER |
-| Manual scan | `src/engine/scanScheduler.ts:scanPairCore` | `ScanResult.telemetry` from pipeline | Scan ledger and UI/API result | AUTHORITATIVE |
-| R8 causal backtest | `src/engine/r8Backtest.ts:runCausalBacktest` | V3-derived bars/trades and nine gate statuses | R8 report/test output | AUTHORITATIVE FOR R8 EVALUATION |
-| Signal ledger identity layer | `src/engine/signalLedger.ts:identityMetadata` | `config_hash`, epoch, session hash, engine fingerprint, rule variant, operational parameters | Every ledger event payload | AUDIT IDENTITY |
-| Experiment tracker | `src/engine/experimentTracker.ts:recordCandidate` | Durable candidate record derived from `MasterTelemetry` | Candidate/outcome storage | AUTHORITATIVE PERSISTENCE ADAPTER |
-
-## V3 consumers
-
-| Consumer | Source | Fields consumed | Required behavior |
+| Producer | Source | Output / hand-off | Status |
 |---|---|---|---|
-| Scanner result/status | `src/engine/scanScheduler.ts:208-250` | `decision_engine_v3.binarySignal`, `statusReason`, metadata identity, market context | V3 signal determines CALL/PUT/NO_TRADE; no legacy decision fallback |
-| Signal creation | `src/engine/scanScheduler.ts:235-249` | V3 signal, MFCI, engine mode, provider, setup ID, timeframe | Writes ledger payload with V3-derived values and identity metadata |
-| Candidate tracker | `src/engine/experimentTracker.ts:recordCandidate` | V3 decision, validation metrics, context, metadata, guardrails | Stores deterministic telemetry and config identity |
-| R8 report | `src/engine/r8Backtest.ts:68-73` | V3 gates, binary signal, MFCI, status reason | Uses live pipeline output; no synthetic decision path |
-| Signal alert | `src/server/notificationService.ts:620-649` | V3 binary signal, gates, MFCI, engine mode, provider/provenance, status reason | Formats only current V3 telemetry; unavailable values remain unavailable |
-| Result alert | `src/server/notificationService.ts:655-694` | Outcome record plus telemetry identity/context | Must not invent outcome prices; reads persisted observed values only |
-| Chat market analysis | `src/server/chatService.ts:299-352` | V3 gates, actual timeframe, binary signal, metadata provenance | Uses approved payout and actual provider; no legacy fallback to EUR/USD or old badges |
-| Analytics | `src/server/analyticsService.ts:185-410` | Candidate observation, outcome records, user action | V3 candidate observation is preferred; legacy action outcome is backward-read only |
-| UI decision card | `src/components/DecisionAlertCard.tsx` | `decision_engine_v3`, metadata status/provenance | Renders V3 gate state and `UNAVAILABLE`; no fabricated PASS/risk/price |
-| UI binary status | `src/components/BinaryStatusCard.tsx` | `decision_engine_v3.binarySignal`, system status | Renders CALL/PUT/NO_TRADE from V3 only |
-| UI chart | `src/components/ChartModal.tsx` | `candle_snapshot`, V3 Gate 4 zone and signal timestamp | Renders stored telemetry snapshot; no generated next candle |
-| UI telemetry modal | `src/components/TelemetryModal.tsx` | V3 stages/gates and metadata | Displays authoritative structured telemetry |
-| UI setup/feed/log views | `src/components/ValidSetupsFeed.tsx`, `ValidSetupsModal.tsx`, `SetupLogsTable.tsx` | Candidate V3 decision, setup identity, status and provenance | Must use V3 decision and explicit unavailable states |
-| Experiment view | `src/components/views/ExperimentView.tsx` | `CONFIG_HASH`, tracker history, V3 identity | Displays active canonical identity; no editable threshold path |
-| API export | `server.ts:/api/engine/export-telemetry` | Experiment tracker records | Exports persisted MasterTelemetry; no recalculation |
-| Ledger audit API | `server.ts:/api/audit/verify-signal-ledger` | Ledger entries and hash chain | Verifies persisted identity and hashes; no strategy recomputation |
+| V3 evaluator | `src/engine/strategyV3Engine.ts:evaluateStrategyV3` | Native `V3DecisionTelemetry` with nine gates, nineteen stages, MFCI, `binarySignal`, and status | Sole decision calculator |
+| Pipeline adapter | `src/engine/pipeline.ts:executeStrategyPipeline` | V3 decision plus metadata, application context, guards, and observation state; no new `validation_metrics` or `pressure_observation` | Single authoritative adapter |
+| Manual scan and R8 backtest | `src/engine/scanScheduler.ts:scanPairCore`; `src/engine/r8Backtest.ts:runCausalBacktest` | Scan/API output and causal bars derived from the same pipeline | V3-native |
+| Experiment tracker | `src/engine/experimentTracker.ts:recordCandidate` | New candidate persistence strips historical projections; verification reads them for old hash-chain payloads | V3-only writes; historical verification compatible |
+| Signal ledger identity layer | `src/engine/signalLedger.ts:identityMetadata` | Config hash/epoch, parameter- and engine-derived identity, session/calendar hashes | Current identity attached to new events |
 
-## Source-verified test anchors
+## Consumer map and required behavior
 
-| Invariant | Tests that protect it |
-|---|---|
-| V3 is the sole new decision source; nine gates and binary output are preserved | `test/strategy_v3_engine.test.ts`, `test/w3_binary_output.test.ts`, `test/v3_safety_invariants.test.ts`, `test/pr_a_owner_regressions.test.ts` |
-| Gate 4 parity and non-G4 stability | `test/gate_renumber_equivalence.test.ts`, `test/gate4_pr_b_equivalence.test.ts`, `test/r8_gate4_compare.test.ts` |
-| R8 consumes live pipeline output and remains causal | `test/r8_backtest_core.test.ts`, `test/r8_gate4_compare.test.ts` |
-| Ledger identity is attached to new events | `test/pr7_session_config.test.ts`, `test/pr_a_owner_regressions.test.ts`, `test/p1_hash_epoch.test.ts`, `test/r9_ledger_scan.test.ts` |
-| UI/notification consumers do not fabricate prices, risk fields, or V3 status | `test/ui_truthfulness.test.ts`, `test/pr4_notification_delivery.test.ts`, `test/pr6_chart_modal.test.ts`, `test/w3_binary_output.test.ts` |
-| Legacy fields remain backward-read only | `test/pr2_durable_migration.test.ts`, `test/pr2_stats_parity.test.ts`, `test/pr3_storage_operations.test.ts`, `test/r9_ledger_scan.test.ts` |
-| Provider/provenance and unavailable-state behavior | `test/pr5_twelve_data_only.test.ts` (explicitly omitted from npm test), `test/p3_live_data_integration.test.ts`, `test/w3_binary_output.test.ts` |
-
-## Legacy fields and permitted backward reads
-
-| Legacy field/path | Current read/write location | Permitted use | Forbidden use |
+| Consumer | Source | V3/native fields | Required behavior |
 |---|---|---|---|
-| `userAction` | `analyticsService.ts:348,407`, `notificationService.ts:665` | Read old outcome records when `user_recorded_action` is absent | Must not override current user action or create a V3 decision |
-| `user_recorded_action` values `WIN/LOSS` | `analyticsService.ts:272-274` | Historical compatibility for old records | Must not be interpreted as a new research outcome when a proper observation/outcome exists |
-| `nextCandleOpen` / `nextCandleClose` | `analyticsService.ts:167-169`, `notificationService.ts:684,788` | Read old persisted records for historical display | Must not be generated from dashboard candles or client input |
-| `next_candle` | `storage.ts:40`, `experimentTracker.ts:466-496` | Persist/read verified operator observation records | Must not be accepted from the client `record-outcome` boundary; new OHLC comes from verified provider only |
-| `pressure_observation` | `pipeline.ts:1550`, `types.ts:378`, UI/analytics surfaces | Preserve legacy observation layer and explicit `UNAVAILABLE` | Must not affect V3 gates, signal, MFCI, or risk claims |
-| `validation_metrics` | `pipeline.ts:1500`, tracker persistence | Preserve structured historical validation details | Must not be used as a second decision engine or recomputed independently |
-| `REPLAY` provenance type | `types.ts:4` | Type-check historical records only | Must not be the default for new data; new non-live data uses `NOT_LIVE`/`TEST`/`SYNTHETIC_OVERRIDE` explicitly |
-| `V2_CONFIG_SNAPSHOT` / `LEGACY_CONFIG_HASH` | `manifest.ts:12-167,269-273` | Verify/read historical records | Must not participate in active decisions or current `CONFIG_HASH` |
-| Legacy 15-badge/gate fields | Historical UI/data only; current UI uses V3 nine gates | Backward display only if a record cannot be migrated | Must not be used for new UI status, parity, signal, or analytics calculations |
-| `stopLoss`, `takeProfit`, `riskRewardRatio` | Explicitly excluded by current V3 tests | Historical type/read compatibility only if encountered | Must not be emitted or displayed as current V3 strategy output |
+| Scanner result/status and signal creation | `src/engine/scanScheduler.ts` | `decision_engine_v3.binarySignal`, `statusReason`, MFCI, metadata, context | Signal and status follow V3; no legacy decision fallback |
+| Notification and chat | `src/server/notificationService.ts`, `src/server/chatService.ts` | V3 gates, binary signal, MFCI, provenance, actual timeframe | Format authoritative telemetry; unavailable values remain unavailable |
+| Analytics | `src/server/analyticsService.ts` | Candidate observations and persisted outcome/action fields | Canonical V3 fields preferred; old action/outcome aliases read only |
+| Decision and binary UI | `DecisionAlertCard.tsx`, `BinaryStatusCard.tsx`, `TelemetryModal.tsx` | V3 decision, gates, status, metadata | No legacy PASS/signal or fabricated prices/risk |
+| Chart UI | `ChartModal.tsx` | Stored candle snapshot and V3 signal timestamp; legacy zone via `readLegacyOptional()` | Current missing legacy zone is shown unavailable; old stored zone can render |
+| Setup log/feed | `SetupLogsTable.tsx`, `ValidSetupsFeed.tsx`, `ValidSetupsModal.tsx` | V3 decision/reason and candidate context | V3 reason preferred; old pressure/validation data read only when present |
+| Experiment view/API export | `ExperimentView.tsx`, `server.ts:/api/engine/export-telemetry` | Active generated identity and persisted candidate records | Export/display only; no recalculation |
+| Ledger audit API | `server.ts:/api/audit/verify-signal-ledger` | Event hashes and engine identity | Validates persisted identity; no strategy recomputation |
 
-## Consumer invariants for PR-8 tests
+## Legacy fields and read boundaries
 
-The red tests should assert that a new pipeline result has exactly one authoritative decision source (`decision_engine_v3`), that V3 gate/status values win over legacy fields, and that legacy fields cannot manufacture a signal or PASS. They should also assert that missing V3 telemetry renders/returns `UNAVAILABLE` or `NO_TRADE`, that provider provenance is preserved, and that `config_hash`, `config_hash_epoch`, `session_config_hash`, and `engine_fingerprint` remain attached to new ledger records.
+| Historical field/path | Current boundary | Permitted use | New-write rule |
+|---|---|---|---|
+| `validation_metrics` | Optional `MasterTelemetry`; chart/log UI and tracker verification access through `readLegacyOptional()` | Read archived chart/validation details and verify old hash-chain content | Not emitted by pipeline; stripped before tracker writes |
+| `pressure_observation` | Optional `MasterTelemetry`; old UI records use `readLegacyOptional()` | Display archived pressure observation only | Not emitted by pipeline; stripped before tracker writes |
+| `userAction`, `outcome`, `nextCandle`, next-candle price aliases | `legacyTelemetry.ts` and analytics/outcome readers | Query archived telemetry/outcomes where canonical fields are absent | Not used in a new decision; aliases are not generated as telemetry |
+| Historical `WIN`/`LOSS` values | Analytics normalization | Translate archived operator outcomes to research observation semantics | Never substitutes for a newly observed candle outcome |
+| Prior PR-8 config hash/fingerprint | Manifest compatibility constants; `signalLedger.ts:verify()` | Verify records created under the immediately previous PR-8 snapshot | Only the exact previous config hash, epoch, and fingerprint tuple is accepted; arbitrary stale identities fail |
+| `V2_CONFIG_SNAPSHOT` / `LEGACY_CONFIG_HASH` | Archived manifest compatibility section | Historical config/record reading | Excluded from current config hash and V3 calculations |
+| Removed `customSettings` / `liveTickPressure` inputs | Absent from `PipelineInput` and source/API contracts | None; callers cannot supply retired thresholds/tick pressure | Removed from API/schema and new calculation calls |
 
-The inventory also identifies the main duplicate-calculation risk: `analyticsService.ts` derives historical counts from persisted observations and has a legacy `WIN/LOSS` fallback. That fallback is a backward-read path, not a V3 telemetry consumer, and must remain isolated while centralization proceeds.
+## Test coverage
 
-## Current documentation status
+The generated snapshot and backward-read boundary are covered by `test/pr8_snapshot_legacy_backward_read.test.ts`; the V3 source/fingerprint contract by `test/pr8_v3_source_of_truth_fingerprint.test.ts`; and the exact historical identity allowlist plus stale-fingerprint rejection by `test/pr8_ledger_fingerprint.test.ts`. New-output absence is also asserted by `test/pr_a_owner_regressions.test.ts`. Historical chart, storage, migration, and stats paths remain covered by `test/pr6_chart_modal.test.ts`, `test/pr2_durable_migration.test.ts`, `test/pr3_storage_operations.test.ts`, and `test/pr2_stats_parity.test.ts`.
 
-The producer/consumer map and old-test behavior register are now documented. The current implementation still has one authoritative V3 pipeline path; no consumer rewrite was made in this documentation step. The three historical suites not included in `npm test` are explicitly listed in the companion register rather than being treated as silently covered.
+The 24,024-case Gate 4 equivalence/parity and R8 regression tests continue to protect frozen strategy behavior. `docs/evidence/pr-8/test-suite-inventory.txt` identifies all included tests and the three explicit exclusions. Live provider integration remains skipped unless its credential-gated environment flag is enabled.
 
-## Planned implementation order
+## Verification status
 
-1. Add red tests for V3-only consumer precedence and legacy backward-read boundaries.
-2. Centralize frozen strategy parameters while preserving manifest shape and current identity hashes until the intentional canonical snapshot update is reviewed.
-3. Change no consumer behavior except removing duplicate calculations that are proven redundant by the tests.
-4. Re-run the baseline suite, R8 golden count, Gate 4 parity, and `v3_safety_invariants` before opening the draft PR.
+Pre-removal source search and consumer inventory were completed. After removal, searches found no pipeline/server write constructors for `validation_metrics` or `pressure_observation`, no `customSettings`/`liveTickPressure` source/API inputs, and only backward-read consumers for historical telemetry. Focused compatibility tests, lint, and production build passed. The full `npm test` suite passed (exit code 0), including 24,024-case Gate 4 parity, R8 regression tests, and `v3_safety_invariants`; the real-provider check reported its documented `SKIPPED` status.

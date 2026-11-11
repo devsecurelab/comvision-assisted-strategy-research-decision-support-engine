@@ -2,6 +2,7 @@
 import React from 'react';
 import { ChevronRight, Code2 } from 'lucide-react';
 import { MasterTelemetry } from '../engine/types';
+import { readLegacyOptional } from '../engine/legacyTelemetry';
 import { formatSignalTime } from '../utils/timeFormat';
 
 interface SetupLogsTableProps {
@@ -60,10 +61,12 @@ export const SetupLogsTable: React.FC<SetupLogsTableProps> = ({
               const pair = c.metadata.pair || c.metadata.asset || 'EUR/USD';
               const decision = c.system_execution.system_decision;
               const action = c.system_execution.user_recorded_action;
+              const legacyMetrics = readLegacyOptional<MasterTelemetry['validation_metrics']>(c, 'validation_metrics');
               const reason =
                 c.system_execution.rejection_reason ||
-                c.validation_metrics.wick_check.reason ||
-                c.validation_metrics.fvg.reason ||
+                c.decision_engine_v3?.statusReason ||
+                legacyMetrics?.wick_check.reason ||
+                legacyMetrics?.fvg.reason ||
                 'Passed Pipeline';
 
               return (
@@ -100,7 +103,7 @@ export const SetupLogsTable: React.FC<SetupLogsTableProps> = ({
                     </span>
                   </td>
                   <td className="py-2.5 px-3 text-indigo-400">
-                    {c.pressure_observation.classification}
+                    {readLegacyOptional<MasterTelemetry['pressure_observation']>(c, 'pressure_observation')?.classification ?? 'UNAVAILABLE'}
                   </td>
                   <td className="py-2.5 px-3">
                     <span

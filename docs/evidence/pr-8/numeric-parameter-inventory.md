@@ -6,7 +6,7 @@ Captured from the frozen PR-8 starting point before centralization. This invento
 
 Values classified as `FROZEN_STRATEGY` must move behind a typed parameter source without changing their value, comparison operator, rounding, or formula. They remain part of the canonical V3 configuration hash. `OPERATIONAL_CONFIG` values may be centralized separately, but remain operational controls and must not be silently added to the strategy-rule hash. `IMPLEMENTATION/SCHEMA` values are mechanics, serialization limits, or display precision and are not strategy thresholds.
 
-The proposed central module is `src/engine/params.ts`. The first implementation must preserve the existing public exports (`MFCI_THRESHOLD`, `MIN_ENGINE_CANDLES`, and any test-facing constants) as compatibility aliases where tests or downstream readers depend on them.
+The canonical module is `src/engine/params.ts`; `V3_CONFIG_SNAPSHOT` now includes the complete parameter object and is generated from it, not manually mapped field-by-field. The first implementation must preserve the existing public exports (`MFCI_THRESHOLD`, `MIN_ENGINE_CANDLES`, and any test-facing constants) as compatibility aliases where tests or downstream readers depend on them.
 
 ## Frozen strategy parameters
 
@@ -75,7 +75,7 @@ Time-unit multipliers (`60_000`, `3_600_000`, `86_400_000`), array/index positio
 ## Required red-test assertions before implementation
 
 1. Every `FROZEN_STRATEGY` value resolves to the current value recorded in `V3_CONFIG_SNAPSHOT` or its explicit central equivalent.
-2. The canonical config hash remains exactly `0a2418d28d76710e9fdae9ce54a4be3a6d9c1004695496d2068631f9cc6a1003` before implementation and changes only when the canonical representation intentionally changes.
+2. The current canonical config hash is `a1f859bc165b9b36de005af2eb33b27ba6594301f929f14157615a1a5d6e8652`. The hash intentionally changes when the canonical snapshot representation changes; the prior PR-8 hash/fingerprint pair remains available for historical ledger reads.
 3. `MFCI_THRESHOLD`, engine minimum candles, Gate 4 mode A/B behavior, R8 golden count, Gate 4 parity, and `v3_safety_invariants` remain unchanged.
 4. Operational env overrides continue to take precedence where they do today.
 5. No new numeric literal is introduced into the strategy engine for an inventoried parameter after centralization.

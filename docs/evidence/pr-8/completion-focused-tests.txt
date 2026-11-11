@@ -1,0 +1,14 @@
+$ npx tsx test/pr8_snapshot_legacy_backward_read.test.ts
+=== PR-8 GENERATED SNAPSHOT / BACKWARD READ: canonical config hash, engine-fingerprinted snapshot, and legacy read-only fields passed ===
+
+$ npx tsx test/pr8_v3_source_of_truth_fingerprint.test.ts
+=== PR-8 V3 SOURCE-OF-TRUTH RED/GREEN: legacy pipeline calculations removed; params canonical hash and engine fingerprint contract passed ===
+
+$ npx tsx test/pr8_params_centralization.test.ts
+=== PR-8 PARAMS RED/GREEN: canonical generated snapshot and frozen parameter contract passed ===
+
+$ npx tsx test/pr8_ledger_fingerprint.test.ts
+=== PR-8 LEDGER FINGERPRINT RED/GREEN: new events commit engine identity and stale fingerprints fail verification ===
+
+$ npx tsx test/pr_a_owner_regressions.test.ts
+[pr_a_owner_regressions] PASS

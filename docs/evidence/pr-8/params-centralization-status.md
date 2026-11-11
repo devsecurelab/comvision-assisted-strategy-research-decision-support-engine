@@ -2,29 +2,27 @@
 
 ## Scope completed
 
-`src/engine/params.ts` now owns the frozen V3 engine parameter set used by the manifest and strategy engine. The first green slice centralizes engine windows, ATR, BOS/CHoCH, imbalance lookbacks, order-block POC bounds, breaker z-score/sample, liquidity tolerances, Gate 4 legacy window, OTE, news window, MFCI threshold and MFCI weights. Existing engine-facing exports remain compatibility aliases.
+`src/engine/params.ts` owns the frozen V3 engine parameter set used by the strategy engine and generated configuration snapshot. The centralized set covers engine windows, ATR, BOS/CHoCH, imbalance lookbacks, order-block POC bounds, breaker z-score/sample, liquidity tolerances, Gate 4 legacy window, OTE, news window, MFCI threshold and weights, score bands, and formulas. Existing engine-facing exports remain compatibility aliases.
 
-`V3_CONFIG_SNAPSHOT` now reads the relevant values from `V3_STRATEGY_PARAMS`. The canonical `CONFIG_HASH` is unchanged because the serialized values and snapshot shape are unchanged.
+`V3_CONFIG_SNAPSHOT` now embeds the complete canonical `V3_STRATEGY_PARAMS` object and its parameter hash rather than maintaining a manually flattened copy of selected parameters. `ENGINE_SNAPSHOT` is generated from that config plus its config hash and engine fingerprint.
 
 ## Verification
 
-- Red contract captured before implementation: `src/engine/params.ts` was missing and `test/pr8_params_centralization.test.ts` failed with `ERR_MODULE_NOT_FOUND`.
-- Green params contract: pass.
-- `npm run lint`: pass.
-- `npm run build`: pass.
-- `npm test`: pass, exit code 0. The real-provider integration test remains explicitly reported as `SKIPPED` unless `P3_LIVE_INTEGRATION=1`; no suite portion was silently removed.
-- V3 safety invariants: pass.
-- Gate 4 golden parity: pass, 24,024 cases; non-G4 gates/stages/MFCI unchanged.
-- R8 Gate 4 compare: pass.
-- R8 historical fetch/core: pass.
+- Parameter centralization contracts: PASS
+- Generated snapshot / fingerprint contract: PASS
+- `npm run lint`: PASS
+- `npm run build`: PASS
+- Full `npm test`: PASS (exit code 0); complete output archived in `final-npm-test.txt`
+- Gate 4 parity baseline: 24,024 cases; exact final suite result pending
+- R8 core/golden and `v3_safety_invariants`: PASS
+- Real-provider integration remains explicitly `SKIPPED` unless `P3_LIVE_INTEGRATION=1`
 
 ## Current identity
 
-- Baseline `CONFIG_HASH`: `0a2418d28d76710e9fdae9ce54a4be3a6d9c1004695496d2068631f9cc6a1003`
-- Current `CONFIG_HASH`: `0a2418d28d76710e9fdae9ce54a4be3a6d9c1004695496d2068631f9cc6a1003`
-- Baseline engine fingerprint: `7ff16d8643ca931963e31936da624d265a3417ed2799dc4ad454f6a8195435e7`
-- Current engine fingerprint: `7ff16d8643ca931963e31936da624d265a3417ed2799dc4ad454f6a8195435e7` (unchanged because the current fingerprint contract is derived from the active canonical identity, not raw source text).
+- Previous projection `CONFIG_HASH`: `0a2418d28d76710e9fdae9ce54a4be3a6d9c1004695496d2068631f9cc6a1003`
+- Current canonical `CONFIG_HASH`: `a1f859bc165b9b36de005af2eb33b27ba6594301f929f14157615a1a5d6e8652`
+- Previous engine fingerprint: `7ff16d8643ca931963e31936da624d265a3417ed2799dc4ad454f6a8195435e7`
+- Current engine fingerprint: `e3419da92a169ebd0c42c04028b8df262d780f7caf26f143c616d0f38a858723`
+- Parameter values and strategy behavior remain unchanged; the new hash records the complete canonical snapshot schema. The old identity tuple is retained for historical ledger verification.
 
-## Remaining issue
-
-Stage score bands and a small number of formula/display literals remain inline in `strategyV3Engine.ts` (for example pool score bands, wick score bands, momentum score bands, and normalization divisors). They are behavior-preserving in this slice and remain covered by the golden/safety tests, but they should be moved into `params.ts` in the next centralization pass before PR-8 is marked complete.
+All inventoried score bands and formula constants are represented in `V3_STRATEGY_PARAMS`. Utility mechanics, serialization limits, and display precision remain excluded from the frozen strategy parameter object.

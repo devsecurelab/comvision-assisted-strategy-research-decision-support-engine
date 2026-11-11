@@ -8,26 +8,9 @@ import {
   Candle,
   MasterTelemetry,
   NewsEvent,
-  PressureObservation,
-  SwingPoint,
   Timeframe,
   DataQuality,
   DataProvenance,
-  OrderBlock,
-  FVGZone,
-  BosState,
-  ChochState,
-  IfvgState,
-  BprState,
-  BreakerState,
-  BslSslState,
-  LiquidityPool,
-  OteState,
-  MomentumStateInfo,
-  SessionContext,
-  MarketSession,
-  KillZoneState,
-  NextCandleObservation,
 } from './types';
 import { ACTIVE_STRATEGY_VERSION, ACTIVE_EXPERIMENT_ID, CONFIG_HASH, CONFIG_HASH_EPOCH } from './manifest';
 import { formatSignalTime } from '../utils/timeFormat';
@@ -135,10 +118,6 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
   const newsEventDetected = blockedGuard?.name === 'News Guard';
   const newsWindowState = newsEventDetected ? 'ACTIVE' : 'CLEAR';
   const newsReason = blockedGuard?.reason ?? 'NOT_CHECKED (manual)';
-  const stageStatus = (stageNumber: number): 'PASS' | 'REJECT' | 'INCONCLUSIVE' => {
-    const stage = v3Decision.stages.find((item: { stageNumber?: number }) => item.stageNumber === stageNumber);
-    return stage?.passed === true ? 'PASS' : stage?.available === false ? 'INCONCLUSIVE' : 'REJECT';
-  };
   return {
     decision_engine_v3: v3Telemetry,
     ...(hasDirectionalSignal ? {
@@ -195,18 +174,6 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
       session_start_utc: sessionInfo.session_start_utc,
       session_end_utc: sessionInfo.session_end_utc,
     },
-    validation_metrics: {
-      structure: { status: stageStatus(1), reason: 'Derived from decision_engine_v3 stages 1-3.' },
-      fvg: { fvg_status: stageStatus(4), fvg_mitigation_state: 'UNMITIGATED', reason: 'V3-native telemetry is authoritative.' },
-      order_block: { ob_detected: stageStatus(7) === 'PASS', ob_confluence_status: stageStatus(7) === 'PASS' ? 'PASS' : 'FAIL', reason: 'V3-native telemetry is authoritative.' },
-      pattern_3_candle: { status: stageStatus(2), reason: 'V3 BOS stage is authoritative.' },
-      inside_candle: { inside_candle_detected: false },
-      fib_zone: { status: stageStatus(12) === 'PASS' ? 'PASS_DISCOUNT' : 'REJECT', reason: 'V3 Gate 4 stage is authoritative.' },
-      tick_proxy: { status: 'PASS', tick_sequence: 'NOT_ASCENDING', tick_baseline: 'BELOW_AVERAGE', reason: 'Legacy tick proxy is not calculated.' },
-      wick_check: { status: stageStatus(14), wick_ratio: Number.NaN, reason: 'V3 wick stage is authoritative.' },
-      liquidity_sweep: { status: stageStatus(9) === 'PASS' ? 'SWEEP_DETECTED' : 'NO_SWEEP', reason: 'V3 liquidity stage is authoritative.' },
-    } as MasterTelemetry['validation_metrics'],
-    pressure_observation: { classification: 'UNAVAILABLE', magnitude: 'UNAVAILABLE', consistency: 'UNAVAILABLE' },
     guardrails: {
       news_guard: {
         news_event_detected: newsEventDetected,
@@ -280,18 +247,6 @@ function createInconclusiveTelemetry(
       session: 'UNKNOWN',
       kill_zone: 'UNKNOWN',
     },
-    validation_metrics: {
-      structure: { status: 'INCONCLUSIVE', reason },
-      fvg: { fvg_status: 'INCONCLUSIVE', fvg_mitigation_state: 'UNMITIGATED', reason },
-      order_block: { ob_detected: false, ob_confluence_status: 'FAIL', reason },
-      pattern_3_candle: { status: 'REJECT', reason },
-      inside_candle: { inside_candle_detected: false },
-      fib_zone: { status: 'REJECT', reason },
-      tick_proxy: { status: 'REJECT', tick_sequence: 'NOT_ASCENDING', tick_baseline: 'BELOW_AVERAGE', reason },
-      wick_check: { status: 'REJECT', wick_ratio: 1.0, reason },
-      liquidity_sweep: { status: 'NOT_TESTING', reason },
-    },
-    pressure_observation: { classification: 'UNAVAILABLE', magnitude: 'UNAVAILABLE', consistency: 'UNAVAILABLE' },
     guardrails: { news_guard: { news_event_detected: false, news_window_state: 'NEWS_DATA_UNAVAILABLE', news_source: 'NOT_CHECKED (manual)', reason: 'NOT_CHECKED (manual)' } },
     system_execution: {
       system_decision: 'INCONCLUSIVE',

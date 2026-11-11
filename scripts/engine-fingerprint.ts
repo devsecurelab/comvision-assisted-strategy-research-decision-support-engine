@@ -1,5 +1,6 @@
 import {
   ENGINE_FINGERPRINT,
+  ENGINE_SNAPSHOT,
   CONFIG_HASH,
   CONFIG_HASH_EPOCH,
   SESSION_CONFIG_HASH,
@@ -19,6 +20,7 @@ const fingerprintPayload = {
   strategy_version: ACTIVE_STRATEGY_VERSION,
   config_hash: CONFIG_HASH,
   config_hash_epoch: CONFIG_HASH_EPOCH,
+  params_canonical_hash: V3_PARAMS_CANONICAL_HASH,
   session_config_hash: SESSION_CONFIG_HASH,
   market_calendar_hash: MARKET_CALENDAR_HASH,
 };
@@ -30,6 +32,7 @@ const output = {
   config_hash_epoch: CONFIG_HASH_EPOCH,
   params_canonical_hash: V3_PARAMS_CANONICAL_HASH,
   engine_fingerprint: ENGINE_FINGERPRINT,
+  engine_snapshot: ENGINE_SNAPSHOT,
   verification: {
     params_hash_matches: V3_PARAMS_CANONICAL_HASH === sha256(canonicalJson(V3_STRATEGY_PARAMS)),
     fingerprint_matches: ENGINE_FINGERPRINT === sha256(canonicalJson(fingerprintPayload)),
