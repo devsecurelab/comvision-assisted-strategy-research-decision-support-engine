@@ -16,7 +16,8 @@
     "migrate:v2-ids": "tsx scripts/migrate-v2-ids.ts",
     "verify:legacy-chain": "tsx scripts/verify-legacy-chain.ts",
     "engine:fingerprint": "tsx scripts/engine-fingerprint.ts",
-    "test:inventory": "tsx scripts/verify-test-inventory.ts"
+    "test:inventory": "tsx scripts/verify-test-inventory.ts",
+    "audit:report": "tsx scripts/npm-audit-report.ts"
   },
   "dependencies": {
     "@noble/hashes": "^1.8.0",
@@ -43,5 +44,8 @@
     "tailwindcss": "^3.4.17",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=22 <25"
   }
 }
