@@ -4,6 +4,7 @@
 
 import { durableStorage, SignalOutcomeRecord, SignalOutcome } from './storage';
 import { MasterTelemetry } from '../engine/types';
+import { readLegacyOptional } from '../engine/legacyTelemetry';
 
 export interface AnalyticsFilter {
   days?: number;
@@ -265,13 +266,14 @@ export class AnalyticsService {
 
       // Outcome resolution: prefer outcome record, fallback to candidate observation if present
       let rawOutcome =
-        outcomeRecord?.signal_outcome ||
-        outcomeRecord?.outcome ||
+        readLegacyOptional<string>(outcomeRecord, 'signal_outcome') ||
+        readLegacyOptional<string>(outcomeRecord, 'outcome') ||
         c.next_candle_observation?.status;
 
       // Legacy fallback if candidate recorded legacy WIN/LOSS in user action
-      if (!rawOutcome && (c.system_execution.user_recorded_action === 'WIN' || c.system_execution.user_recorded_action === 'LOSS')) {
-        rawOutcome = c.system_execution.user_recorded_action;
+      const legacyAction = readLegacyOptional<string>(c.system_execution, 'user_recorded_action');
+      if (!rawOutcome && (legacyAction === 'WIN' || legacyAction === 'LOSS')) {
+        rawOutcome = legacyAction;
       }
 
       const outcome = normalizeOutcome(rawOutcome);
@@ -282,7 +284,7 @@ export class AnalyticsService {
       else inconclusive++;
 
       // User action resolution (CRITICAL: strictly separate from research observation outcome)
-      const action = c.system_execution.user_recorded_action;
+      const action = readLegacyOptional<string>(c.system_execution, 'user_recorded_action') || 'NOT_RECORDED';
       if (action === 'TAKEN') {
         actionTaken++;
       } else if (action === 'NOT_TAKEN') {
@@ -339,13 +341,13 @@ export class AnalyticsService {
     const processedSetupIds = new Set(validCandidates.map((c) => c.metadata.setup_id));
     for (const o of outcomes) {
       if (processedSetupIds.has(o.setup_id)) continue;
-      const outcome = normalizeOutcome(o.signal_outcome || (o as any).outcome);
+      const outcome = normalizeOutcome(readLegacyOptional<string>(o, 'signal_outcome'));
       if (outcome === 'NEXT_CANDLE_FAVORABLE') favorable++;
       else if (outcome === 'NEXT_CANDLE_UNFAVORABLE') unfavorable++;
       else if (outcome === 'NEXT_CANDLE_NEUTRAL') neutral++;
       else inconclusive++;
 
-      const action = o.user_recorded_action || (o as any).userAction;
+      const action = readLegacyOptional<string>(o, 'user_recorded_action');
       if (action === 'TAKEN' || action === 'WIN' || action === 'LOSS') {
         actionTaken++;
       } else if (action === 'NOT_TAKEN') {

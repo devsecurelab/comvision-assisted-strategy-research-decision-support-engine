@@ -1,0 +1,127 @@
+
+> react-example@0.0.0 test
+> export NODE_ENV=test; tsx test/pr7_security_session.test.ts && tsx test/pr7_registration_security.test.ts && tsx test/pr7_dst_boundaries.test.ts && tsx test/pr7_market_calendar.test.ts && tsx test/pr7_session_config.test.ts && tsx test/pr7_startup_guards.test.ts && tsx test/pr7_operations.test.ts && tsx test/pr7_termux_operations.test.ts && tsx test/pr3_storage_operations.test.ts && tsx test/pr6_chart_modal.test.ts && tsx test/pr6_alert_state.test.ts && tsx test/pr2_v3_milestones.test.ts && tsx test/pr2_durable_migration.test.ts && tsx test/pr2_stats_parity.test.ts && tsx test/pr1_latency_boundary.test.ts && tsx test/pr1_batch_timing.test.ts && tsx test/pr1_limiter.test.ts && tsx test/pr1_signal_price.test.ts && tsx test/ui_truthfulness.test.ts && tsx test/p0_merge_blockers.test.ts && tsx test/p1_hash_epoch.test.ts && tsx test/pr8_v3_source_of_truth_fingerprint.test.ts && tsx test/pr8_legacy_optional_inputs.test.ts && tsx test/pr8_params_centralization.test.ts && tsx test/pr8_params_scores_formulas.test.ts && tsx test/p2_persistence_performance.test.ts && tsx test/p3_live_data_integration.test.ts && tsx test/p4_second_audit.test.ts && tsx test/pr_a_owner_regressions.test.ts && tsx test/strategy_v3_engine.test.ts && npm run test:gate-renumber && tsx test/gate4_pr_b_equivalence.test.ts && tsx test/r8_gate4_compare.test.ts && tsx test/strategy_v3_reachability.test.ts && tsx test/w1b_production_surface.test.ts && tsx test/w2_market_structure_integration.test.ts && tsx test/w3_binary_output.test.ts && tsx test/v3_safety_invariants.test.ts && tsx test/payout_gate.test.ts && tsx test/favorite_registry.test.ts && tsx test/w5w6_modules.test.ts && tsx test/market_hours.test.ts && tsx test/r9_ledger_scan.test.ts && tsx test/provider_scheduler_concurrency.test.ts && tsx test/pr4_telegram_reliability.test.ts && tsx test/pr4_notification_delivery.test.ts && tsx test/r8_backtest_core.test.ts
+
+[pr7_security_session] PASS — security and session contract assertions complete
+[pr7_registration_security] PASS — registration limits, disabled default, and concurrency cap verified
+[pr7_dst_boundaries] PASS — 2026/2027 DST, mismatch-week, margin, expiry, and timeframe matrix verified
+[pr7_market_calendar] PASS — schema/hash, weekly closure, holidays, early-close, and bar boundaries verified
+[pr7_session_config] PASS — validation, cwd independence, config identity and per-event ledger metadata
+[pr7_startup_guards] PASS — fail-closed host/bootstrap/data/ledger/repository/config checks and degradable provider/Telegram/clock checks
+[pr7_operations] PASS — operational status, payout freshness/reminders, scan-gap, and self-check policy
+[pr7_termux_operations] PASS — preflight, dry-run, fake boot commands, state-dir reuse, and no-secret health ping verified
+[pr3_storage_operations] RED/PASS contract assertions
+[pr6_chart_modal] PASS
+[pr6_alert_state] PASS
+[pr2_v3_milestones] PASS
+[pr2_durable_migration] PASS
+[pr2_stats_parity] PASS
+[pr1_latency_boundary] PASS
+[pr1_batch_timing] PASS
+[pr1_limiter] PASS
+[pr1_signal_price] PASS
+=== PR-U UI TRUTHFULNESS RED TESTS: no fabricated claims/prices and safe telemetry server rendering ===
+=== P0 MERGE BLOCKERS: scanner cancellation, ledger tail recovery, outcome boundary and role guards passed ===
+=== P1 HASH EPOCH: canonical JSON, standard SHA-256, active epoch and legacy hash retention passed ===
+=== PR-8 V3 SOURCE-OF-TRUTH RED/GREEN: legacy pipeline calculations removed; params canonical hash and engine fingerprint contract passed ===
+=== PR-8 LEGACY READ/INPUT RED-GREEN: legacy optional reads preserved; unused pipeline inputs removed ===
+=== PR-8 PARAMS RED/GREEN: centralized frozen parameter contract and identity preservation passed ===
+=== PR-8 SCORE/FORMULA RED/GREEN: remaining score bands and formula literals centralized ===
+=== P2 PERSISTENCE/PERFORMANCE: atomic JSON writes, cache invalidation, and cached ledger append path passed ===
+[p3_behavior_contract] PASS — provider normalization → live provenance → V3 nine-gate telemetry
+[p3_live_provider] SKIPPED — set P3_LIVE_INTEGRATION=1 to consume a real provider request
+=== P4 SECOND AUDIT: scanner stop boundary, server-side outcome/action guards, private bundle path, repair hook, and hash epoch behavior passed ===
+[pr_a_owner_regressions] PASS
+=== V3 ENGINE UNIT TESTS: every PRICE_ONLY stage pass/fail, HTF-owned direction, fail-closed data passed ===
+
+> react-example@0.0.0 test:gate-renumber
+> node --max-old-space-size=512 --import tsx test/gate_renumber_equivalence.test.ts
+
+=== GATE RENUMBER EQUIVALENCE: 24024 b90004f decisions unchanged; G4/G5/G6 mapping and gate structure passed ===
+=== PR-B G4 GOLDEN PARITY: 24024 cases; changed=15079; PASS->BLOCKED=8110; BLOCKED->PASS=6969; non-G4 gates/stages/MFCI unchanged ===
+=== R8 GATE4 COMPARE: synthetic 1h/5m/15m/30m CSVs loaded, A/B IS/OOS reason counts emitted ===
+[REACHABILITY] ideal matrix: 24/24 combinations alert (PRICE_ONLY/FULL x 5m/15m/30m x EUR/JPY scale x BULLISH/BEARISH)
+[ROBUSTNESS] PRICE_ONLY 5m EUR/USD BULLISH: 0.5pip 104/110 | 1pip 74/110 | 2pip 31/110 | 3pip 21/110
+[ROBUSTNESS] PRICE_ONLY 5m EUR/USD BEARISH: 0.5pip 100/110 | 1pip 61/110 | 2pip 44/110 | 3pip 33/110
+[ROBUSTNESS] PRICE_ONLY 5m USD/JPY BULLISH: 0.5pip 107/110 | 1pip 69/110 | 2pip 32/110 | 3pip 19/110
+[ROBUSTNESS] PRICE_ONLY 5m USD/JPY BEARISH: 0.5pip 103/110 | 1pip 72/110 | 2pip 30/110 | 3pip 17/110
+[ROBUSTNESS] PRICE_ONLY 15m EUR/USD BULLISH: 0.5pip 104/110 | 1pip 77/110 | 2pip 21/110 | 3pip 17/110
+[ROBUSTNESS] PRICE_ONLY 15m EUR/USD BEARISH: 0.5pip 102/110 | 1pip 69/110 | 2pip 30/110 | 3pip 21/110
+[ROBUSTNESS] PRICE_ONLY 15m USD/JPY BULLISH: 0.5pip 102/110 | 1pip 75/110 | 2pip 34/110 | 3pip 25/110
+[ROBUSTNESS] PRICE_ONLY 15m USD/JPY BEARISH: 0.5pip 103/110 | 1pip 77/110 | 2pip 31/110 | 3pip 31/110
+[ROBUSTNESS] PRICE_ONLY 30m EUR/USD BULLISH: 0.5pip 102/110 | 1pip 72/110 | 2pip 30/110 | 3pip 18/110
+[ROBUSTNESS] PRICE_ONLY 30m EUR/USD BEARISH: 0.5pip 103/110 | 1pip 71/110 | 2pip 28/110 | 3pip 21/110
+[ROBUSTNESS] PRICE_ONLY 30m USD/JPY BULLISH: 0.5pip 101/110 | 1pip 79/110 | 2pip 39/110 | 3pip 20/110
+[ROBUSTNESS] PRICE_ONLY 30m USD/JPY BEARISH: 0.5pip 98/110 | 1pip 71/110 | 2pip 26/110 | 3pip 19/110
+[ROBUSTNESS] FULL 5m EUR/USD BULLISH: 0.5pip 93/110 | 1pip 51/110 | 2pip 13/110 | 3pip 11/110
+[ROBUSTNESS] FULL 5m EUR/USD BEARISH: 0.5pip 95/110 | 1pip 59/110 | 2pip 12/110 | 3pip 5/110
+[ROBUSTNESS] FULL 5m USD/JPY BULLISH: 0.5pip 96/110 | 1pip 49/110 | 2pip 16/110 | 3pip 13/110
+[ROBUSTNESS] FULL 5m USD/JPY BEARISH: 0.5pip 92/110 | 1pip 50/110 | 2pip 12/110 | 3pip 10/110
+[ROBUSTNESS] FULL 15m EUR/USD BULLISH: 0.5pip 96/110 | 1pip 45/110 | 2pip 19/110 | 3pip 7/110
+[ROBUSTNESS] FULL 15m EUR/USD BEARISH: 0.5pip 91/110 | 1pip 55/110 | 2pip 15/110 | 3pip 5/110
+[ROBUSTNESS] FULL 15m USD/JPY BULLISH: 0.5pip 102/110 | 1pip 56/110 | 2pip 8/110 | 3pip 5/110
+[ROBUSTNESS] FULL 15m USD/JPY BEARISH: 0.5pip 101/110 | 1pip 47/110 | 2pip 17/110 | 3pip 9/110
+[ROBUSTNESS] FULL 30m EUR/USD BULLISH: 0.5pip 102/110 | 1pip 67/110 | 2pip 19/110 | 3pip 5/110
+[ROBUSTNESS] FULL 30m EUR/USD BEARISH: 0.5pip 98/110 | 1pip 57/110 | 2pip 10/110 | 3pip 7/110
+[ROBUSTNESS] FULL 30m USD/JPY BULLISH: 0.5pip 93/110 | 1pip 52/110 | 2pip 15/110 | 3pip 9/110
+[ROBUSTNESS] FULL 30m USD/JPY BEARISH: 0.5pip 100/110 | 1pip 53/110 | 2pip 11/110 | 3pip 10/110
+[ROBUSTNESS] total 4797/10560 alerts across seeded noise 0.5/1/2/3 pip with large-body shocks
+[FUNNEL] random PRICE_ONLY BULLISH: marginal=16.6%,42.7%,50.7%,45.2%,84.9%,53.9%,43.9%,61.1%,85.7% cumulative=16.6%,12.0%,9.2%,3.8%,3.3%,1.0%,0.6%,0.4%,0.1% alerts=8/6000
+[FUNNEL] random PRICE_ONLY BEARISH: marginal=16.6%,42.9%,51.4%,45.2%,85.7%,54.0%,44.4%,58.6%,85.0% cumulative=16.6%,12.0%,9.4%,4.0%,3.4%,0.8%,0.4%,0.3%,0.1% alerts=9/6000
+[FUNNEL] random FULL BULLISH: marginal=1.1%,42.4%,12.5%,44.9%,84.7%,27.1%,44.3%,59.8%,85.6% cumulative=1.1%,0.9%,0.1%,0.1%,0.1%,0.0%,0.0%,0.0%,0.0% alerts=0/6000
+[FUNNEL] random FULL BEARISH: marginal=1.1%,42.1%,12.2%,44.7%,85.2%,27.4%,45.7%,59.3%,85.3% cumulative=1.1%,0.8%,0.2%,0.1%,0.1%,0.0%,0.0%,0.0%,0.0% alerts=0/6000
+[REACHABILITY] runtime 29.6s
+=== V3 REACHABILITY SUITE (P3): ideal matrix, own-candle mutation >= 10k windows, honest random-window funnels passed ===
+=== W1b PRODUCTION SURFACE TEST: simulation, replay selector, and Vision mock surfaces removed ===
+=== W2 MARKET STRUCTURE INTEGRATION: IFVG/BPR/POC, owner DST sessions (4 transition dates) and scale invariance passed ===
+=== W3 BINARY OUTPUT: CALL/PUT/NO_TRADE, full telemetry incl. NO_TRADE, payout boundary, NOT_LIVE, no SL/TP passed ===
+[same_candle_determinism] PASS
+[decision_candle_always_closed] PASS
+[zero_lookahead] PASS
+[scale_invariance] PASS
+[price_only_no_zero_fill] PASS
+[data_integrity] PASS
+[forbidden_patterns] PASS
+[env_example_secrets] PASS
+=== V3 SAFETY INVARIANTS: determinism, closed candle, zero lookahead, scale, no zero-fill, data integrity, grep passed ===
+=== PAYOUT GATE: unset, 84.9, 85, normalization, persistence and validation passed ===
+=== PAYOUT AUTH: owner-only commands, payout validation, no chat IDs in audit passed ===
+=== FAVORITES: seed, add/remove normalization and restart persistence passed ===
+=== W5/W6 MODULES: Wilson confidence, verdict, durable token bucket and budget limits passed ===
+=== W6 BUDGET: 70% auto budget and 80% hard stop passed ===
+=== FIXED TEST Date.now: 2026-10-14T10:00:00.000Z ===
+=== KILL-ZONE SIMULATION: 32 fetches / 96 windows (24 eligible, 8 HTF fetches via cache) ===
+=== C5 MARKET HOURS: UTC boundaries/holidays, no closed-time signal, unchanged open CALL, R8 filter, and no-credit scanner suppression passed ===
+[ledger_tamper] PASS
+[edge_lost_and_report] PASS
+[scan_payout_and_same_candle] PASS
+[delivery_window_suppression] PASS
+[scanner_stop_race] PASS
+[scheduler_budget_auto_cycle] PASS
+[auto_resolve_and_result] PASS
+[single-provider_and_expiry] PASS
+[edge_pause_resume] PASS
+[restart_safe_loop] PASS
+=== R9 LEDGER/SCAN/RESOLVE/EDGE: tamper, payout, same candle, budget, resolve, /result, single-provider, expiry, EDGE_LOST, restart passed ===
+[testConcurrentQueueSequentialInterval] PASS
+[testSpacingIncludesPersistenceLatency] PASS
+[testConcurrentMinuteCapEnforcement] PASS
+[testConcurrentHourlyLimitEnforcement] PASS
+[testConcurrentDailyHardStopEnforcement] PASS
+[testConcurrentAutoBudgetIsolation] PASS
+[testInterleavedAutoAndOnDemandQueue] PASS
+[testQueueResilienceAfterTaskError] PASS
+[testMinuteRolloverWindowReset] PASS
+[testProviderSchedulersIntegrity] PASS
+[testFreshDayHourlyInitialization] PASS
+[testLegacyHourlyStateMigration] PASS
+
+ALL 12 PROVIDER SCHEDULER REGRESSION TEST SUITES PASSED!
+[pr4_telegram_reliability] all transport contract tests passed
+[NotificationService] Email delivery failure: Error: Nodemailer send timed out after 10ms.
+    at Timeout.<anonymous> (/home/ubuntu/comvision-assisted-strategy-research-decision-support-engine/src/server/notificationService.ts:195:16)
+    at listOnTimeout (node:internal/timers:585:17)
+    at process.processTimers (node:internal/timers:521:7)
+[pr4_notification_delivery] all service delivery tests passed
+=== R8 HISTORICAL FETCH: full inclusive end date, out-of-range clipping, and chunk-boundary continuity passed ===
+=== R8 CORE: live pipeline, causal walk-forward, OOS/IS, baselines, N>=200 verdict rule, CSV+SHA-256, pagination, R8_NOT_RUN passed ===

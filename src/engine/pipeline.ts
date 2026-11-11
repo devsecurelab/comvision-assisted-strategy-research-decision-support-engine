@@ -48,16 +48,6 @@ export interface PipelineInput {
   provider?: 'TWELVE_DATA';
   pair?: string;
   asset?: string;
-  liveTickPressure?: {
-    classification: 'ALIGNED' | 'NEUTRAL' | 'OPPOSITE' | 'UNCERTAIN';
-    magnitude: 'LOW' | 'MEDIUM' | 'HIGH';
-    consistency: 'LOW' | 'MEDIUM' | 'HIGH';
-    speedPxPerSec?: number;
-  };
-  customSettings?: {
-    maxWickRatio?: number;
-    fibEquilibriumLevel?: number;
-  };
   payoutPct?: number;
   payoutSetAt?: string;
   /** Closed 1h candles; when supplied the engine derives HTF bias itself from the latest closed 1h structure. */
@@ -216,12 +206,7 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
       wick_check: { status: stageStatus(14), wick_ratio: Number.NaN, reason: 'V3 wick stage is authoritative.' },
       liquidity_sweep: { status: stageStatus(9) === 'PASS' ? 'SWEEP_DETECTED' : 'NO_SWEEP', reason: 'V3 liquidity stage is authoritative.' },
     } as MasterTelemetry['validation_metrics'],
-    pressure_observation: {
-      classification: input.liveTickPressure?.classification ?? 'UNAVAILABLE',
-      magnitude: input.liveTickPressure?.magnitude ?? 'UNAVAILABLE',
-      consistency: input.liveTickPressure?.consistency ?? 'UNAVAILABLE',
-      speedPxPerSec: input.liveTickPressure?.speedPxPerSec,
-    },
+    pressure_observation: { classification: 'UNAVAILABLE', magnitude: 'UNAVAILABLE', consistency: 'UNAVAILABLE' },
     guardrails: {
       news_guard: {
         news_event_detected: newsEventDetected,
