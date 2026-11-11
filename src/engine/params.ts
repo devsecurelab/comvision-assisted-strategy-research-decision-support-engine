@@ -75,6 +75,26 @@ export const V3_STRATEGY_PARAMS = {
     fullWeights: { structure: 0.35, orderFlow: 0.25, liquidity: 0.20 },
     priceOnlyWeights: { structure: 0.35, liquidity: 0.20 },
   },
+  scores: {
+    structure: { pass: 0.95, partial: 0.5, fail: 0.15 },
+    bos: { strong: 1, normal: 0.95, weak: 0.85, fail: 0.2 },
+    imbalance: { fvgPartial: 0.95, fvgUnmitigated: 0.85, fvgFail: 0.1, ifvgPass: 0.95, ifvgCandidate: 0.5, ifvgFail: 0.2, bprPass: 0.9, bprCandidate: 0.5, bprFail: 0.2 },
+    orderBlock: { pass: 0.95, candidate: 0.5, fail: 0.3 },
+    breaker: { pass: 0.92, candidate: 0.55, fail: 0.3 },
+    liquidity: { sweepPass: 0.98, sweepCandidate: 0.45, sweepFail: 0.2, poolBase: 0.8, poolPerTouch: 0.05, poolCap: 1, poolFail: 0.35 },
+    equilibrium: { gatePass: 0.95, gateFail: 0.2, oteSweet: 1, otePass: 0.85, oteFail: 0.3 },
+    wick: { null: 0, excellent: 1, strong: 0.85, acceptable: 0.7, fail: 0.15 },
+    momentum: { fail: 0.25, strong: 1, normal: 0.9, pass: 0.75 },
+    session: { pass: 0.9, fail: 0.3, killZonePass: 0.95 },
+  },
+  formulas: {
+    midpointDivisor: 2,
+    mfciFullWeightTotal: 0.8,
+    mfciPriceOnlyWeightTotal: 0.55,
+    htfMinimumSwingCount: 2,
+    htfCandleMinimumExtra: 3,
+    equilibriumEpsilonMultiplier: 32,
+  },
 } as const;
 
 // Compatibility exports retain the existing engine/test-facing names.

@@ -78,8 +78,8 @@ const bool = (v: boolean) => (v ? 'true' : 'false');
 export function classifyGate4Reason(direction: 'BULLISH' | 'BEARISH', rangeHigh: number | undefined, rangeLow: number | undefined, midpoints: number[]): 'PASS' | 'RANGE_UNAVAILABLE' | 'ZONE_UNAVAILABLE' | 'ZONE_ON_WRONG_SIDE' | 'MID_AT_EQ' {
   if (rangeHigh === undefined || rangeLow === undefined || rangeHigh <= rangeLow) return 'RANGE_UNAVAILABLE';
   if (midpoints.length === 0) return 'ZONE_UNAVAILABLE';
-  const eq = (rangeHigh + rangeLow) / 2;
-  const epsilon = Number.EPSILON * Math.max(1, Math.abs(eq)) * 32;
+  const eq = (rangeHigh + rangeLow) / V3_STRATEGY_PARAMS.formulas.midpointDivisor;
+  const epsilon = Number.EPSILON * Math.max(1, Math.abs(eq)) * V3_STRATEGY_PARAMS.formulas.equilibriumEpsilonMultiplier;
   if (midpoints.some((midpoint) => Math.abs(midpoint - eq) <= epsilon)) return 'MID_AT_EQ';
   if (midpoints.some((midpoint) => direction === 'BULLISH' ? midpoint > eq : midpoint < eq)) return 'ZONE_ON_WRONG_SIDE';
   return 'PASS';
@@ -121,12 +121,12 @@ export function deriveHtfBias(htfCandles: Candle[], asOfIso: string): HtfBias {
   const asOf = Date.parse(asOfIso);
   if (!Number.isFinite(asOf)) return 'UNCLEAR';
   const closed = htfCandles.filter((c) => Date.parse(c.timestamp) + 3_600_000 <= asOf);
-  if (closed.length < 2 * FRACTAL_N + 3) return 'UNCLEAR';
+  if (closed.length < V3_STRATEGY_PARAMS.formulas.htfMinimumSwingCount * FRACTAL_N + V3_STRATEGY_PARAMS.formulas.htfCandleMinimumExtra) return 'UNCLEAR';
   const swings = confirmedFractalSwings(closed);
   const highs = swings.filter((s) => s.type === 'SWING_HIGH');
   const lows = swings.filter((s) => s.type === 'SWING_LOW');
   if (highs.length < 2 || lows.length < 2) return 'UNCLEAR';
-  const [h1, h2] = highs.slice(-2); const [l1, l2] = lows.slice(-2);
+  const [h1, h2] = highs.slice(-V3_STRATEGY_PARAMS.formulas.htfMinimumSwingCount); const [l1, l2] = lows.slice(-V3_STRATEGY_PARAMS.formulas.htfMinimumSwingCount);
   if (h2.price > h1.price && l2.price > l1.price) return 'BULLISH';
   if (h2.price < h1.price && l2.price < l1.price) return 'BEARISH';
   return 'UNCLEAR';
@@ -192,13 +192,13 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
   // S1 — Market structure (fixed 5-candle fractal, confirmed at t+2)
   const lastHigh = swingHighs.at(-1); const lastLow = swingLows.at(-1);
   const s1Pass = !!lastHigh && !!lastLow;
-  const s1 = stage(1, 'Market Structure (Fixed 5-Candle Fractal, N=2)', 'STRUCTURE', s1Pass, s1Pass ? .95 : .4, 'Swing_t: High/Low strictly beyond t-2..t+2; confirmed at t+2', { Fractal_N: '2', Confirmed_Swing_Highs: String(swingHighs.length), Confirmed_Swing_Lows: String(swingLows.length), Latest_Swing_High: lastHigh ? `${fixed(lastHigh.price)} (confirmed bar ${lastHigh.confirmedAt})` : 'NONE', Latest_Swing_Low: lastLow ? `${fixed(lastLow.price)} (confirmed bar ${lastLow.confirmedAt})` : 'NONE', Zero_Lookahead: 'confirmedAt <= signal-1' }, s1Pass ? 'Confirmed swing structure mapped.' : 'No confirmed swing high/low pair.');
+  const s1 = stage(1, 'Market Structure (Fixed 5-Candle Fractal, N=2)', 'STRUCTURE', s1Pass, s1Pass ? V3_STRATEGY_PARAMS.scores.structure.pass : .4, 'Swing_t: High/Low strictly beyond t-2..t+2; confirmed at t+2', { Fractal_N: '2', Confirmed_Swing_Highs: String(swingHighs.length), Confirmed_Swing_Lows: String(swingLows.length), Latest_Swing_High: lastHigh ? `${fixed(lastHigh.price)} (confirmed bar ${lastHigh.confirmedAt})` : 'NONE', Latest_Swing_Low: lastLow ? `${fixed(lastLow.price)} (confirmed bar ${lastLow.confirmedAt})` : 'NONE', Zero_Lookahead: 'confirmedAt <= signal-1' }, s1Pass ? 'Confirmed swing structure mapped.' : 'No confirmed swing high/low pair.');
 
   // S2 — BOS: body close beyond the latest confirmed swing
   const bosLevel = isBull ? lastHigh : lastLow;
   const displacement = body(cur) / a14;
   const s2Pass = !!bosLevel && (isBull ? cur.close > bosLevel.price : cur.close < bosLevel.price);
-  const s2 = stage(2, 'BOS (Body Close Beyond Confirmed Swing)', 'STRUCTURE', s2Pass, s2Pass ? (displacement >= V3_STRATEGY_PARAMS.structure.bosDisplacementStrong ? 1 : displacement >= V3_STRATEGY_PARAMS.structure.bosDisplacementNormal ? .95 : .85) : .2, isBull ? 'Close_t > latest confirmed Swing High' : 'Close_t < latest confirmed Swing Low', { Swing_Level: fixed(bosLevel?.price), Close: fixed(cur.close), Body_Closed_Beyond: bool(s2Pass), Displacement_ATR: fixed(displacement, 2) }, s2Pass ? 'Body-close break of structure confirmed.' : 'No body-close break of the latest confirmed swing.');
+  const s2 = stage(2, 'BOS (Body Close Beyond Confirmed Swing)', 'STRUCTURE', s2Pass, s2Pass ? (displacement >= V3_STRATEGY_PARAMS.structure.bosDisplacementStrong ? V3_STRATEGY_PARAMS.scores.bos.strong : displacement >= V3_STRATEGY_PARAMS.structure.bosDisplacementNormal ? V3_STRATEGY_PARAMS.scores.bos.normal : V3_STRATEGY_PARAMS.scores.bos.weak) : V3_STRATEGY_PARAMS.scores.bos.fail, isBull ? 'Close_t > latest confirmed Swing High' : 'Close_t < latest confirmed Swing Low', { Swing_Level: fixed(bosLevel?.price), Close: fixed(cur.close), Body_Closed_Beyond: bool(s2Pass), Displacement_ATR: fixed(displacement, 2) }, s2Pass ? 'Body-close break of structure confirmed.' : 'No body-close break of the latest confirmed swing.');
 
   // S3 — CHoCH: body-close break of the first opposite swing after an opposite-trend sequence
   const volumes = cs.map((c) => (typeof c.volume === 'number' ? c.volume : NaN));
@@ -222,30 +222,30 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
     chochFlow = volSpike && aligned; chochVol = bool(volSpike); chochDelta = bool(aligned);
   }
   const s3Pass = !!choch && chochFlow;
-  const s3 = stage(3, 'CHoCH (Price Structure; Volume/Delta FULL-only)', 'STRUCTURE', s3Pass, s3Pass ? .95 : choch ? .5 : .15, isBull ? 'Lower-high sequence then Close_k > that swing high' : 'Higher-low sequence then Close_k < that swing low', { Counter_Swing: fixed(choch?.swing.price), Break_Bar_Offset: choch ? String(last - choch.breakIndex) : 'NONE', Volume_Spike: chochVol, Delta_Aligned: chochDelta }, s3Pass ? 'Change of character confirmed by body close.' : 'No price CHoCH in the lookback.');
+  const s3 = stage(3, 'CHoCH (Price Structure; Volume/Delta FULL-only)', 'STRUCTURE', s3Pass, s3Pass ? V3_STRATEGY_PARAMS.scores.structure.pass : choch ? V3_STRATEGY_PARAMS.scores.structure.partial : V3_STRATEGY_PARAMS.scores.structure.fail, isBull ? 'Lower-high sequence then Close_k > that swing high' : 'Higher-low sequence then Close_k < that swing low', { Counter_Swing: fixed(choch?.swing.price), Break_Bar_Offset: choch ? String(last - choch.breakIndex) : 'NONE', Volume_Spike: chochVol, Delta_Aligned: chochDelta }, s3Pass ? 'Change of character confirmed by body close.' : 'No price CHoCH in the lookback.');
 
   // S4 — FVG with CE tracking (ATR-normalized minimum gap)
   const minGap = MIN_FVG_GAP_ATR * a14;
   const fvgAt = (k: number) => {
     const a = cs[k - 2]; const c = cs[k];
-    if (isBull && c.low > a.high) { const gap = c.low - a.high; const ce = a.high + gap / 2; const status = cur.close <= a.high ? 'COMPLETELY_FILLED' : cur.close < ce ? 'CE_BREACHED' : cur.close < c.low ? 'PARTIAL_FILL' : 'UNMITIGATED'; return { gap, ce, status, valid: gap >= minGap, bottom: a.high, top: c.low }; }
-    if (!isBull && c.high < a.low) { const gap = a.low - c.high; const ce = c.high + gap / 2; const status = cur.close >= a.low ? 'COMPLETELY_FILLED' : cur.close > ce ? 'CE_BREACHED' : cur.close > c.high ? 'PARTIAL_FILL' : 'UNMITIGATED'; return { gap, ce, status, valid: gap >= minGap, bottom: c.high, top: a.low }; }
+    if (isBull && c.low > a.high) { const gap = c.low - a.high; const ce = a.high + gap / V3_STRATEGY_PARAMS.formulas.midpointDivisor; const status = cur.close <= a.high ? 'COMPLETELY_FILLED' : cur.close < ce ? 'CE_BREACHED' : cur.close < c.low ? 'PARTIAL_FILL' : 'UNMITIGATED'; return { gap, ce, status, valid: gap >= minGap, bottom: a.high, top: c.low }; }
+    if (!isBull && c.high < a.low) { const gap = a.low - c.high; const ce = c.high + gap / V3_STRATEGY_PARAMS.formulas.midpointDivisor; const status = cur.close >= a.low ? 'COMPLETELY_FILLED' : cur.close > ce ? 'CE_BREACHED' : cur.close > c.high ? 'PARTIAL_FILL' : 'UNMITIGATED'; return { gap, ce, status, valid: gap >= minGap, bottom: c.high, top: a.low }; }
     return undefined;
   };
   let fvg: ReturnType<typeof fvgAt>;
   for (let k = last; k >= Math.max(2, last - FVG_SEARCH_LOOKBACK) && !fvg?.valid; k--) { const f = fvgAt(k); if (f && (f.status === 'UNMITIGATED' || f.status === 'PARTIAL_FILL')) fvg = f; }
   const s4Pass = !!fvg && fvg.valid && (fvg.status === 'UNMITIGATED' || fvg.status === 'PARTIAL_FILL');
-  const s4 = stage(4, 'FVG Mechanics (Fair Value Gap & CE Tracking)', 'IMBALANCE', s4Pass, s4Pass ? (fvg!.status === 'PARTIAL_FILL' ? .95 : .85) : .1, 'Gap >= 0.2*ATR14; CE = gap midpoint', { Gap_Size: fixed(fvg?.gap), Min_Required_Gap: fixed(minGap), CE_Level: fixed(fvg?.ce), Status: fvg?.status ?? 'NONE' }, s4Pass ? 'Active directional imbalance.' : 'No active directional FVG in the last 6 candles.');
+  const s4 = stage(4, 'FVG Mechanics (Fair Value Gap & CE Tracking)', 'IMBALANCE', s4Pass, s4Pass ? (fvg!.status === 'PARTIAL_FILL' ? V3_STRATEGY_PARAMS.scores.imbalance.fvgPartial : V3_STRATEGY_PARAMS.scores.imbalance.fvgUnmitigated) : V3_STRATEGY_PARAMS.scores.imbalance.fvgFail, 'Gap >= 0.2*ATR14; CE = gap midpoint', { Gap_Size: fixed(fvg?.gap), Min_Required_Gap: fixed(minGap), CE_Level: fixed(fvg?.ce), Status: fvg?.status ?? 'NONE' }, s4Pass ? 'Active directional imbalance.' : 'No active directional FVG in the last 6 candles.');
 
   // S5 — IFVG from a real prior FVG: body-close inversion then retest
   const ifvg = evaluateIfvg(cs.slice(-REFERENCE_LOOKBACK), isBull ? 'BULLISH' : 'BEARISH');
   const s5Pass = ifvg.status === 'PASS';
-  const s5 = stage(5, 'IFVG (Prior FVG Body-Close Inversion + Retest)', 'IMBALANCE', s5Pass, s5Pass ? .95 : ifvg.ifvg_status === 'IFVG_CANDIDATE' ? .5 : .2, 'Prior FVG -> opposite body close -> retest -> close beyond zone', { IFVG_Status: ifvg.ifvg_status, Original_FVG_Zone: ifvg.original_fvg_zone ? `[${fixed(ifvg.original_fvg_zone[0])}, ${fixed(ifvg.original_fvg_zone[1])}]` : 'NONE', Invalidation_Boundary: fixed(ifvg.invalidation_boundary) }, ifvg.reason ?? 'No IFVG state.');
+  const s5 = stage(5, 'IFVG (Prior FVG Body-Close Inversion + Retest)', 'IMBALANCE', s5Pass, s5Pass ? V3_STRATEGY_PARAMS.scores.imbalance.ifvgPass : ifvg.ifvg_status === 'IFVG_CANDIDATE' ? V3_STRATEGY_PARAMS.scores.imbalance.ifvgCandidate : V3_STRATEGY_PARAMS.scores.imbalance.ifvgFail, 'Prior FVG -> opposite body close -> retest -> close beyond zone', { IFVG_Status: ifvg.ifvg_status, Original_FVG_Zone: ifvg.original_fvg_zone ? `[${fixed(ifvg.original_fvg_zone[0])}, ${fixed(ifvg.original_fvg_zone[1])}]` : 'NONE', Invalidation_Boundary: fixed(ifvg.invalidation_boundary) }, ifvg.reason ?? 'No IFVG state.');
 
   // S6 — BPR
   const bpr = detectBprFromCandles(cs.slice(-BPR_LOOKBACK));
   const s6Pass = bpr.status === 'PASS';
-  const s6 = stage(6, 'BPR (Balanced Price Range)', 'IMBALANCE', s6Pass, s6Pass ? .9 : bpr.bpr_status === 'BPR_CANDIDATE' ? .5 : .2, 'Overlap of independently detected opposing FVGs, retested by signal candle', { BPR_Status: bpr.bpr_status, BPR_Lower_Bound: fixed(bpr.bpr_zone_low), BPR_Upper_Bound: fixed(bpr.bpr_zone_high), Overlap_Size: fixed(bpr.bpr_overlap_size) }, bpr.reason ?? 'No BPR state.');
+  const s6 = stage(6, 'BPR (Balanced Price Range)', 'IMBALANCE', s6Pass, s6Pass ? V3_STRATEGY_PARAMS.scores.imbalance.bprPass : bpr.bpr_status === 'BPR_CANDIDATE' ? V3_STRATEGY_PARAMS.scores.imbalance.bprCandidate : V3_STRATEGY_PARAMS.scores.imbalance.bprFail, 'Overlap of independently detected opposing FVGs, retested by signal candle', { BPR_Status: bpr.bpr_status, BPR_Lower_Bound: fixed(bpr.bpr_zone_low), BPR_Upper_Bound: fixed(bpr.bpr_zone_high), Overlap_Size: fixed(bpr.bpr_overlap_size) }, bpr.reason ?? 'No BPR state.');
 
   // Order-block detector shared by S7 (same direction) and S8 (failed opposite OB)
   const findOrderBlocks = (dir: 'BULLISH' | 'BEARISH') => {
@@ -275,7 +275,7 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
     } else { obPocPass = false; obPocText = 'POC_UNAVAILABLE'; }
   }
   const s7Pass = !!ob && obPocPass;
-  const s7 = stage(7, 'Order Block (Last Opposite Candle + 3-Candle Expansion + FVG)', 'IMBALANCE', s7Pass, s7Pass ? .95 : ob ? .5 : .3, 'OB = last opposite candle before 3-candle expansion beyond its extreme, with FVG confluence, not invalidated by close', { OB_High: fixed(ob ? cs[ob.index].high : null), OB_Low: fixed(ob ? cs[ob.index].low : null), OB_Bar_Offset: ob ? String(last - ob.index) : 'NONE', FVG_Confluence: bool(!!ob), POC_Relative_Position: obPocText }, s7Pass ? 'Valid order block with FVG confluence.' : 'No valid order block with FVG confluence.');
+  const s7 = stage(7, 'Order Block (Last Opposite Candle + 3-Candle Expansion + FVG)', 'IMBALANCE', s7Pass, s7Pass ? V3_STRATEGY_PARAMS.scores.orderBlock.pass : ob ? V3_STRATEGY_PARAMS.scores.orderBlock.candidate : V3_STRATEGY_PARAMS.scores.orderBlock.fail, 'OB = last opposite candle before 3-candle expansion beyond its extreme, with FVG confluence, not invalidated by close', { OB_High: fixed(ob ? cs[ob.index].high : null), OB_Low: fixed(ob ? cs[ob.index].low : null), OB_Bar_Offset: ob ? String(last - ob.index) : 'NONE', FVG_Confluence: bool(!!ob), POC_Relative_Position: obPocText }, s7Pass ? 'Valid order block with FVG confluence.' : 'No valid order block with FVG confluence.');
 
   // S9 sweep detector (shared with S8): pierce the latest confirmed swing and close back inside
   const sweepAt = (k: number) => {
@@ -307,7 +307,7 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
     else { const sd = stdev(deltas); const z = sd > 0 ? (Math.abs(dk) - mean(deltas.map(Math.abs))) / sd : NaN; s8Flow = Number.isFinite(z) && z >= BREAKER_DELTA_Z_MINIMUM; s8DeltaText = fixed(z, 2); }
   }
   const s8Pass = !!breaker && s8Flow;
-  const s8Raw = stage(8, 'Breaker Block (Sweep + Failed OB Body-Close Break)', 'IMBALANCE', s8Pass, s8Pass ? .92 : breaker ? .55 : .3, 'Real sweep (S9 rule) before body close through a failed opposite OB; FULL adds |delta| z >= 2.0 over 50', { Failed_OB_Level: fixed(breaker ? (isBull ? cs[breaker.obIndex].high : cs[breaker.obIndex].low) : null), Break_Bar_Offset: breaker ? String(last - breaker.breakIndex) : 'NONE', Liquidity_Sweep_Preceded: bool(!!breaker), Sweep_Bar_Offset: breaker ? String(last - breaker.sweepIndex) : 'NONE', Delta_Z: s8DeltaText }, s8Pass ? 'Breaker block confirmed.' : 'No breaker transition.');
+  const s8Raw = stage(8, 'Breaker Block (Sweep + Failed OB Body-Close Break)', 'IMBALANCE', s8Pass, s8Pass ? V3_STRATEGY_PARAMS.scores.breaker.pass : breaker ? V3_STRATEGY_PARAMS.scores.breaker.candidate : V3_STRATEGY_PARAMS.scores.breaker.fail, 'Real sweep (S9 rule) before body close through a failed opposite OB; FULL adds |delta| z >= 2.0 over 50', { Failed_OB_Level: fixed(breaker ? (isBull ? cs[breaker.obIndex].high : cs[breaker.obIndex].low) : null), Break_Bar_Offset: breaker ? String(last - breaker.breakIndex) : 'NONE', Liquidity_Sweep_Preceded: bool(!!breaker), Sweep_Bar_Offset: breaker ? String(last - breaker.sweepIndex) : 'NONE', Delta_Z: s8DeltaText }, s8Pass ? 'Breaker block confirmed.' : 'No breaker transition.');
   const s8 = s8Unavailable ? unavailable(s8Raw, s8Unavailable) : s8Raw;
 
   // S9 — Liquidity sweep in the recent window; FULL adds CVD divergence
@@ -319,7 +319,7 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
     s9Flow = now !== undefined && then !== undefined && (isBull ? now > then : now < then); s9Cvd = bool(s9Flow);
   }
   const s9Pass = !!sweep && s9Flow;
-  const s9 = stage(9, 'Liquidity Sweep (Confirmed Swing Pierce + Close Back)', 'LIQUIDITY', s9Pass, s9Pass ? .98 : sweep ? .45 : .2, isBull ? 'Low_k < latest confirmed Swing Low AND Close_k > Swing Low' : 'High_k > latest confirmed Swing High AND Close_k < Swing High', { Price_Swept: bool(!!sweep), Swept_Level: fixed(sweep?.swing.price), Sweep_Bar_Offset: sweep ? String(last - sweep.k) : 'NONE', CVD_Divergence: full ? s9Cvd : 'CVD_UNAVAILABLE', CVD_Status: full ? 'AVAILABLE' : 'CVD_UNAVAILABLE' }, s9Pass ? 'Liquidity sweep validated.' : 'No liquidity sweep of a confirmed swing.');
+  const s9 = stage(9, 'Liquidity Sweep (Confirmed Swing Pierce + Close Back)', 'LIQUIDITY', s9Pass, s9Pass ? V3_STRATEGY_PARAMS.scores.liquidity.sweepPass : sweep ? V3_STRATEGY_PARAMS.scores.liquidity.sweepCandidate : V3_STRATEGY_PARAMS.scores.liquidity.sweepFail, isBull ? 'Low_k < latest confirmed Swing Low AND Close_k > Swing Low' : 'High_k > latest confirmed Swing High AND Close_k < Swing High', { Price_Swept: bool(!!sweep), Swept_Level: fixed(sweep?.swing.price), Sweep_Bar_Offset: sweep ? String(last - sweep.k) : 'NONE', CVD_Divergence: full ? s9Cvd : 'CVD_UNAVAILABLE', CVD_Status: full ? 'AVAILABLE' : 'CVD_UNAVAILABLE' }, s9Pass ? 'Liquidity sweep validated.' : 'No liquidity sweep of a confirmed swing.');
 
   // S10/S11 — BSL/SSL pools (ATR-normalized), with untouched tracking for Gate 9
   const poolStart = Math.max(0, n - POOL_LOOKBACK);
@@ -329,7 +329,7 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
     for (let i = poolStart; i < n - 1; i++) for (let j = i + 1; j < n; j++) {
       const vi = side === 'BSL' ? cs[i].high : cs[i].low; const vj = side === 'BSL' ? cs[j].high : cs[j].low;
       if (Math.abs(vi - vj) > tolerance) continue;
-      const price = (vi + vj) / 2; const extreme = side === 'BSL' ? Math.max(vi, vj) : Math.min(vi, vj);
+      const price = (vi + vj) / V3_STRATEGY_PARAMS.formulas.midpointDivisor; const extreme = side === 'BSL' ? Math.max(vi, vj) : Math.min(vi, vj);
       const m = merged.find((x) => Math.abs(x.price - price) <= mergeDistance);
       if (!m) merged.push({ price, touches: 2, extreme, lastTouch: j });
       else { m.price = (m.price * m.touches + price) / (m.touches + 1); m.touches++; m.extreme = side === 'BSL' ? Math.max(m.extreme, extreme) : Math.min(m.extreme, extreme); m.lastTouch = Math.max(m.lastTouch, j); }
@@ -338,8 +338,8 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
     return { merged, untouched, tolerance, mergeDistance, primary: [...merged].sort((a, b) => b.touches - a.touches)[0] };
   };
   const bsl = pools('BSL'); const ssl = pools('SSL');
-  const s10 = stage(10, 'BSL Pool (ATR-Normalized Tolerance)', 'LIQUIDITY', !!bsl.primary, bsl.primary ? Math.min(.8 + bsl.primary.touches * .05, 1) : .35, 'Tolerance = 0.10*ATR14; Merge = 0.05*ATR14', { Dynamic_Tolerance: fixed(bsl.tolerance), Clusters: String(bsl.merged.length), Untouched_Pools: String(bsl.untouched.length), Primary_BSL: fixed(bsl.primary?.price), Touches: String(bsl.primary?.touches ?? 0) }, bsl.primary ? 'BSL pool mapped.' : 'No BSL pool.');
-  const s11 = stage(11, 'SSL Pool (ATR-Normalized Tolerance)', 'LIQUIDITY', !!ssl.primary, ssl.primary ? Math.min(.8 + ssl.primary.touches * .05, 1) : .35, 'Tolerance = 0.10*ATR14; Merge = 0.05*ATR14', { Dynamic_Tolerance: fixed(ssl.tolerance), Clusters: String(ssl.merged.length), Untouched_Pools: String(ssl.untouched.length), Primary_SSL: fixed(ssl.primary?.price), Touches: String(ssl.primary?.touches ?? 0) }, ssl.primary ? 'SSL pool mapped.' : 'No SSL pool.');
+  const s10 = stage(10, 'BSL Pool (ATR-Normalized Tolerance)', 'LIQUIDITY', !!bsl.primary, bsl.primary ? Math.min(V3_STRATEGY_PARAMS.scores.liquidity.poolBase + bsl.primary.touches * V3_STRATEGY_PARAMS.scores.liquidity.poolPerTouch, V3_STRATEGY_PARAMS.scores.liquidity.poolCap) : V3_STRATEGY_PARAMS.scores.liquidity.poolFail, 'Tolerance = 0.10*ATR14; Merge = 0.05*ATR14', { Dynamic_Tolerance: fixed(bsl.tolerance), Clusters: String(bsl.merged.length), Untouched_Pools: String(bsl.untouched.length), Primary_BSL: fixed(bsl.primary?.price), Touches: String(bsl.primary?.touches ?? 0) }, bsl.primary ? 'BSL pool mapped.' : 'No BSL pool.');
+  const s11 = stage(11, 'SSL Pool (ATR-Normalized Tolerance)', 'LIQUIDITY', !!ssl.primary, ssl.primary ? Math.min(V3_STRATEGY_PARAMS.scores.liquidity.poolBase + ssl.primary.touches * V3_STRATEGY_PARAMS.scores.liquidity.poolPerTouch, V3_STRATEGY_PARAMS.scores.liquidity.poolCap) : V3_STRATEGY_PARAMS.scores.liquidity.poolFail, 'Tolerance = 0.10*ATR14; Merge = 0.05*ATR14', { Dynamic_Tolerance: fixed(ssl.tolerance), Clusters: String(ssl.merged.length), Untouched_Pools: String(ssl.untouched.length), Primary_SSL: fixed(ssl.primary?.price), Touches: String(ssl.primary?.touches ?? 0) }, ssl.primary ? 'SSL pool mapped.' : 'No SSL pool.');
   const target = (isBull ? bsl.untouched.filter((p) => p.price > cur.close).sort((a, b) => a.price - b.price) : ssl.untouched.filter((p) => p.price < cur.close).sort((a, b) => b.price - a.price))[0];
 
   // S12/S13 — Gate 4 uses the latest confirmed pre-signal swing range.
@@ -349,7 +349,7 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
   const rangeHigh = latestSwingBefore('SWING_HIGH', last)?.price;
   const rangeLow = latestSwingBefore('SWING_LOW', last)?.price;
   const hasConfirmedRange = rangeHigh !== undefined && rangeLow !== undefined && rangeHigh > rangeLow;
-  const rangeEquilibrium = hasConfirmedRange ? (rangeHigh! + rangeLow!) / 2 : undefined;
+  const rangeEquilibrium = hasConfirmedRange ? (rangeHigh! + rangeLow!) / V3_STRATEGY_PARAMS.formulas.midpointDivisor : undefined;
   type ReferenceZone = { name: string; direction: 'BULLISH' | 'BEARISH'; bottom: number; top: number; midpoint: number };
   const referenceZones: ReferenceZone[] = [];
   // OB: retain every valid candidate in the 40-candle lookback. Breaker: use
@@ -380,9 +380,9 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
   const favourableMidpoints = gate4ReasonCode === 'PASS';
   const legacyWindow20 = cs.slice(-V3_STRATEGY_PARAMS.gate4.legacyWindow);
   const legacyHigh = Math.max(...legacyWindow20.map((c) => c.high)); const legacyLow = Math.min(...legacyWindow20.map((c) => c.low));
-  const legacyEquilibrium = legacyLow + (legacyHigh - legacyLow) / 2;
+  const legacyEquilibrium = legacyLow + (legacyHigh - legacyLow) / V3_STRATEGY_PARAMS.formulas.midpointDivisor;
   const s12Pass = input.gate4Mode === 'A' ? (isBull ? cur.close <= legacyEquilibrium : cur.close >= legacyEquilibrium) : favourableMidpoints;
-  const s12 = stage(12, 'Premium / Discount (Zone vs Confirmed-Range EQ)', 'EQUILIBRIUM', s12Pass, s12Pass ? .95 : .2, 'R = [latest confirmed pre-signal swing low, latest confirmed pre-signal swing high]; EQ=(R_low+R_high)/2; every reference-zone midpoint must be favourable', {
+  const s12 = stage(12, 'Premium / Discount (Zone vs Confirmed-Range EQ)', 'EQUILIBRIUM', s12Pass, s12Pass ? V3_STRATEGY_PARAMS.scores.equilibrium.gatePass : V3_STRATEGY_PARAMS.scores.equilibrium.gateFail, 'R = [latest confirmed pre-signal swing low, latest confirmed pre-signal swing high]; EQ=(R_low+R_high)/2; every reference-zone midpoint must be favourable', {
     Range_High: fixed(rangeHigh), Range_Low: fixed(rangeLow), Equilibrium: fixed(rangeEquilibrium), Gate4_Mode: input.gate4Mode ?? 'B', Reference_Zones: referenceZones.map((z) => `${z.name}[${z.direction}]`).join(',') || 'NONE',
     Reference_Midpoints: referenceZones.map((z) => `${z.name}[${z.direction}]=${fixed(z.midpoint)}`).join(',') || 'NONE', Gate4_Reason_Code: gate4ReasonCode, Midpoints_Favourable: bool(favourableMidpoints), Signal_Candle_Excluded: 'true'
   }, gate4ReasonCode === 'RANGE_UNAVAILABLE' ? 'RANGE_UNAVAILABLE: no confirmed pre-signal swing range.' : gate4ReasonCode === 'ZONE_UNAVAILABLE' ? 'ZONE_UNAVAILABLE: no valid directional OB/Breaker/FVG/IFVG/BPR zone.' : gate4ReasonCode === 'MID_AT_EQ' ? 'MID_AT_EQ: a reference-zone midpoint equals equilibrium.' : gate4ReasonCode === 'ZONE_ON_WRONG_SIDE' ? 'ZONE_ON_WRONG_SIDE: a reference-zone midpoint is unfavourable.' : 'Every reference-zone midpoint is in the favourable half.');
@@ -393,28 +393,28 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
   const fib = (r: number) => isBull ? anchorHigh - span * r : anchorLow + span * r;
   const inOte = isBull ? cur.close <= fib(V3_STRATEGY_PARAMS.ote.start) && cur.close >= fib(V3_STRATEGY_PARAMS.ote.end) : cur.close >= fib(V3_STRATEGY_PARAMS.ote.start) && cur.close <= fib(V3_STRATEGY_PARAMS.ote.end);
   const sweet = inOte && Math.abs(cur.close - fib(V3_STRATEGY_PARAMS.ote.sweetSpot)) <= span * V3_STRATEGY_PARAMS.ote.sweetSpotTolerance;
-  const s13 = stage(13, 'OTE (61.8-78.6%, 70.5% Sweet Spot) — confluence', 'EQUILIBRIUM', inOte, sweet ? 1 : inOte ? .85 : .3, 'OTE = [61.8%, 78.6%]', { 'Fib_61.8': fixed(fib(.618)), 'Fib_70.5': fixed(fib(.705)), 'Fib_78.6': fixed(fib(.786)), In_OTE: bool(inOte), Sweet_Spot: bool(sweet) }, inOte ? 'Entry within OTE.' : 'Outside OTE (confluence only).');
+  const s13 = stage(13, 'OTE (61.8-78.6%, 70.5% Sweet Spot) — confluence', 'EQUILIBRIUM', inOte, sweet ? V3_STRATEGY_PARAMS.scores.equilibrium.oteSweet : inOte ? V3_STRATEGY_PARAMS.scores.equilibrium.otePass : V3_STRATEGY_PARAMS.scores.equilibrium.oteFail, 'OTE = [61.8%, 78.6%]', { 'Fib_61.8': fixed(fib(V3_STRATEGY_PARAMS.ote.start)), 'Fib_70.5': fixed(fib(V3_STRATEGY_PARAMS.ote.sweetSpot)), 'Fib_78.6': fixed(fib(V3_STRATEGY_PARAMS.ote.end)), In_OTE: bool(inOte), Sweet_Spot: bool(sweet) }, inOte ? 'Entry within OTE.' : 'Outside OTE (confluence only).');
 
   // S14 — wick pushback
   const wick = isBull ? upperWick(cur) : lowerWick(cur);
   const wr = range(cur) > 0 ? wick / range(cur) : null;
-  const s14Pass = wr !== null && wr <= .5;
-  const s14 = stage(14, 'Wick Pushback (Rejection Wick <= 50%)', 'MECHANICS', s14Pass, wr === null ? 0 : wr <= .2 ? 1 : wr <= .35 ? .85 : wr <= .5 ? .7 : .15, 'Wick_Ratio = opposing wick / range <= 0.50', { Total_Range: fixed(range(cur)), Rejection_Wick: fixed(wick), Wick_Ratio: fixed(wr, 3), Threshold: '0.500' }, wr === null ? 'Zero-range candle: fail-closed.' : s14Pass ? 'Clean expansion.' : 'Wick fakeout.');
+  const s14Pass = wr !== null && wr <= V3_STRATEGY_PARAMS.wick.maxRatio;
+  const s14 = stage(14, 'Wick Pushback (Rejection Wick <= 50%)', 'MECHANICS', s14Pass, wr === null ? V3_STRATEGY_PARAMS.scores.wick.null : wr <= V3_STRATEGY_PARAMS.wick.scoreExcellent ? V3_STRATEGY_PARAMS.scores.wick.excellent : wr <= V3_STRATEGY_PARAMS.wick.scoreStrong ? V3_STRATEGY_PARAMS.scores.wick.strong : wr <= V3_STRATEGY_PARAMS.wick.maxRatio ? V3_STRATEGY_PARAMS.scores.wick.acceptable : V3_STRATEGY_PARAMS.scores.wick.fail, 'Wick_Ratio = opposing wick / range <= 0.50', { Total_Range: fixed(range(cur)), Rejection_Wick: fixed(wick), Wick_Ratio: fixed(wr, 3), Threshold: V3_STRATEGY_PARAMS.wick.maxRatio.toFixed(3) }, wr === null ? 'Zero-range candle: fail-closed.' : s14Pass ? 'Clean expansion.' : 'Wick fakeout.');
 
   // S15 — momentum: body above 10-period mean body; flat windows fail closed
-  const hist = cs.slice(-11, -1).map(body); const meanBody = mean(hist); const sdBody = stdev(hist);
-  const flat = sdBody < .05 * a14;
+  const hist = cs.slice(-(V3_STRATEGY_PARAMS.momentum.lookback + 1), -1).map(body); const meanBody = mean(hist); const sdBody = stdev(hist);
+  const flat = sdBody < V3_STRATEGY_PARAMS.momentum.flatStdDevAtr * a14;
   const z = flat ? null : (body(cur) - meanBody) / sdBody;
   const s15Pass = !flat && body(cur) > meanBody;
-  const s15 = stage(15, 'Momentum (Body > 10-Period Mean Body)', 'MECHANICS', s15Pass, !s15Pass ? .25 : z !== null && z >= 2.5 ? 1 : z !== null && z >= 1.5 ? .9 : .75, 'Body_t > Mean(Body_10); FLAT if StdDev(Body_10) < 0.05*ATR14', { Current_Body: fixed(body(cur)), Mean_Body_10: fixed(meanBody), StdDev_Body_10: fixed(sdBody), Z_Score: fixed(z, 2), Flat_Window: bool(flat) }, flat ? 'FLAT_WINDOW: momentum unavailable, fail-closed.' : s15Pass ? 'Impulse above baseline.' : 'Sub-baseline momentum.');
+  const s15 = stage(15, 'Momentum (Body > 10-Period Mean Body)', 'MECHANICS', s15Pass, !s15Pass ? V3_STRATEGY_PARAMS.scores.momentum.fail : z !== null && z >= V3_STRATEGY_PARAMS.momentum.zScoreStrong ? V3_STRATEGY_PARAMS.scores.momentum.strong : z !== null && z >= V3_STRATEGY_PARAMS.momentum.zScoreNormal ? V3_STRATEGY_PARAMS.scores.momentum.normal : V3_STRATEGY_PARAMS.scores.momentum.pass, 'Body_t > Mean(Body_10); FLAT if StdDev(Body_10) < 0.05*ATR14', { Current_Body: fixed(body(cur)), Mean_Body_10: fixed(meanBody), StdDev_Body_10: fixed(sdBody), Z_Score: fixed(z, 2), Flat_Window: bool(flat) }, flat ? 'FLAT_WINDOW: momentum unavailable, fail-closed.' : s15Pass ? 'Impulse above baseline.' : 'Sub-baseline momentum.');
 
   // S16/S17 — sessions and kill zones (owner N1 rules)
   const sessionTs = input.timestamp ?? cur.timestamp;
   const si = classifySessionAndKillZone(sessionTs);
   const s16Pass = isCoreSession(si.session);
   const s17Pass = si.kill_zone === 'INSIDE_KILL_ZONE';
-  const s16 = stage(16, 'Session (London 07:00 -> New York 16:00 local; Asia context only)', 'SESSION_RISK', s16Pass, s16Pass ? .9 : .3, 'IANA Europe/London & America/New_York; DST-aware', { Session: si.session, Session_Start_UTC: si.session_start_utc, Session_End_UTC: si.session_end_utc, Timestamp_UTC: si.timestamp_utc, Timestamp_BDT: si.timestamp_bdt }, s16Pass ? `Core ${si.session} session.` : 'Outside core session.');
-  const s17 = stage(17, 'Kill Zone (London/New York 07:00-10:00 local)', 'SESSION_RISK', s17Pass, s17Pass ? .95 : .3, 'London 07-10 Europe/London; New York 07-10 America/New_York', { Kill_Zone: si.kill_zone, Kill_Zone_Name: si.kill_zone_name ?? 'NONE', Kill_Zone_Start_UTC: si.kill_zone_start_utc ?? 'NONE', Kill_Zone_End_UTC: si.kill_zone_end_utc ?? 'NONE' }, s17Pass ? `${si.kill_zone_name} kill zone active.` : 'Outside kill zones.');
+  const s16 = stage(16, 'Session (London 07:00 -> New York 16:00 local; Asia context only)', 'SESSION_RISK', s16Pass, s16Pass ? V3_STRATEGY_PARAMS.scores.session.pass : V3_STRATEGY_PARAMS.scores.session.fail, 'IANA Europe/London & America/New_York; DST-aware', { Session: si.session, Session_Start_UTC: si.session_start_utc, Session_End_UTC: si.session_end_utc, Timestamp_UTC: si.timestamp_utc, Timestamp_BDT: si.timestamp_bdt }, s16Pass ? `Core ${si.session} session.` : 'Outside core session.');
+  const s17 = stage(17, 'Kill Zone (London/New York 07:00-10:00 local)', 'SESSION_RISK', s17Pass, s17Pass ? V3_STRATEGY_PARAMS.scores.session.killZonePass : V3_STRATEGY_PARAMS.scores.session.fail, 'London 07-10 Europe/London; New York 07-10 America/New_York', { Kill_Zone: si.kill_zone, Kill_Zone_Name: si.kill_zone_name ?? 'NONE', Kill_Zone_Start_UTC: si.kill_zone_start_utc ?? 'NONE', Kill_Zone_End_UTC: si.kill_zone_end_utc ?? 'NONE' }, s17Pass ? `${si.kill_zone_name} kill zone active.` : 'Outside kill zones.');
 
   // S18 — news guard (operational guard, not a strategy gate)
   const at = Date.parse(sessionTs);
@@ -436,7 +436,7 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
   const sStructure = meanAvailable([s1, s2]);
   const sOrderFlow = full ? meanAvailable([s3, s7, s9]) : null;
   const sLiquidity = full ? meanAvailable([s9, s10, s11, s8]) : meanAvailable([s9, s10, s11]);
-    const totalMfci = sStructure === null || sLiquidity === null ? null : sOrderFlow === null ? (V3_STRATEGY_PARAMS.mfci.priceOnlyWeights.structure * sStructure + V3_STRATEGY_PARAMS.mfci.priceOnlyWeights.liquidity * sLiquidity) / .55 : (V3_STRATEGY_PARAMS.mfci.fullWeights.structure * sStructure + V3_STRATEGY_PARAMS.mfci.fullWeights.orderFlow * sOrderFlow + V3_STRATEGY_PARAMS.mfci.fullWeights.liquidity * sLiquidity) / .80;
+    const totalMfci = sStructure === null || sLiquidity === null ? null : sOrderFlow === null ? (V3_STRATEGY_PARAMS.mfci.priceOnlyWeights.structure * sStructure + V3_STRATEGY_PARAMS.mfci.priceOnlyWeights.liquidity * sLiquidity) / V3_STRATEGY_PARAMS.formulas.mfciPriceOnlyWeightTotal : (V3_STRATEGY_PARAMS.mfci.fullWeights.structure * sStructure + V3_STRATEGY_PARAMS.mfci.fullWeights.orderFlow * sOrderFlow + V3_STRATEGY_PARAMS.mfci.fullWeights.liquidity * sLiquidity) / V3_STRATEGY_PARAMS.formulas.mfciFullWeightTotal;
   const meets = totalMfci !== null && totalMfci >= MFCI_THRESHOLD;
   const s19 = stage(19, 'Multi-Factor Confluence Index (MFCI)', 'CONFLUENCE', meets, totalMfci ?? 0, full ? 'MFCI = (0.35*S + 0.25*OF + 0.20*L) / 0.80' : 'MFCI = (0.35*S + 0.20*L) / 0.55', { S_Structure: fixed(sStructure, 3), S_OrderFlow: fixed(sOrderFlow, 3), S_Liquidity: fixed(sLiquidity, 3), Total_MFCI: fixed(totalMfci, 3), Threshold: MFCI_THRESHOLD.toFixed(3) }, meets ? 'MFCI met the frozen threshold.' : 'MFCI below frozen threshold.');
 
