@@ -2,7 +2,7 @@
 
 **Baseline:** PR-8 documented baseline/final evidence from `09bad15` and the current canonical identity evidence.
 
-**Current revision:** `55fcb9d` plus the uncommitted isolated-server readiness fix (Node 22 local validation complete; CI rerun pending).
+**Current revision:** `71f3536` (`test: isolate CI repository identity in server harness`).
 
 **Local environment:** Node `v22.23.4`, npm `10.9.9`, Linux x64.
 
@@ -13,8 +13,8 @@
 | R8 golden count | R8 regression/golden coverage | Preserved | Preserved; full suite passed | PASS |
 | Gate 4 parity | Golden parity and non-G4 invariants | `24,024` cases; `changed=15,079`; `PASS->BLOCKED=8,110`; `BLOCKED->PASS=6,969` | Same counts; non-G4 gates/stages/MFCI unchanged | PASS |
 | `v3_safety_invariants` | Eight safety assertions | 8/8 pass | 8/8 pass | PASS |
-| Node 22 | Install/lint/build/test runtime | Previous CI run failed in `pr_a_owner_regressions` readiness | `v22.23.4`; lint, build, targeted owner regression and full `npm test` pass after fix | PASS locally; CI rerun pending |
-| Node 24 | Install/lint/build/test runtime | CI matrix configured; previous CI run failed in the same readiness test | n/a locally — Node 24 is not installed; pre-fix CI had setup/ci, lint and build pass but full test failed at readiness | PENDING CI rerun; pre-fix failure resolved locally |
+| Node 22 | Install/lint/build/test runtime | Previous CI run failed in `pr_a_owner_regressions` readiness | GitHub Actions run `43110671736`: setup, `npm ci`, lint, build and full test all passed | PASS |
+| Node 24 | Install/lint/build/test runtime | CI matrix configured; previous CI run failed in the same readiness test | GitHub Actions run `43110671736`: setup, `npm ci`, lint, build and full test all passed | PASS |
 | lint | `npm run lint` | PASS | PASS | PASS |
 | build | `npm run build` | PASS | PASS | PASS |
 | `full test` | `npm test` | PASS | PASS, exit code 0 after readiness fix | PASS |
@@ -24,9 +24,9 @@
 
 ## Local gate disposition
 
-All checks executed locally passed. The pre-fix CI run `43104366909` and the first post-fix run `43109360522` failed on both Node 22 and Node 24 during `pr_a_owner_regressions.test.ts`. The actionable post-fix stderr identified the CI-only cause: inherited `GITHUB_REPOSITORY` made the public-repository visibility check a blocking boot check, so the child exited with `BOOT_SELF_CHECK_FAILED`. The final fix isolates the child from CI repository identity and also removes the test's free-port-close/rebind TOCTOU race by letting the child server bind to port `0` and reporting its actual bound port; child output is retained for actionable startup errors. Node 24 is not installed locally, so its final post-fix result requires a new CI run.
+All local checks passed. The pre-fix CI run `43104366909` and the first post-fix run `43109360522` failed on both Node 22 and Node 24 during `pr_a_owner_regressions.test.ts`. The actionable stderr identified the CI-only cause: inherited `GITHUB_REPOSITORY` made the public-repository visibility check a blocking boot check, so the child exited with `BOOT_SELF_CHECK_FAILED`. The final fix isolates the child from CI repository identity and also removes the test's free-port-close/rebind TOCTOU race by letting the child server bind to port `0` and reporting its actual bound port; child output is retained for actionable startup errors. The successful final CI run is [#43110671736](https://github.com/devsecurelab/comvision-assisted-strategy-research-decision-support-engine/actions/runs/43110671736).
 
-The current result is therefore: **PASS for executed local checks; completion gate pending post-fix Node 24 CI confirmation.** A draft/open PR must not be described as completion-gate passed while any required check is failed or pending.
+The current result is therefore: **Completion gate PASS.** Node 22, Node 24, npm audit, lint, build and full test all passed in the final CI run. A draft/open PR may be described as completion-gate passed because no required check is failed or pending.
 
 ## Evidence commands
 
