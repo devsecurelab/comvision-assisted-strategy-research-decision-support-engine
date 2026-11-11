@@ -1,7 +1,14 @@
 
 > react-example@0.0.0 test
-> export NODE_ENV=test; tsx test/pr7_security_session.test.ts && tsx test/pr7_registration_security.test.ts && tsx test/pr7_dst_boundaries.test.ts && tsx test/pr7_market_calendar.test.ts && tsx test/pr7_session_config.test.ts && tsx test/pr7_startup_guards.test.ts && tsx test/pr7_operations.test.ts && tsx test/pr7_termux_operations.test.ts && tsx test/pr3_storage_operations.test.ts && tsx test/pr6_chart_modal.test.ts && tsx test/pr6_alert_state.test.ts && tsx test/pr2_v3_milestones.test.ts && tsx test/pr2_durable_migration.test.ts && tsx test/pr2_stats_parity.test.ts && tsx test/pr1_latency_boundary.test.ts && tsx test/pr1_batch_timing.test.ts && tsx test/pr1_limiter.test.ts && tsx test/pr1_signal_price.test.ts && tsx test/ui_truthfulness.test.ts && tsx test/p0_merge_blockers.test.ts && tsx test/p1_hash_epoch.test.ts && tsx test/pr8_v3_source_of_truth_fingerprint.test.ts && tsx test/pr8_snapshot_legacy_backward_read.test.ts && tsx test/pr8_legacy_optional_inputs.test.ts && tsx test/pr8_ledger_fingerprint.test.ts && tsx test/pr8_params_centralization.test.ts && tsx test/pr8_params_scores_formulas.test.ts && tsx test/p2_persistence_performance.test.ts && tsx test/p3_live_data_integration.test.ts && tsx test/p4_second_audit.test.ts && tsx test/pr_a_owner_regressions.test.ts && tsx test/strategy_v3_engine.test.ts && npm run test:gate-renumber && tsx test/gate4_pr_b_equivalence.test.ts && tsx test/r8_gate4_compare.test.ts && tsx test/strategy_v3_reachability.test.ts && tsx test/w1b_production_surface.test.ts && tsx test/w2_market_structure_integration.test.ts && tsx test/w3_binary_output.test.ts && tsx test/v3_safety_invariants.test.ts && tsx test/payout_gate.test.ts && tsx test/favorite_registry.test.ts && tsx test/w5w6_modules.test.ts && tsx test/market_hours.test.ts && tsx test/r9_ledger_scan.test.ts && tsx test/provider_scheduler_concurrency.test.ts && tsx test/pr4_telegram_reliability.test.ts && tsx test/pr4_notification_delivery.test.ts && tsx test/r8_backtest_core.test.ts
+> export NODE_ENV=test; npm run test:inventory && ADMIN_BOOTSTRAP_PASSWORD=test-only-pr8-bootstrap-password tsx test/auth_hardening.test.ts && tsx test/pr7_security_session.test.ts && tsx test/pr7_registration_security.test.ts && tsx test/pr7_dst_boundaries.test.ts && tsx test/pr7_market_calendar.test.ts && tsx test/pr7_session_config.test.ts && tsx test/pr7_startup_guards.test.ts && tsx test/pr7_operations.test.ts && tsx test/pr7_termux_operations.test.ts && tsx test/pr3_storage_operations.test.ts && tsx test/storage_recovery.test.ts && tsx test/pr6_chart_modal.test.ts && tsx test/pr6_alert_state.test.ts && tsx test/pr2_v3_milestones.test.ts && tsx test/pr2_durable_migration.test.ts && tsx test/pr2_stats_parity.test.ts && tsx test/pr1_latency_boundary.test.ts && tsx test/pr1_batch_timing.test.ts && tsx test/pr1_limiter.test.ts && tsx test/pr1_signal_price.test.ts && tsx test/ui_truthfulness.test.ts && tsx test/p0_merge_blockers.test.ts && tsx test/p1_hash_epoch.test.ts && tsx test/pr5_twelve_data_only.test.ts && tsx test/pr8_v3_source_of_truth_fingerprint.test.ts && tsx test/pr8_snapshot_legacy_backward_read.test.ts && tsx test/pr8_legacy_optional_inputs.test.ts && tsx test/pr8_ledger_fingerprint.test.ts && tsx test/pr8_params_centralization.test.ts && tsx test/pr8_params_scores_formulas.test.ts && tsx test/p2_persistence_performance.test.ts && tsx test/p3_live_data_integration.test.ts && tsx test/p4_second_audit.test.ts && tsx test/pr_a_owner_regressions.test.ts && tsx test/strategy_v3_engine.test.ts && npm run test:gate-renumber && tsx test/gate4_pr_b_equivalence.test.ts && tsx test/r8_gate4_compare.test.ts && tsx test/strategy_v3_reachability.test.ts && tsx test/w1b_production_surface.test.ts && tsx test/w2_market_structure_integration.test.ts && tsx test/w3_binary_output.test.ts && tsx test/v3_safety_invariants.test.ts && tsx test/payout_gate.test.ts && tsx test/favorite_registry.test.ts && tsx test/w5w6_modules.test.ts && tsx test/market_hours.test.ts && tsx test/r9_ledger_scan.test.ts && tsx test/provider_scheduler_concurrency.test.ts && tsx test/pr4_telegram_reliability.test.ts && tsx test/pr4_notification_delivery.test.ts && tsx test/r8_backtest_core.test.ts
 
+
+> react-example@0.0.0 test:inventory
+> tsx scripts/verify-test-inventory.ts
+
+[test-inventory] PASS: all 52 repository .test.ts files across 1 test directory are included.
+[test-inventory] Directories: test
+[test-inventory] Only dependency/generated directories (.git, node_modules, build, dist, coverage) are excluded from scanning; fixture files are not test suites.
 [pr7_security_session] PASS — security and session contract assertions complete
 [pr7_registration_security] PASS — registration limits, disabled default, and concurrency cap verified
 [pr7_dst_boundaries] PASS — 2026/2027 DST, mismatch-week, margin, expiry, and timeframe matrix verified
@@ -11,6 +18,38 @@
 [pr7_operations] PASS — operational status, payout freshness/reminders, scan-gap, and self-check policy
 [pr7_termux_operations] PASS — preflight, dry-run, fake boot commands, state-dir reuse, and no-secret health ping verified
 [pr3_storage_operations] RED/PASS contract assertions
+[Storage] Failed to read /tmp/comvision-storage-red-HziEia/critical-users/users.json, using fallback: SyntaxError: Unexpected token 'b', ...""users": [broken-jso"... is not valid JSON
+    at JSON.parse (<anonymous>)
+    at DurableStorage.readJson (/home/ubuntu/pr8-review/src/server/storage.ts:195:37)
+    at DurableStorage.loadUsers (/home/ubuntu/pr8-review/src/server/storage.ts:258:17)
+    at <anonymous> (/home/ubuntu/pr8-review/test/storage_recovery.test.ts:18:18)
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+[Storage] Failed to read /tmp/comvision-storage-red-HziEia/zero-byte/users.json, using fallback: SyntaxError: Unexpected end of JSON input
+    at JSON.parse (<anonymous>)
+    at DurableStorage.readJson (/home/ubuntu/pr8-review/src/server/storage.ts:195:37)
+    at DurableStorage.loadUsers (/home/ubuntu/pr8-review/src/server/storage.ts:258:17)
+    at <anonymous> (/home/ubuntu/pr8-review/test/storage_recovery.test.ts:27:14)
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+[Storage] Failed to read /tmp/comvision-storage-red-HziEia/wrong-type/users.json, using fallback: TypeError: Unexpected JSON shape for users.json
+    at DurableStorage.readJson (/home/ubuntu/pr8-review/src/server/storage.ts:196:49)
+    at DurableStorage.loadUsers (/home/ubuntu/pr8-review/src/server/storage.ts:258:17)
+    at <anonymous> (/home/ubuntu/pr8-review/test/storage_recovery.test.ts:33:19)
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+[Storage] Failed to read /tmp/comvision-storage-red-HziEia/low-priority/chat_history.json, using fallback: SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)
+    at JSON.parse (<anonymous>)
+    at DurableStorage.readJson (/home/ubuntu/pr8-review/src/server/storage.ts:195:37)
+    at DurableStorage.loadChatHistory (/home/ubuntu/pr8-review/src/server/storage.ts:369:17)
+    at <anonymous> (/home/ubuntu/pr8-review/test/storage_recovery.test.ts:46:38)
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+=== PR-S STORAGE RECOVERY RED TESTS: quarantine, no data loss, .prev, type validation and local recovery command ===
 [pr6_chart_modal] PASS
 [pr6_alert_state] PASS
 [pr2_v3_milestones] PASS
@@ -23,6 +62,7 @@
 === PR-U UI TRUTHFULNESS RED TESTS: no fabricated claims/prices and safe telemetry server rendering ===
 === P0 MERGE BLOCKERS: scanner cancellation, ledger tail recovery, outcome boundary and role guards passed ===
 === P1 HASH EPOCH: canonical JSON, standard SHA-256, active epoch and legacy hash retention passed ===
+[pr5_twelve_data_only] RED/GREEN contract suite completed
 === PR-8 V3 SOURCE-OF-TRUTH RED/GREEN: legacy pipeline calculations removed; params canonical hash and engine fingerprint contract passed ===
 === PR-8 GENERATED SNAPSHOT / BACKWARD READ: canonical config hash, engine-fingerprinted snapshot, and legacy read-only fields passed ===
 === PR-8 LEGACY READ/INPUT RED-GREEN: legacy optional reads preserved; unused pipeline inputs removed ===
@@ -72,7 +112,7 @@
 [FUNNEL] random PRICE_ONLY BEARISH: marginal=16.6%,42.9%,51.4%,45.2%,85.7%,54.0%,44.4%,58.6%,85.0% cumulative=16.6%,12.0%,9.4%,4.0%,3.4%,0.8%,0.4%,0.3%,0.1% alerts=9/6000
 [FUNNEL] random FULL BULLISH: marginal=1.1%,42.4%,12.5%,44.9%,84.7%,27.1%,44.3%,59.8%,85.6% cumulative=1.1%,0.9%,0.1%,0.1%,0.1%,0.0%,0.0%,0.0%,0.0% alerts=0/6000
 [FUNNEL] random FULL BEARISH: marginal=1.1%,42.1%,12.2%,44.7%,85.2%,27.4%,45.7%,59.3%,85.3% cumulative=1.1%,0.8%,0.2%,0.1%,0.1%,0.0%,0.0%,0.0%,0.0% alerts=0/6000
-[REACHABILITY] runtime 28.0s
+[REACHABILITY] runtime 29.9s
 === V3 REACHABILITY SUITE (P3): ideal matrix, own-candle mutation >= 10k windows, honest random-window funnels passed ===
 === W1b PRODUCTION SURFACE TEST: simulation, replay selector, and Vision mock surfaces removed ===
 === W2 MARKET STRUCTURE INTEGRATION: IFVG/BPR/POC, owner DST sessions (4 transition dates) and scale invariance passed ===

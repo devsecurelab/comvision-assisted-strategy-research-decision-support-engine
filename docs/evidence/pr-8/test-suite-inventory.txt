@@ -1,63 +1,67 @@
-PR-8 test suite inclusion inventory
+PR-8 full test suite inventory
 Generated: 2026-11-12
-Nested npm run scripts are expanded when determining inclusion.
+Repository executable test files (`*.test.ts`): 52
+Included in `npm test` or its nested `test:gate-renumber` command: 52
+Excluded test files: 0
+Test directories containing suites: 1 (test)
+The inventory guard scans the repository and fails if any `.test.ts` file is not referenced by the npm test command chain.
 
-All test files: 52
-Included by npm test (including test:gate-renumber): 49
-Not included by npm test: 3
+All executable suites (all included):
+- test/auth_hardening.test.ts
+- test/favorite_registry.test.ts
+- test/gate4_pr_b_equivalence.test.ts
+- test/gate_renumber_equivalence.test.ts
+- test/market_hours.test.ts
+- test/p0_merge_blockers.test.ts
+- test/p1_hash_epoch.test.ts
+- test/p2_persistence_performance.test.ts
+- test/p3_live_data_integration.test.ts
+- test/p4_second_audit.test.ts
+- test/payout_gate.test.ts
+- test/pr1_batch_timing.test.ts
+- test/pr1_latency_boundary.test.ts
+- test/pr1_limiter.test.ts
+- test/pr1_signal_price.test.ts
+- test/pr2_durable_migration.test.ts
+- test/pr2_stats_parity.test.ts
+- test/pr2_v3_milestones.test.ts
+- test/pr3_storage_operations.test.ts
+- test/pr4_notification_delivery.test.ts
+- test/pr4_telegram_reliability.test.ts
+- test/pr5_twelve_data_only.test.ts
+- test/pr6_alert_state.test.ts
+- test/pr6_chart_modal.test.ts
+- test/pr7_dst_boundaries.test.ts
+- test/pr7_market_calendar.test.ts
+- test/pr7_operations.test.ts
+- test/pr7_registration_security.test.ts
+- test/pr7_security_session.test.ts
+- test/pr7_session_config.test.ts
+- test/pr7_startup_guards.test.ts
+- test/pr7_termux_operations.test.ts
+- test/pr8_ledger_fingerprint.test.ts
+- test/pr8_legacy_optional_inputs.test.ts
+- test/pr8_params_centralization.test.ts
+- test/pr8_params_scores_formulas.test.ts
+- test/pr8_snapshot_legacy_backward_read.test.ts
+- test/pr8_v3_source_of_truth_fingerprint.test.ts
+- test/pr_a_owner_regressions.test.ts
+- test/provider_scheduler_concurrency.test.ts
+- test/r8_backtest_core.test.ts
+- test/r8_gate4_compare.test.ts
+- test/r9_ledger_scan.test.ts
+- test/storage_recovery.test.ts
+- test/strategy_v3_engine.test.ts
+- test/strategy_v3_reachability.test.ts
+- test/ui_truthfulness.test.ts
+- test/v3_safety_invariants.test.ts
+- test/w1b_production_surface.test.ts
+- test/w2_market_structure_integration.test.ts
+- test/w3_binary_output.test.ts
+- test/w5w6_modules.test.ts
 
-INCLUDED
-- favorite_registry.test.ts
-- gate4_pr_b_equivalence.test.ts
-- gate_renumber_equivalence.test.ts
-- market_hours.test.ts
-- p0_merge_blockers.test.ts
-- p1_hash_epoch.test.ts
-- p2_persistence_performance.test.ts
-- p3_live_data_integration.test.ts
-- p4_second_audit.test.ts
-- payout_gate.test.ts
-- pr1_batch_timing.test.ts
-- pr1_latency_boundary.test.ts
-- pr1_limiter.test.ts
-- pr1_signal_price.test.ts
-- pr2_durable_migration.test.ts
-- pr2_stats_parity.test.ts
-- pr2_v3_milestones.test.ts
-- pr3_storage_operations.test.ts
-- pr4_notification_delivery.test.ts
-- pr4_telegram_reliability.test.ts
-- pr6_alert_state.test.ts
-- pr6_chart_modal.test.ts
-- pr7_dst_boundaries.test.ts
-- pr7_market_calendar.test.ts
-- pr7_operations.test.ts
-- pr7_registration_security.test.ts
-- pr7_security_session.test.ts
-- pr7_session_config.test.ts
-- pr7_startup_guards.test.ts
-- pr7_termux_operations.test.ts
-- pr8_ledger_fingerprint.test.ts
-- pr8_legacy_optional_inputs.test.ts
-- pr8_params_centralization.test.ts
-- pr8_params_scores_formulas.test.ts
-- pr8_snapshot_legacy_backward_read.test.ts
-- pr8_v3_source_of_truth_fingerprint.test.ts
-- pr_a_owner_regressions.test.ts
-- provider_scheduler_concurrency.test.ts
-- r8_backtest_core.test.ts
-- r8_gate4_compare.test.ts
-- r9_ledger_scan.test.ts
-- strategy_v3_engine.test.ts
-- strategy_v3_reachability.test.ts
-- ui_truthfulness.test.ts
-- v3_safety_invariants.test.ts
-- w1b_production_surface.test.ts
-- w2_market_structure_integration.test.ts
-- w3_binary_output.test.ts
-- w5w6_modules.test.ts
-
-NOT INCLUDED (explicit documentation required)
-- auth_hardening.test.ts
-- pr5_twelve_data_only.test.ts
-- storage_recovery.test.ts
+Skipped/excluded status:
+- Excluded suites: zero.
+- Conditional subcheck: `p3_live_provider` reports `SKIPPED` unless `P3_LIVE_INTEGRATION=1`; this credential-gated real-provider request was not enabled. The containing `test/p3_live_data_integration.test.ts` ran and its behavior contract passed.
+- `test/fixtures/` contains fixtures/helpers/assets, not executable `.test.ts` suites.
+- Generated/dependency directories `.git`, `node_modules`, `build`, `dist`, and `coverage` are ignored by the inventory scan.
