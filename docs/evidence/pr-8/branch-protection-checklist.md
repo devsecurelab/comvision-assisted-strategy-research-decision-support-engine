@@ -1,54 +1,74 @@
-# PR-8 Branch Protection and CI Checklist
+# Main Branch Protection and CI Checklist
 
-## Current PR state
+## Current repository state
 
-- PR: [#32](https://github.com/devsecurelab/comvision-assisted-strategy-research-decision-support-engine/pull/32)
-- Draft: Yes
-- Base: `main`
-- Head: `engine/i-batch-2026-10-pr-8`
-- Current head: `199e137`
-- Final successful CI for the previous code/evidence head: [run #43110671736](https://github.com/devsecurelab/comvision-assisted-strategy-research-decision-support-engine/actions/runs/43110671736)
-- CI for the latest summary-only head `199e137`: [run #43113188305](https://github.com/devsecurelab/comvision-assisted-strategy-research-decision-support-engine/actions/runs/43113188305); Node 22 and npm audit have passed, Node 24 was still running when this checklist was written.
+- Repository: `devsecurelab/comvision-assisted-strategy-research-decision-support-engine`
+- Protected target: `main`
+- PR #32: **Merged**
+- Merge commit: `57a61e8b052704f7ae5f7c0e51b7abce073d9b7f`
+- Former working branch: `engine/i-batch-2026-10-pr-8` — deleted after merge
+- Post-merge GitHub Actions run: [#43119553621](https://github.com/devsecurelab/comvision-assisted-strategy-research-decision-support-engine/actions/runs/43119553621) — **success**
 
-The PR remains Draft. It must be marked **Ready for review** before merge; it must not be merged while Draft.
+## Required branch policy
 
-## Required PR and branch policy
+The following is the required target configuration for `main`. The GitHub branch-protection and ruleset APIs currently return `403 Forbidden` because this repository is private and the available GitHub plan does not expose these settings. Therefore the enforcement rows remain **pending administrator configuration**, not falsely marked as verified.
 
-| Requirement | Checklist | Current evidence/status |
-|---|---:|---|
-| Pull request required | [ ] | PR #32 exists against `main`; branch-protection enforcement could not be read because the GitHub API returned `403 Forbidden`. Admin confirmation required. |
-| Required status checks enabled | [ ] | Admin confirmation required. The workflow exposes `Node 22 / npm validation`, `Node 24 / npm validation`, and `npm audit report (canonical Node)` as job checks. |
-| Node 22 tests required | [ ] | Workflow job is configured; final prior run passed. |
-| Node 24 tests required | [ ] | Workflow job is configured; final prior run passed; latest summary-only run was pending at capture time. |
-| lint required | [ ] | Runs inside both Node matrix jobs as the `Lint` step (`npm run lint`); require the job checks rather than an unavailable standalone step check. |
-| build required | [ ] | Runs inside both Node matrix jobs as the `Build` step (`npm run build`); require the job checks rather than an unavailable standalone step check. |
-| full test required | [ ] | Runs inside both Node matrix jobs as the `Test` step (`npm test`); require the job checks. |
-| Safety/parity/golden checks required | [ ] | Included in `npm test`: `v3_safety_invariants`, Gate 4 equivalence/parity, R8 compare/core and the 24,024-case golden set. Require Node 22/24 jobs, and do not create a bypass check that omits them. |
-| Branch must be up to date before merge | [ ] | Admin confirmation required; branch-protection API unavailable. |
-| Force pushes prohibited | [ ] | Admin confirmation required; branch-protection API unavailable. |
-| Required review count | [ ] | Admin confirmation required; branch-protection API unavailable. Recommended minimum: 1 approving review. |
-| Stale review dismissal | [ ] | Admin confirmation required; branch-protection API unavailable. Recommended: dismiss stale approvals after new commits. |
-| CODEOWNERS review | [ ] | No `CODEOWNERS` file is present in the checked-out repository; add/configure one if owner review is required. |
-| CI failure bypass prohibited | [ ] | Admin confirmation required; require branches to be up to date and required checks to pass, with administrator bypass disabled where supported. |
+| Requirement | Target configuration | Current status |
+|---|---|---|
+| Pull request required | Require a pull request before merging to `main` | **Pending admin configuration** — API returns 403 |
+| Required status checks | Require `Node 22 / npm validation`, `Node 24 / npm validation`, and `npm audit report (canonical Node)` | **Workflow configured; enforcement pending** |
+| Node 22 tests | Required job check; runs lint, build, full `npm test` | **CI pass; enforcement pending** |
+| Node 24 tests | Required job check; runs lint, build, full `npm test` | **CI pass; enforcement pending** |
+| lint | Covered by both Node matrix jobs through `npm run lint` | **Workflow configured** |
+| build | Covered by both Node matrix jobs through `npm run build` | **Workflow configured** |
+| full test | Covered by both Node matrix jobs through `npm test` | **Workflow configured** |
+| Safety/parity/golden | Required transitively through `npm test`, including V3 safety, Gate 4 parity and 24,024-case golden checks | **Test coverage verified; enforcement pending** |
+| Branch up to date | Require branches to be up to date before merging | **Pending admin configuration** |
+| Force pushes | Disable force pushes to `main` | **Pending admin configuration** |
+| Required review count | Require at least 1 approving review | **Pending admin configuration** |
+| Stale review dismissal | Dismiss stale approvals after new commits | **Pending admin configuration** |
+| CODEOWNERS review | Require review from the configured CODEOWNERS owner | **CODEOWNERS added in this change; enforcement pending** |
+| CI failure bypass | Disable administrator bypass where supported; do not merge failed/pending required checks | **Pending admin configuration** |
+
+## CODEOWNERS
+
+The repository owner is configured as the default owner in `.github/CODEOWNERS`:
+
+```text
+* @devsecurelab
+```
+
+When branch protection is available, enable **Require review from Code Owners** for `main`. If a separate review team is desired, replace `@devsecurelab` with the approved organization team before enabling enforcement.
 
 ## No-silent-skip policy
 
-- `npm test` begins with `test:inventory`, which verifies that all repository `.test.ts` files are included in the test command.
-- `p3_live_provider` may print an explicit `SKIPPED` result when `P3_LIVE_INTEGRATION=1` is not enabled. This is credential-gated and documented, not silent; it must not be represented as a live-provider PASS.
-- Any missing test inventory entry, test command error, or silently skipped suite must make the Node validation job fail. Do not weaken `test:inventory` or mark a failed job successful.
+- `npm test` begins with `test:inventory`, which verifies that every repository `.test.ts` file is included in the test command.
+- `auth_hardening.test.ts`, `storage_recovery.test.ts`, and `pr5_twelve_data_only.test.ts` are included in the current `npm test` chain.
+- The live-provider portion of `p3_live_data_integration.test.ts` reports an explicit `SKIPPED` result unless `P3_LIVE_INTEGRATION=1` is enabled. Its offline/provider contract still runs.
+- Any missing test inventory entry, test command error, or silently skipped suite must fail the Node validation job.
 
-## Merge sequence
+## Verified CI and local validation
 
-1. Confirm the latest head commit has completed Node 22, Node 24, npm audit, lint, build, full test, safety, parity and golden validation.
-2. Confirm repository administrators have enabled the required branch-protection settings above.
-3. Mark PR #32 **Ready for review**; do not merge while Draft.
-4. Obtain the required review(s), including CODEOWNERS review if CODEOWNERS is configured.
-5. Re-check that the branch is up to date and every required status check is green.
-6. Merge only after all required checks and reviews pass. Never bypass a CI failure or a stale/pending required check.
+- `npm ci`: PASS
+- `npm run lint`: PASS
+- `npm run build`: PASS
+- `npm run test:inventory`: PASS
+- `npm test`: PASS
+- `npm run audit:report`: PASS — zero vulnerabilities
+- Node 22 GitHub Actions job: PASS
+- Node 24 GitHub Actions job: PASS
+- npm audit GitHub Actions job: PASS
+- Gate 4 parity/golden: 24,024 cases PASS
+- V3 safety and R8 regression suites: PASS
 
-## Known remaining issues / follow-up
+## Configuration steps once GitHub plan/API access is available
 
-- Branch-protection settings could not be independently verified from this token because GitHub returned `403 Forbidden`; repository-admin confirmation is still required.
-- No `CODEOWNERS` file is currently present; add one only if repository policy requires owner-based review, then make that review required in branch protection.
-- The latest summary-only commit triggered a new CI run; its Node 24 job must complete successfully before treating the current head as fully merge-ready.
-- Live provider integration remains explicitly credential-gated and is not run by default; this is documented and separate from the deterministic regression gate.
+1. Configure branch protection or a repository ruleset targeting `main`.
+2. Require pull requests, at least one approval, stale-review dismissal, CODEOWNERS review, up-to-date branches, and the three required status checks.
+3. Disable force pushes and administrator bypass where supported.
+4. Verify the settings through GitHub UI or the branch-protection/ruleset API.
+5. Re-run the required checks after every subsequent commit.
+
+## Remaining limitation
+
+This checklist documents the desired and verified state, but it cannot enable GitHub branch protection while the private repository plan/API returns `403 Forbidden`. Enabling enforcement requires upgrading the repository plan or changing repository visibility, followed by administrator configuration.

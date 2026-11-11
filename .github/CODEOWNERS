@@ -1,0 +1,4 @@
+# Default owner for all repository paths.
+# Enable "Require review from Code Owners" on main branch protection
+# once GitHub branch protection is available for this private repository.
+* @devsecurelab
