@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { createServer } from 'node:net';
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -88,28 +87,28 @@ async function verifyHttpAuthAndLegacy404() {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'comvision-pr-a-server-'));
   const dataDir = path.join(temp, 'data');
   fs.mkdirSync(dataDir, { recursive: true });
-  const listener = createServer();
-  await new Promise<void>((resolve) => listener.listen(0, '127.0.0.1', resolve));
-  const address = listener.address();
-  assert.ok(address && typeof address !== 'string');
-  const port = address.port;
-  await new Promise<void>((resolve) => listener.close(() => resolve()));
   const adminPassword = randomBytes(24).toString('hex');
   const sessionSecret = randomBytes(32).toString('hex');
   const cli = path.join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs');
-  const child = spawn(process.execPath, [cli, path.join(root, 'server.ts'), '--port', String(port)], {
+  const child = spawn(process.execPath, [cli, path.join(root, 'server.ts'), '--port', '0'], {
     cwd: temp,
-    env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(port), DATA_DIR: dataDir, SIGNAL_LEDGER_PATH: path.join(dataDir, 'ledger.jsonl'), SESSION_CONFIG_PATH: path.join(root, 'config', 'sessions.json'), ADMIN_BOOTSTRAP_PASSWORD: adminPassword, SESSION_SECRET: sessionSecret, REGISTRATION_ENABLED: 'true', CORS_ALLOWED_ORIGINS: 'http://allowed.example', TELEGRAM_COMMAND_POLLING: 'false', AUTO_SCAN_ENABLED: 'false' },
-    stdio: ['ignore', 'ignore', 'ignore'],
+    env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: '0', DATA_DIR: dataDir, SIGNAL_LEDGER_PATH: path.join(dataDir, 'ledger.jsonl'), SESSION_CONFIG_PATH: path.join(root, 'config', 'sessions.json'), ADMIN_BOOTSTRAP_PASSWORD: adminPassword, SESSION_SECRET: sessionSecret, REGISTRATION_ENABLED: 'true', CORS_ALLOWED_ORIGINS: 'http://allowed.example', TELEGRAM_COMMAND_POLLING: 'false', AUTO_SCAN_ENABLED: 'false' },
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
-  const base = `http://127.0.0.1:${port}`;
-  const request = (route: string, init?: RequestInit) => fetch(`${base}${route}`, init);
+  let stdout = '';
+  let stderr = '';
+  child.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+  child.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
   try {
-    let ready = false;
+    let port: number | undefined;
     for (let attempt = 0; attempt < 100; attempt++) {
-      if (child.exitCode !== null) throw new Error('The isolated test server exited before readiness.');
-      try { await request('/api/engine/status'); ready = true; break; } catch { await new Promise((resolve) => setTimeout(resolve, 100)); }
+      const match = stdout.match(/Server running on http:\/\/127\.0\.0\.1:(\d+)/);
+      if (match) { port = Number(match[1]); break; }
+      if (child.exitCode !== null) throw new Error(`The isolated test server exited before readiness. stderr=${stderr.trim() || '(empty)'} stdout=${stdout.trim() || '(empty)'}`);
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
+    const request = (route: string, init?: RequestInit) => fetch(`http://127.0.0.1:${port}${route}`, init);
+    const ready = port !== undefined;
     assert.equal(ready, true, 'isolated server must become available');
     assert.equal((await request('/api/engine/status')).status, 401, 'missing Authorization bearer must be 401');
     assert.equal((await request('/api/engine/status', { headers: { Authorization: 'Bearer invalid-test-token' } })).status, 401, 'invalid bearer must be 401');
