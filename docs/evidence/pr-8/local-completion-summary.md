@@ -24,7 +24,7 @@
 
 ## Local gate disposition
 
-All checks executed locally passed. The prior CI run `43104366909` failed on both Node 22 and Node 24 during `pr_a_owner_regressions.test.ts` because the isolated server exited before readiness. The fix removes the test's free-port-close/rebind TOCTOU race by letting the child server bind to port `0` and reporting its actual bound port; child output is also retained for actionable startup errors. Node 24 is not installed locally, so its post-fix result requires a new CI run.
+All checks executed locally passed. The pre-fix CI run `43104366909` and the first post-fix run `43109360522` failed on both Node 22 and Node 24 during `pr_a_owner_regressions.test.ts`. The actionable post-fix stderr identified the CI-only cause: inherited `GITHUB_REPOSITORY` made the public-repository visibility check a blocking boot check, so the child exited with `BOOT_SELF_CHECK_FAILED`. The final fix isolates the child from CI repository identity and also removes the test's free-port-close/rebind TOCTOU race by letting the child server bind to port `0` and reporting its actual bound port; child output is retained for actionable startup errors. Node 24 is not installed locally, so its final post-fix result requires a new CI run.
 
 The current result is therefore: **PASS for executed local checks; completion gate pending post-fix Node 24 CI confirmation.** A draft/open PR must not be described as completion-gate passed while any required check is failed or pending.
 
@@ -43,6 +43,6 @@ The current result is therefore: **PASS for executed local checks; completion ga
 
 ## Readiness remediation
 
-- **Root cause:** the test reserved a free TCP port, closed the listener, and then asked the child server to rebind it. That TOCTOU window can produce an early child exit in CI. Because child stdout/stderr were discarded, the harness reported only a generic readiness error.
-- **Fix:** `test/pr_a_owner_regressions.test.ts` now starts the child with `--port 0`, parses the actual port from the server's startup line, and includes captured stdout/stderr when startup fails. `server.ts` now logs the actual bound port returned by `listener.address()`, including when the requested port is `0`.
+- **Root cause:** GitHub Actions injects `GITHUB_REPOSITORY` into the parent process. The isolated child inherited it, causing `checkRepositoryVisibility` to treat the public repository as a blocking production boot failure (`BOOT_SELF_CHECK_FAILED`). A free-port-close/rebind TOCTOU race was also present in the original harness.
+- **Fix:** `test/pr_a_owner_regressions.test.ts` now clears `GITHUB_REPOSITORY`/`GITHUB_TOKEN` for the isolated child, starts it with `--port 0`, parses the actual port from the server's startup line, and includes captured stdout/stderr when startup fails. `server.ts` now logs the actual bound port returned by `listener.address()`, including when the requested port is `0`.
 - **Post-fix local checks:** targeted `pr_a_owner_regressions` PASS; `npm run lint` PASS; `npm test` PASS; `npm run build` PASS; `npm audit` PASS with zero vulnerabilities.

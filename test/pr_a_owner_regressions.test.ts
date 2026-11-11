@@ -92,7 +92,7 @@ async function verifyHttpAuthAndLegacy404() {
   const cli = path.join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs');
   const child = spawn(process.execPath, [cli, path.join(root, 'server.ts'), '--port', '0'], {
     cwd: temp,
-    env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: '0', DATA_DIR: dataDir, SIGNAL_LEDGER_PATH: path.join(dataDir, 'ledger.jsonl'), SESSION_CONFIG_PATH: path.join(root, 'config', 'sessions.json'), ADMIN_BOOTSTRAP_PASSWORD: adminPassword, SESSION_SECRET: sessionSecret, REGISTRATION_ENABLED: 'true', CORS_ALLOWED_ORIGINS: 'http://allowed.example', TELEGRAM_COMMAND_POLLING: 'false', AUTO_SCAN_ENABLED: 'false' },
+    env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: '0', DATA_DIR: dataDir, SIGNAL_LEDGER_PATH: path.join(dataDir, 'ledger.jsonl'), SESSION_CONFIG_PATH: path.join(root, 'config', 'sessions.json'), ADMIN_BOOTSTRAP_PASSWORD: adminPassword, SESSION_SECRET: sessionSecret, REGISTRATION_ENABLED: 'true', CORS_ALLOWED_ORIGINS: 'http://allowed.example', TELEGRAM_COMMAND_POLLING: 'false', AUTO_SCAN_ENABLED: 'false', GITHUB_REPOSITORY: '', GITHUB_TOKEN: '' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stdout = '';
