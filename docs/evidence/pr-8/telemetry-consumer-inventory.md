@@ -2,6 +2,8 @@
 
 This inventory maps the authoritative V3 telemetry path, consumers, persistence surfaces, and legacy fields that may remain readable. It is an audit artefact only; no telemetry behavior is changed by this document.
 
+**Verification update: 2026-11-11.** Source references and test anchors were rechecked against the current PR-8 branch. The companion expected-behavior register is `docs/evidence/pr-8/old-tests-expected-behavior.md`.
+
 ## Source-of-truth rule
 
 `executeStrategyPipeline()` produces one `MasterTelemetry` record. `decision_engine_v3`, its nine gates, nineteen stages, MFCI, binary signal, status reason, provenance, and identity metadata are authoritative for new decisions. Consumers must read V3 fields first. Legacy fields are readable only where explicitly marked `BACKWARD_READ`; they must not create a new PASS, signal, outcome, price, risk claim, or strategy calculation.
@@ -38,6 +40,18 @@ This inventory maps the authoritative V3 telemetry path, consumers, persistence 
 | API export | `server.ts:/api/engine/export-telemetry` | Experiment tracker records | Exports persisted MasterTelemetry; no recalculation |
 | Ledger audit API | `server.ts:/api/audit/verify-signal-ledger` | Ledger entries and hash chain | Verifies persisted identity and hashes; no strategy recomputation |
 
+## Source-verified test anchors
+
+| Invariant | Tests that protect it |
+|---|---|
+| V3 is the sole new decision source; nine gates and binary output are preserved | `test/strategy_v3_engine.test.ts`, `test/w3_binary_output.test.ts`, `test/v3_safety_invariants.test.ts`, `test/pr_a_owner_regressions.test.ts` |
+| Gate 4 parity and non-G4 stability | `test/gate_renumber_equivalence.test.ts`, `test/gate4_pr_b_equivalence.test.ts`, `test/r8_gate4_compare.test.ts` |
+| R8 consumes live pipeline output and remains causal | `test/r8_backtest_core.test.ts`, `test/r8_gate4_compare.test.ts` |
+| Ledger identity is attached to new events | `test/pr7_session_config.test.ts`, `test/pr_a_owner_regressions.test.ts`, `test/p1_hash_epoch.test.ts`, `test/r9_ledger_scan.test.ts` |
+| UI/notification consumers do not fabricate prices, risk fields, or V3 status | `test/ui_truthfulness.test.ts`, `test/pr4_notification_delivery.test.ts`, `test/pr6_chart_modal.test.ts`, `test/w3_binary_output.test.ts` |
+| Legacy fields remain backward-read only | `test/pr2_durable_migration.test.ts`, `test/pr2_stats_parity.test.ts`, `test/pr3_storage_operations.test.ts`, `test/r9_ledger_scan.test.ts` |
+| Provider/provenance and unavailable-state behavior | `test/pr5_twelve_data_only.test.ts` (explicitly omitted from npm test), `test/p3_live_data_integration.test.ts`, `test/w3_binary_output.test.ts` |
+
 ## Legacy fields and permitted backward reads
 
 | Legacy field/path | Current read/write location | Permitted use | Forbidden use |
@@ -58,6 +72,10 @@ This inventory maps the authoritative V3 telemetry path, consumers, persistence 
 The red tests should assert that a new pipeline result has exactly one authoritative decision source (`decision_engine_v3`), that V3 gate/status values win over legacy fields, and that legacy fields cannot manufacture a signal or PASS. They should also assert that missing V3 telemetry renders/returns `UNAVAILABLE` or `NO_TRADE`, that provider provenance is preserved, and that `config_hash`, `config_hash_epoch`, `session_config_hash`, and `engine_fingerprint` remain attached to new ledger records.
 
 The inventory also identifies the main duplicate-calculation risk: `analyticsService.ts` derives historical counts from persisted observations and has a legacy `WIN/LOSS` fallback. That fallback is a backward-read path, not a V3 telemetry consumer, and must remain isolated while centralization proceeds.
+
+## Current documentation status
+
+The producer/consumer map and old-test behavior register are now documented. The current implementation still has one authoritative V3 pipeline path; no consumer rewrite was made in this documentation step. The three historical suites not included in `npm test` are explicitly listed in the companion register rather than being treated as silently covered.
 
 ## Planned implementation order
 

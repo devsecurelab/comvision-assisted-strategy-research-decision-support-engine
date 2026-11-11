@@ -1,0 +1,59 @@
+PR-8 test suite inclusion inventory
+Generated: 2026-11-11
+Nested npm run scripts are expanded when determining inclusion.
+
+All test files: 48
+Included by npm test (including test:gate-renumber): 45
+Not included by npm test: 3
+
+INCLUDED
+- favorite_registry.test.ts
+- gate4_pr_b_equivalence.test.ts
+- gate_renumber_equivalence.test.ts
+- market_hours.test.ts
+- p0_merge_blockers.test.ts
+- p1_hash_epoch.test.ts
+- p2_persistence_performance.test.ts
+- p3_live_data_integration.test.ts
+- p4_second_audit.test.ts
+- payout_gate.test.ts
+- pr1_batch_timing.test.ts
+- pr1_latency_boundary.test.ts
+- pr1_limiter.test.ts
+- pr1_signal_price.test.ts
+- pr2_durable_migration.test.ts
+- pr2_stats_parity.test.ts
+- pr2_v3_milestones.test.ts
+- pr3_storage_operations.test.ts
+- pr4_notification_delivery.test.ts
+- pr4_telegram_reliability.test.ts
+- pr6_alert_state.test.ts
+- pr6_chart_modal.test.ts
+- pr7_dst_boundaries.test.ts
+- pr7_market_calendar.test.ts
+- pr7_operations.test.ts
+- pr7_registration_security.test.ts
+- pr7_security_session.test.ts
+- pr7_session_config.test.ts
+- pr7_startup_guards.test.ts
+- pr7_termux_operations.test.ts
+- pr8_params_centralization.test.ts
+- pr8_params_scores_formulas.test.ts
+- pr_a_owner_regressions.test.ts
+- provider_scheduler_concurrency.test.ts
+- r8_backtest_core.test.ts
+- r8_gate4_compare.test.ts
+- r9_ledger_scan.test.ts
+- strategy_v3_engine.test.ts
+- strategy_v3_reachability.test.ts
+- ui_truthfulness.test.ts
+- v3_safety_invariants.test.ts
+- w1b_production_surface.test.ts
+- w2_market_structure_integration.test.ts
+- w3_binary_output.test.ts
+- w5w6_modules.test.ts
+
+NOT INCLUDED (explicit documentation required)
+- auth_hardening.test.ts
+- pr5_twelve_data_only.test.ts
+- storage_recovery.test.ts
