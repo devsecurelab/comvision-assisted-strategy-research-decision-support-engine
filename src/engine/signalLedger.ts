@@ -32,6 +32,8 @@ export interface SignalPayload {
   ltf_provider?: string;
   htf_provider?: string;
   setup_id: string;
+  /** Added to newly committed payloads; absent only on historical records. */
+  engine_fingerprint?: string;
   experiment_id: string;
   config_hash?: string;
   config_hash_epoch?: string;
@@ -55,6 +57,7 @@ export interface ScanPayload {
   scan_started_at: string;
   candle_available_at: string | null;
   delivered_at: string;
+  engine_fingerprint?: string;
 }
 
 export interface ResultPayload {
@@ -68,6 +71,7 @@ export interface ResultPayload {
   broker_entry_price?: number;
   slippage_pips?: number;
   note?: string;
+  engine_fingerprint?: string;
 }
 
 export interface SignalView extends SignalPayload {
@@ -193,6 +197,8 @@ export class SignalLedger {
       const e = entries[i];
       if (e.seq !== i) return { ok: false, entries: entries.length, brokenAt: i, reason: 'SEQUENCE_BROKEN' };
       if (e.prevHash !== prev) return { ok: false, entries: entries.length, brokenAt: i, reason: 'PREV_HASH_MISMATCH' };
+      const fingerprint = e.payload && typeof e.payload === 'object' ? (e.payload as Record<string, unknown>).engine_fingerprint : undefined;
+      if (fingerprint !== undefined && fingerprint !== ENGINE_FINGERPRINT) return { ok: false, entries: entries.length, brokenAt: i, reason: 'ENGINE_FINGERPRINT_MISMATCH' };
       if (hashEntry(e) !== e.hash) return { ok: false, entries: entries.length, brokenAt: i, reason: 'HASH_MISMATCH' };
       prev = e.hash;
     }
