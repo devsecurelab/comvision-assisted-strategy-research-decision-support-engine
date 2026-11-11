@@ -49,7 +49,7 @@
 - [x] Set `.nvmrc` to canonical Node 22; declare `>=22 <25` in package metadata and validate Node 22/24 in GitHub Actions.
 - [x] Use committed `package-lock.json` and `npm ci`; remove the unused Bun lockfile after successful npm resolution.
 - [x] Generate UTC-dated npm audit JSON and Markdown reports in `docs/evidence/`; upload evidence even when the audit job fails.
-- [ ] Resolve the remaining PWA/Workbox dependency audit findings through a compatibility-tested update/replacement. Current report: 4 moderate, 2 low, no high/critical; npm's suggested automatic fix is a breaking downgrade, so it is not forced in PR-8. See the [dated audit report](evidence/npm-audit-2026-11-11.md).
+- [x] Resolve the PR-8 PWA/Workbox dependency audit findings by removing the vulnerable build chain. The static manifest and icons remain, while generated service-worker/offline caching is intentionally disabled; a separately reviewed maintained replacement may be considered later. See the [baseline audit report](evidence/npm-audit-2026-11-11.md) and [remediation validation](evidence/npm-audit-remediation-2026-11-12.md).
 
 #### Future parameter-change review checklist
 

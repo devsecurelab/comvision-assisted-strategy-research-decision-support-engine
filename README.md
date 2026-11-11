@@ -322,9 +322,9 @@ Treat `src/engine/params.ts` as the sole source of strategy parameter values; do
 - **Supported Node.js:** Node 22 and 24 (`package.json` engines `>=22 <25`); `.nvmrc` selects Node 22 as the canonical local runtime.
 - **CI:** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `npm ci`, `npm run lint`, `npm run build`, and `npm test` in that order on both Node versions.
 - **npm lockfile:** `package-lock.json` is authoritative; use `npm ci`. The unused Bun lockfile was removed after npm dependency resolution succeeded.
-- **Audit evidence:** `npm run audit:report` writes `docs/evidence/npm-audit-<UTC-date>.json` and `.md`. A nonzero `npm audit` result is preserved and fails the audit job; see the [current Markdown report](docs/evidence/npm-audit-2026-11-11.md) and [JSON report](docs/evidence/npm-audit-2026-11-11.json) for findings and disposition.
+- **Audit evidence:** `npm run audit:report` writes `docs/evidence/npm-audit-<UTC-date>.json` and `.md`. A nonzero `npm audit` result is preserved and fails the audit job; the PR-8 baseline is retained in the [dated Markdown report](docs/evidence/npm-audit-2026-11-11.md) and [JSON report](docs/evidence/npm-audit-2026-11-11.json), while the remediation validation is recorded in [npm-audit-remediation-2026-11-12.md](docs/evidence/npm-audit-remediation-2026-11-12.md).
 
-As of the PR-8 audit report, semver-safe updates removed all high findings; six findings remain in the PWA/Workbox dependency chain (four moderate, two low). The CI audit job intentionally reports failure until the documented, compatibility-reviewed follow-up resolves or otherwise explicitly changes that disposition.
+The six PR-8 findings were confined to the PWA/Workbox build chain. `vite-plugin-pwa` and its Workbox generator have been removed because the only npm automatic fix was an incompatible downgrade and the newer plugin release still resolved the same vulnerable chain. The static web-app manifest and icons remain available, but generated service-worker/offline caching is intentionally not part of this build until a separately reviewed, maintained replacement is selected.
 
 ---
 
