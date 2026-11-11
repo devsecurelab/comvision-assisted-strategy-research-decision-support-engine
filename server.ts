@@ -1079,8 +1079,10 @@ async function startServer() {
     void notificationService.sendTelegramText(formatLedgerReport('DAILY REPORT (previous UTC day)', buildLedgerReport(signalLedger.signals(), since, since + 86_400_000))).catch(() => undefined);
   }, 60_000);
 
-  app.listen(PORT, HOST, () => {
-    console.log(`[ComVision Engine] Server running on http://${HOST}:${PORT}`);
+  const listener = app.listen(PORT, HOST, () => {
+    const address = listener.address();
+    const actualPort = address && typeof address !== 'string' ? address.port : PORT;
+    console.log(`[ComVision Engine] Server running on http://${HOST}:${actualPort}`);
     console.log(`[ComVision Engine] Architecture: Strictly Non-Execution Manual Alert Engine`);
     console.log(`[ComVision Engine] Experiment Freeze: ${ACTIVE_EXPERIMENT_ID} Scope Immutable`);
     console.log(`[ComVision Engine] Durable Persistence: Active (${runtimeConfig.dataDir})`);

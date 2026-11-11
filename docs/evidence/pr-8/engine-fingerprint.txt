@@ -1,0 +1,184 @@
+
+> react-example@0.0.0 engine:fingerprint
+> tsx scripts/engine-fingerprint.ts
+
+{
+  "strategy_version": "RDP_STRATEGY_V3.0",
+  "experiment_id": "EXP-2026-V3-REAL-001",
+  "config_hash": "a1f859bc165b9b36de005af2eb33b27ba6594301f929f14157615a1a5d6e8652",
+  "config_hash_epoch": "V3_CANONICAL_2026-11-12_28ab43a2_bf1f14da",
+  "params_canonical_hash": "1ef39428852f65418a82daad603e1ef02557981028414e82592bdd39adf1e1b2",
+  "engine_fingerprint": "e3419da92a169ebd0c42c04028b8df262d780f7caf26f143c616d0f38a858723",
+  "engine_snapshot": {
+    "config": {
+      "hash_epoch": "V3_CANONICAL_2026-11-12_28ab43a2_bf1f14da",
+      "strategy_version": "RDP_STRATEGY_V3.0",
+      "experiment_id": "EXP-2026-V3-REAL-001",
+      "engine": "strategyV3Engine",
+      "parameters": {
+        "engine": {
+          "minimumCandles": 30,
+          "analysisWindow": 120,
+          "fractalN": 2,
+          "eventLookback": 20,
+          "sweepLookback": 10,
+          "poolLookback": 20,
+          "breakerDeltaSample": 50,
+          "gateCount": 9,
+          "stageCount": 19
+        },
+        "volatility": {
+          "atrPeriod": 14
+        },
+        "structure": {
+          "bosDisplacementStrong": 1.5,
+          "bosDisplacementNormal": 1.2,
+          "chochVolumeSpikeMultiplier": 1.5
+        },
+        "imbalance": {
+          "minFvgGapAtr": 0.2,
+          "fvgSearchLookback": 5,
+          "referenceLookback": 40,
+          "bprLookback": 30
+        },
+        "orderBlock": {
+          "pocRelativeBullishMax": 0.35,
+          "pocRelativeBearishMin": 0.65
+        },
+        "breaker": {
+          "deltaZMinimum": 2
+        },
+        "liquidity": {
+          "poolToleranceAtr": 0.1,
+          "poolMergeDistanceAtr": 0.05,
+          "poolScoreBase": 0.8,
+          "poolScorePerTouch": 0.05,
+          "poolScoreCap": 1
+        },
+        "gate4": {
+          "legacyWindow": 20,
+          "fibEquilibriumLevel": 0.5
+        },
+        "ote": {
+          "window": 20,
+          "start": 0.618,
+          "sweetSpot": 0.705,
+          "end": 0.786,
+          "sweetSpotTolerance": 0.05
+        },
+        "wick": {
+          "maxRatio": 0.5,
+          "scoreExcellent": 0.2,
+          "scoreStrong": 0.35
+        },
+        "momentum": {
+          "lookback": 10,
+          "flatStdDevAtr": 0.05,
+          "zScoreStrong": 2.5,
+          "zScoreNormal": 1.5
+        },
+        "news": {
+          "restrictionWindowMinutes": 30
+        },
+        "mfci": {
+          "threshold": 0.85,
+          "fullWeights": {
+            "structure": 0.35,
+            "orderFlow": 0.25,
+            "liquidity": 0.2
+          },
+          "priceOnlyWeights": {
+            "structure": 0.35,
+            "liquidity": 0.2
+          }
+        },
+        "scores": {
+          "structure": {
+            "pass": 0.95,
+            "partial": 0.5,
+            "fail": 0.15
+          },
+          "bos": {
+            "strong": 1,
+            "normal": 0.95,
+            "weak": 0.85,
+            "fail": 0.2
+          },
+          "imbalance": {
+            "fvgPartial": 0.95,
+            "fvgUnmitigated": 0.85,
+            "fvgFail": 0.1,
+            "ifvgPass": 0.95,
+            "ifvgCandidate": 0.5,
+            "ifvgFail": 0.2,
+            "bprPass": 0.9,
+            "bprCandidate": 0.5,
+            "bprFail": 0.2
+          },
+          "orderBlock": {
+            "pass": 0.95,
+            "candidate": 0.5,
+            "fail": 0.3
+          },
+          "breaker": {
+            "pass": 0.92,
+            "candidate": 0.55,
+            "fail": 0.3
+          },
+          "liquidity": {
+            "sweepPass": 0.98,
+            "sweepCandidate": 0.45,
+            "sweepFail": 0.2,
+            "poolBase": 0.8,
+            "poolPerTouch": 0.05,
+            "poolCap": 1,
+            "poolFail": 0.35
+          },
+          "equilibrium": {
+            "gatePass": 0.95,
+            "gateFail": 0.2,
+            "oteSweet": 1,
+            "otePass": 0.85,
+            "oteFail": 0.3
+          },
+          "wick": {
+            "null": 0,
+            "excellent": 1,
+            "strong": 0.85,
+            "acceptable": 0.7,
+            "fail": 0.15
+          },
+          "momentum": {
+            "fail": 0.25,
+            "strong": 1,
+            "normal": 0.9,
+            "pass": 0.75
+          },
+          "session": {
+            "pass": 0.9,
+            "fail": 0.3,
+            "killZonePass": 0.95
+          }
+        },
+        "formulas": {
+          "midpointDivisor": 2,
+          "mfciFullWeightTotal": 0.8,
+          "mfciPriceOnlyWeightTotal": 0.55,
+          "htfMinimumSwingCount": 2,
+          "htfCandleMinimumExtra": 3,
+          "equilibriumEpsilonMultiplier": 32
+        }
+      },
+      "params_canonical_hash": "1ef39428852f65418a82daad603e1ef02557981028414e82592bdd39adf1e1b2",
+      "session_config_hash": "28ab43a2980876392e94e2813e26f9186ba9b33542bec35e94d81d9f3f0f68b7",
+      "market_calendar_hash": "bf1f14da807ed0ab8d2e14156a58d6c48825073604518ea046e88c8d3483d3eb"
+    },
+    "config_hash": "a1f859bc165b9b36de005af2eb33b27ba6594301f929f14157615a1a5d6e8652",
+    "engine_fingerprint": "e3419da92a169ebd0c42c04028b8df262d780f7caf26f143c616d0f38a858723"
+  },
+  "verification": {
+    "params_hash_matches": true,
+    "fingerprint_matches": true,
+    "canonical_json_bytes": 2091
+  }
+}

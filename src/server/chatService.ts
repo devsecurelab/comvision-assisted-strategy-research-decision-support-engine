@@ -3,7 +3,8 @@
 // Natural Language Queries + Deterministic RDP Strategy V3.0 Pipeline Separation
 // STRICT NON-EXECUTION BOUNDARY: Informational decision-support only. No trade execution.
 
-import { executeStrategyPipeline, detectFractalSwings, evaluateMarketStructure } from '../engine/pipeline';
+import { executeStrategyPipeline } from '../engine/pipeline';
+import { deriveHtfBias } from '../engine/strategyV3Engine';
 import { feedManager } from '../engine/dataProviders';
 import { analyticsService } from './analyticsService';
 import { durableStorage, ChatMessage } from './storage';
@@ -286,8 +287,7 @@ export class ChatService {
         currentCandles = marketData.candles;
         marketProvenance = marketData.dataProvenance;
         marketProvider = marketData.provider;
-        const htfSwings = detectFractalSwings(htfData.candles, htfData.candles.length - 1);
-        higherTimeframeBias = evaluateMarketStructure(htfSwings).bias;
+        higherTimeframeBias = deriveHtfBias(htfData.candles, new Date().toISOString());
         if (higherTimeframeBias === 'UNCLEAR') throw new Error('1h higher-timeframe bias is unclear.');
       } catch (error: any) {
         const responseText = `**NO_TRADE — provider data unavailable**\n\n${error?.message || 'The live market-data provider did not return a trustworthy response.'}\n\nResearch alert only.`;

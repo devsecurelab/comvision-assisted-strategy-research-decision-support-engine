@@ -1,0 +1,344 @@
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: detectFractalSwings must not remain a pipeline calculation export
+    at <anonymous> (/home/ubuntu/comvision-assisted-strategy-research-decision-support-engine/test/pr8_v3_source_of_truth_fingerprint.test.ts:15:10)
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5) {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: '// 9-Stage Deterministic Validation Pipeline Controller\n' +
+    '// Strategy v1.0-FROZEN Master Specification (EXP-2026-001)\n' +
+    '// Mode: Research / Decision-Support / Manual Alert Only\n' +
+    '// Architectural Boundary: Strictly Non-Execution\n' +
+    "import { createHash } from 'node:crypto';\n" +
+    '\n' +
+    'import {\n' +
+    '  Candle,\n' +
+    '  MasterTelemetry,\n' +
+    '  NewsEvent,\n' +
+    '  PressureObservation,\n' +
+    '  SwingPoint,\n' +
+    '  Timeframe,\n' +
+    '  DataQuality,\n' +
+    '  DataProvenance,\n' +
+    '  OrderBlock,\n' +
+    '  FVGZone,\n' +
+    '  BosState,\n' +
+    '  ChochState,\n' +
+    '  IfvgState,\n' +
+    '  BprState,\n' +
+    '  BreakerState,\n' +
+    '  BslSslState,\n' +
+    '  LiquidityPool,\n' +
+    '  OteState,\n' +
+    '  MomentumStateInfo,\n' +
+    '  SessionContext,\n' +
+    '  MarketSession,\n' +
+    '  KillZoneState,\n' +
+    '  NextCandleObservation,\n' +
+    "} from './types';\n" +
+    "import { ACTIVE_STRATEGY_VERSION, ACTIVE_EXPERIMENT_ID, CONFIG_HASH, CONFIG_HASH_EPOCH } from './manifest';\n" +
+    "import { formatSignalTime } from '../utils/timeFormat';\n" +
+    "import { evaluateStrategyV3 } from './strategyV3Engine';\n" +
+    "import { classifySessionAndKillZone } from './session';\n" +
+    "import { deriveHtfBias, MIN_ENGINE_CANDLES } from './strategyV3Engine';\n" +
+    "import { timeframeMs, validateCandleSeries } from './dataIntegrity';\n" +
+    "import { isFxMarketClosed } from './marketHours';\n" +
+    '\n' +
+    'export interface PipelineInput {\n' +
+    '  candles: Candle[]; // historical candle sequence, ordered oldest to newest\n' +
+    '  currentCandleIndex: number; // index of currently forming / closed confirmation candle (C3)\n' +
+    '  selectedTimeframe: Timeframe;\n' +
+    "  higherTimeframeBias?: 'BULLISH' | 'BEARISH' | 'UNCLEAR';\n" +
+    '  newsEvents: NewsEvent[];\n' +
+    '  newsSourceOnline: boolean;\n' +
+    '  dataProvenance?: DataProvenance;\n' +
+    "  provider?: 'TWELVE_DATA';\n" +
+    '  pair?: string;\n' +
+    '  asset?: string;\n' +
+    '  liveTickPressure?: {\n' +
+    "    classification: 'ALIGNED' | 'NEUTRAL' | 'OPPOSITE' | 'UNCERTAIN';\n" +
+    "    magnitude: 'LOW' | 'MEDIUM' | 'HIGH';\n" +
+    "    consistency: 'LOW' | 'MEDIUM' | 'HIGH';\n" +
+    '    speedPxPerSec?: number;\n' +
+    '  };\n' +
+    '  customSettings?: {\n' +
+    '    maxWickRatio?: number;\n' +
+    '    fibEquilibriumLevel?: number;\n' +
+    '  };\n' +
+    '  payoutPct?: number;\n' +
+    '  payoutSetAt?: string;\n' +
+    '  /** Closed 1h candles; when supplied the engine derives HTF bias itself from the latest closed 1h structure. */\n' +
+    '  htfCandles?: Candle[];\n' +
+    '  /** Wall-clock used for the forming-candle check. Live callers pass Date.now(); R8 passes the causal replay clock. */\n' +
+    '  nowMs?: number;\n' +
+    "  gate4Mode?: 'A' | 'B';\n" +
+    '}\n' +
+    '\n' +
+    'export const MIN_PAYOUT_PCT = 85;\n' +
+    '\n' +
+    'const deterministicSetupId = (pair: string, timeframe: Timeframe, signalTimestamp: string, engine: string) =>\n' +
+    "  `V3-${createHash('sha256').update(`${pair}|${timeframe}|${signalTimestamp}|${engine}`).digest('hex').slice(0, 20)}`;\n" +
+    '\n' +
+    '/**\n' +
+    ' * Stage 1: Market Structure (5-Candle Symmetric Fractal)\n' +
+    ' * Evaluates Swing Highs and Swing Lows with symmetric window N=2 Left, N=2 Right.\n' +
+    ' * Swing at index t confirmed ONLY at close of candle t+2. No lookahead.\n' +
+    ' */\n' +
+    'export function detectFractalSwings(candles: Candle[], upToConfirmedIndex: number): SwingPoint[] {\n' +
+    '  const swings: SwingPoint[] = [];\n' +
+    '\n' +
+    '  for (let t = 2; t <= upToConfirmedIndex - 2; t++) {\n' +
+    '    const c = candles[t];\n' +
+    '    const prev1 = candles[t - 1];\n' +
+    '    const prev2 = candles[t - 2];\n' +
+    '    const next1 = candles[t + 1];\n' +
+    '    const next2 = candles[t + 2];\n' +
+    '\n' +
+    '    const isSwingHigh =\n' +
+    '      c.high > prev1.high &&\n' +
+    '      c.high > prev2.high &&\n' +
+    '      c.high > next1.high &&\n' +
+    '      c.high > next2.high;\n' +
+    '\n' +
+    '    const isSwingLow =\n' +
+    '      c.low < prev1.low &&\n' +
+    '      c.low < prev2.low &&\n' +
+    '      c.low < next1.low &&\n' +
+    '      c.low < next2.low;\n' +
+    '\n' +
+    '    if (isSwingHigh) {\n' +
+    '      swings.push({\n' +
+    '        index: t,\n' +
+    '        timestamp: c.timestamp,\n' +
+    "        type: 'HIGH',\n" +
+    '        price: c.high,\n' +
+    '        confirmedAtTimestamp: next2.timestamp,\n' +
+    '      });\n' +
+    '    }\n' +
+    '\n' +
+    '    if (isSwingLow) {\n' +
+    '      swings.push({\n' +
+    '        index: t,\n' +
+    '        timestamp: c.timestamp,\n' +
+    "        type: 'LOW',\n" +
+    '        price: c.low,\n' +
+    '        confirmedAtTimestamp: next2.timestamp,\n' +
+    '      });\n' +
+    '    }\n' +
+    '  }\n' +
+    '\n' +
+    '  return swings;\n' +
+    '}\n' +
+    '\n' +
+    'export function evaluateMarketStructure(swings: SwingPoint[]): {\n' +
+    "  bias: 'BULLISH' | 'BEARISH' | 'UNCLEAR';\n" +
+    '  recentSwingHigh?: SwingPoint;\n' +
+    '  recentSwingLow?: SwingPoint;\n' +
+    '  prevSwingHigh?: SwingPoint;\n' +
+    '  prevSwingLow?: SwingPoint;\n' +
+    '} {\n' +
+    "  const highs = swings.filter((s) => s.type === 'HIGH');\n" +
+    "  const lows = swings.filter((s) => s.type === 'LOW');\n" +
+    '\n' +
+    '  if (highs.length < 2 || lows.length < 2) {\n' +
+    "    return { bias: 'UNCLEAR' };\n" +
+    '  }\n' +
+    '\n' +
+    '  const sh_n = highs[highs.length - 1];\n' +
+    '  const sh_prev = highs[highs.length - 2];\n' +
+    '  const sl_n = lows[lows.length - 1];\n' +
+    '  const sl_prev = lows[lows.length - 2];\n' +
+    '\n' +
+    '  if (sh_n.price > sh_prev.price && sl_n.price > sl_prev.price) {\n' +
+    '    return {\n' +
+    "      bias: 'BULLISH',\n" +
+    '      recentSwingHigh: sh_n,\n' +
+    '      recentSwingLow: sl_n,\n' +
+    '      prevSwingHigh: sh_prev,\n' +
+    '      prevSwingLow: sl_prev,\n' +
+    '    };\n' +
+    '  }\n' +
+    '\n' +
+    '  if (sh_n.price < sh_prev.price && sl_n.price < sl_prev.price) {\n' +
+    '    return {\n' +
+    "      bias: 'BEARISH',\n" +
+    '      recentSwingHigh: sh_n,\n' +
+    '      recentSwingLow: sl_n,\n' +
+    '      prevSwingHigh: sh_prev,\n' +
+    '      prevSwingLow: sl_prev,\n' +
+    '    };\n' +
+    '  }\n' +
+    '\n' +
+    '  return {\n' +
+    "    bias: 'UNCLEAR',\n" +
+    '    recentSwingHigh: sh_n,\n' +
+    '    recentSwingLow: sl_n,\n' +
+    '    prevSwingHigh: sh_prev,\n' +
+    '    prevSwingLow: sl_prev,\n' +
+    '  };\n' +
+    '}\n' +
+    '\n' +
+    '/**\n' +
+    ' * Stage 2: Break of Structure (BOS)\n' +
+    ' * Bullish BOS: Close(current) > PreviousConfirmedSwingHigh (Candle body close strictly required).\n' +
+    ' * Bearish BOS: Close(current) < PreviousConfirmedSwingLow (Candle body close strictly required).\n' +
+    ' * Wick-only break (High > SwingHigh and Close <= SwingHigh) is NOT BOS.\n' +
+    ' */\n' +
+    'export function evaluateBOS(\n' +
+    '  currentCandle: Candle,\n' +
+    '  currentIdx: number,\n' +
+    '  recentSwingHigh?: SwingPoint,\n' +
+    '  recentSwingLow?: SwingPoint\n' +
+    '): BosState {\n' +
+    '  if (!recentSwingHigh && !recentSwingLow) {\n' +
+    '    return {\n' +
+    '      bos_detected: false,\n' +
+    "      bos_direction: 'NONE',\n" +
+    '      bos_body_close_confirmed: false,\n' +
+    "      status: 'INCONCLUSIVE',\n" +
+    "      reason: 'No confirmed structural swing points available for BOS evaluation',\n" +
+    '    };\n' +
+    '  }\n' +
+    '\n' +
+    '  // Bullish BOS Check\n' +
+    '  if (recentSwingHigh) {\n' +
+    '    const bodyClosedAbove = currentCandle.close > recentSwingHigh.price;\n' +
+    '    if (bodyClosedAbove) {\n' +
+    '      return {\n' +
+    '        bos_detected: true,\n' +
+    "        bos_direction: 'BULLISH',\n" +
+    '        bos_reference_level: recentSwingHigh.price,\n' +
+    '        bos_confirmation_timestamp: currentCandle.timestamp,\n' +
+    '        bos_confirmation_candle: currentIdx,\n' +
+    '        bos_body_close_confirmed: true,\n' +
+    "        status: 'PASS',\n" +
+    '        reason: `Bullish BOS confirmed: Close (${currentCandle.close}) broke above confirmed Swing High (${recentSwingHigh.price})`,\n' +
+    '      };\n' +
+    '    }\n' +
+    '  }\n' +
+    '\n' +
+    '  // Bearish BOS Check\n' +
+    '  if (recentSwingLow) {\n' +
+    '    const bodyClosedBelow = currentCandle.close < recentSwingLow.price;\n' +
+    '    if (bodyClosedBelow) {\n' +
+    '      return {\n' +
+    '        bos_detected: true,\n' +
+    "        bos_direction: 'BEARISH',\n" +
+    '        bos_reference_level: recentSwingLow.price,\n' +
+    '        bos_confirmation_timestamp: currentCandle.timestamp,\n' +
+    '        bos_confirmation_candle: currentIdx,\n' +
+    '        bos_body_close_confirmed: true,\n' +
+    "        status: 'PASS',\n" +
+    '        reason: `Bearish BOS confirmed: Close (${currentCandle.close}) broke below confirmed Swing Low (${recentSwingLow.price})`,\n' +
+    '      };\n' +
+    '    }\n' +
+    '  }\n' +
+    '\n' +
+    '  return {\n' +
+    '    bos_detected: false,\n' +
+    "    bos_direction: 'NONE',\n" +
+    '    bos_body_close_confirmed: false,\n' +
+    "    status: 'PASS', // Not breaking structure is not a rejection if in continuation\n" +
+    "    reason: 'Price within structural swing boundaries; no BOS breakout observed',\n" +
+    '  };\n' +
+    '}\n' +
+    '\n' +
+    '/**\n' +
+    ' * Stage 3: Change of Character (CHoCH)\n' +
+    ' * Bullish CHoCH: When previous structural trend was bearish (LH, LL) and price closes above the relevant confirmed LH.\n' +
+    ' * Bearish CHoCH: When previous structural trend was bullish (HH, HL) and price closes below the relevant confirmed HL.\n' +
+    ' */\n' +
+    'export function evaluateCHoCH(\n' +
+    '  currentCandle: Candle,\n' +
+    '  swings: SwingPoint[],\n' +
+    "  prevStructuralBias: 'BULLISH' | 'BEARISH' | 'UNCLEAR'\n" +
+    '): ChochState {\n' +
+    "  const highs = swings.filter((s) => s.type === 'HIGH');\n" +
+    "  const lows = swings.filter((s) => s.type === 'LOW');\n" +
+    '\n' +
+    '  if (highs.length === 0 || lows.length === 0) {\n' +
+    '    return {\n' +
+    "      choch_status: 'NO_CHoCH',\n" +
+    "      status: 'PASS',\n" +
+    "      reason: 'Insufficient swing history for CHoCH evaluation',\n" +
+    '    };\n' +
+    '  }\n' +
+    '\n' +
+    '  const lastHigh = highs[highs.length - 1];\n' +
+    '  const lastLow = lows[lows.length - 1];\n' +
+    '\n' +
+    '  // Bullish CHoCH: was bearish, now body closes above the confirmed lower high\n' +
+    "  if (prevStructuralBias === 'BEARISH' && currentCandle.close > lastHigh.price) {\n" +
+    '    return {\n' +
+    "      choch_status: 'BULLISH_CHoCH',\n" +
+    "      choch_direction: 'BULLISH',\n" +
+    '      choch_reference_level: lastHigh.price,\n' +
+    '      choch_confirmation_timestamp: currentCandle.timestamp,\n' +
+    "      status: 'PASS',\n" +
+    '      reason: `Bullish CHoCH confirmed: Closed (${currentCandle.close}) above bearish structural Lower High (${lastHigh.price})`,\n' +
+    '    };\n' +
+    '  }\n' +
+    '\n' +
+    '  // Bearish CHoCH: was bullish, now body closes below the confirmed higher low\n' +
+    "  if (prevStructuralBias === 'BULLISH' && currentCandle.close < lastLow.price) {\n" +
+    '    return {\n' +
+    "      choch_status: 'BEARISH_CHoCH',\n" +
+    "      choch_direction: 'BEARISH',\n" +
+    '      choch_reference_level: lastLow.price,\n' +
+    '      choch_confirmation_timestamp: currentCandle.timestamp,\n' +
+    "      status: 'PASS',\n" +
+    '      reason: `Bearish CHoCH confirmed: Closed (${currentCandle.close}) below bullish structural Higher Low (${lastLow.price})`,\n' +
+    '    };\n' +
+    '  }\n' +
+    '\n' +
+    '  return {\n' +
+    "    choch_status: 'NO_CHoCH',\n" +
+    "    status: 'PASS',\n" +
+    "    reason: 'Market structure character unchanged',\n" +
+    '  };\n' +
+    '}\n' +
+    '\n' +
+    '/**\n' +
+    ' * Stage 4: Fair Value Gap (FVG)\n' +
+    ' * Bullish: Low(C3) > High(C1) => Zone: [High(C1), Low(C3)]\n' +
+    ' * Bearish: High(C3) < Low(C1) => Zone: [High(C3), Low(C1)]\n' +
+    ' */\n' +
+    'export function detectFVG(\n' +
+    '  c1: Candle,\n' +
+    '  c2: Candle,\n' +
+    '  c3: Candle\n' +
+    "): { detected: boolean; fvg?: FVGZone; direction?: 'BULLISH' | 'BEARISH' } {\n" +
+    '  // Bullish FVG: Low of C3 is strictly above High of C1\n' +
+    '  if (c3.low > c1.high) {\n' +
+    '    return {\n' +
+    '      detected: true,\n' +
+    "      direction: 'BULLISH',\n" +
+    '      fvg: {\n' +
+    '        top: c3.low,\n' +
+    '        bottom: c1.high,\n' +
+    '        creationTimestamp: c3.timestamp,\n' +
+    "        mitigationState: 'UNMITIGATED',\n" +
+    "        direction: 'BULLISH',\n" +
+    '      },\n' +
+    '    };\n' +
+    '  }\n' +
+    '\n' +
+    '  // Bearish FVG: High of C3 is strictly below Low of C1\n' +
+    '  if (c3.high < c1.low) {\n' +
+    '    return {\n' +
+    '      detected: true,\n' +
+    "      direction: 'BEARISH',\n" +
+    '      fvg: {\n' +
+    '        top: c1.low,\n' +
+    '        bottom: c3.high,\n' +
+    '   '... 51158 more characters,
+  expected: /export function detectFractalSwings\b/,
+  operator: 'doesNotMatch',
+  diff: 'simple'
+}
+
+Node.js v22.23.4

@@ -18,6 +18,7 @@ import {
   Globe,
 } from 'lucide-react';
 import { MasterTelemetry } from '../engine/types';
+import { readLegacyOptional } from '../engine/legacyTelemetry';
 import { formatSignalTime } from '../utils/timeFormat';
 
 interface DecisionAlertCardProps {
@@ -63,6 +64,8 @@ export const DecisionAlertCard: React.FC<DecisionAlertCardProps> = ({
   const recordedAction = alert.system_execution.user_recorded_action;
   const pair = alert.metadata.pair || alert.metadata.asset || 'UNAVAILABLE';
   const hasCandleSnapshot = Boolean(alert.candle_snapshot?.candles?.length);
+  const legacyPressure = readLegacyOptional<MasterTelemetry['pressure_observation']>(alert, 'pressure_observation');
+  const pressureClassification = legacyPressure?.classification ?? 'UNAVAILABLE';
 
   // Authoritative Signal Timestamp formatting (Canonical UTC -> Asia/Dhaka)
   const timeInfo = formatSignalTime(
@@ -178,10 +181,10 @@ export const DecisionAlertCard: React.FC<DecisionAlertCardProps> = ({
           </p>
         </div>
 
-        {alert.pressure_observation.classification !== 'UNAVAILABLE' && <div className="text-right">
+        {pressureClassification !== 'UNAVAILABLE' && <div className="text-right">
           <span className="text-[11px] text-slate-400 block font-mono">Pressure Observation</span>
-          <span className="text-sm font-bold text-indigo-400 font-mono tracking-wide">{alert.pressure_observation.classification} ({alert.pressure_observation.magnitude} MAG)</span>
-          {alert.pressure_observation.speedPxPerSec !== undefined && <span className="text-[10px] text-slate-500 block font-mono">Speed: {alert.pressure_observation.speedPxPerSec} px/s</span>}
+          <span className="text-sm font-bold text-indigo-400 font-mono tracking-wide">{pressureClassification} ({legacyPressure?.magnitude ?? 'UNAVAILABLE'} MAG)</span>
+          {legacyPressure?.speedPxPerSec !== undefined && <span className="text-[10px] text-slate-500 block font-mono">Speed: {legacyPressure.speedPxPerSec} px/s</span>}
         </div>}
       </div>
 

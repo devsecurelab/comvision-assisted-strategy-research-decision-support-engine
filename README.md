@@ -1,20 +1,21 @@
 # ComVision-Assisted Strategy Research & Decision-Support Engine
 
-**Strategy Specification:** 9-Stage Frozen Strategy Pipeline (Specification v3.4)  
-**Canonical Configuration Hash:** `1fc0ff3b17b2a077fdaf532615e7ca4ae2b38b36cdfc781059aeda3e7977b9b8`  
-**Active Controlled Experiment:** `EXP-2026-001` (100 Valid Setups Scope Freeze)  
+**Active Strategy:** `RDP_STRATEGY_V3.0` (9-stage V3 decision pipeline)<br>
+**Current Canonical Configuration Hash:** `a1f859bc165b9b36de005af2eb33b27ba6594301f929f14157615a1a5d6e8652`<br>
+**Current Engine Fingerprint:** `e3419da92a169ebd0c42c04028b8df262d780f7caf26f143c616d0f38a858723`<br>
+**Active Experiment:** `EXP-2026-V3-REAL-001`
 **System Classification:** Quantitative Market Research & Decision-Support Engine (Strict Non-Execution Covenant)
 
 ---
 
 ## 1. System Overview & Architectural Covenant
 
-The **ComVision-Assisted Strategy Research & Decision-Support Engine** is a deterministic quantitative research and decision-support platform designed to ingest multi-source candle data and computer vision feeds, evaluate candidate market setups through an authoritative 9-stage sequential validation pipeline, compute cryptographic SHA-256 telemetry chains, and output decision-support alerts for human research analysts.
+The **ComVision-Assisted Strategy Research & Decision-Support Engine** is a deterministic quantitative research and decision-support platform that uses validated market candles from Twelve Data as its only configured live market-data source, evaluates candidate setups through the V3 sequential decision pipeline, records identity-bearing telemetry, and outputs decision-support alerts for human research analysts. Historical replay and test fixtures are separate research/test inputs, not live-provider fallbacks.
 
 ### Strict Non-Execution Covenant
 Under no circumstances does this engine connect to broker APIs, transmit orders, manage positions, or execute automated trades:
 - **No Broker API Credentials:** The system does not store or accept broker API keys or trade execution tokens.
-- **Terminal System Output:** The engine terminates strictly at `system_decision = PASS` with `final_action = MANUAL_ALERT`.
+- **Terminal System Output:** A passing decision may produce `final_action = MANUAL_ALERT`; fail-safe or non-passing paths may produce `NO_ALERT`. Neither path places an order.
 - **Human Authority:** All market entries, position sizing, risk management, and order placement remain exclusively the manual responsibility of the human researcher.
 
 ### Target Deployment Topology
@@ -67,7 +68,7 @@ pkg update && pkg upgrade -y
 # Step 2: Install Git, GitHub CLI, Node.js LTS, and Python (for the Step 0 probe)
 pkg install git gh nodejs-lts python -y
 
-# Step 3: Verify versions (Node >= 20.x required, Node 22.x LTS recommended)
+# Step 3: Verify supported Node.js runtime (22 or 24; .nvmrc pins canonical Node 22)
 node -v
 npm -v
 git --version
@@ -91,7 +92,8 @@ nano .env
 # Set SESSION_SECRET (32+ characters) and ADMIN_BOOTSTRAP_PASSWORD (12+ characters).
 # Keep HOST=127.0.0.1 and ALLOW_LAN=false. Set GITHUB_REPOSITORY and a read-only
 # GITHUB_TOKEN with repository-metadata access to verify the repository is private.
-# Add Twelve Data only if authorized; all secrets stay server-side. Save with Ctrl+O, Enter, Ctrl+X.
+# Set the Twelve Data key only if authorized; all secrets stay server-side. See docs/TWELVE_DATA_ONLY.md.
+# Save with Ctrl+O, Enter, Ctrl+X.
 
 # Step 8: Build the production bundle (builds client assets and standalone server.cjs)
 npm run build
@@ -210,6 +212,10 @@ The frontend client includes dynamic endpoint routing via `src/config/api.ts`:
 3. Click **Save Endpoint**.
 4. The client saves this preference to browser `localStorage` (`comvision_api_base_url`) and routes all future API requests directly to your Termux server without requiring code recompilation.
 
+### 4.3 Live market-data provider
+
+Twelve Data is the only configured live market-data provider. The provider boundary, credential names, validation/fail-closed behavior, and separate historical path are documented in [Twelve Data-only data policy](docs/TWELVE_DATA_ONLY.md). Provider candles are inputs; the V3 engine remains the decision-calculation source.
+
 ---
 
 ## 5. Progressive Web App (PWA) & Add to Home Screen
@@ -284,23 +290,45 @@ If the server is not at `http://127.0.0.1:3000`, set `COMVISION_BASE_URL` before
 
 ### 7.1 Master Manifest Verification
 - **Strategy Version:** `RDP_STRATEGY_V3.0`
-- **Active Experiment:** `EXP-2026-V2-001` (100 Valid Setups)
-- **Canonical Configuration Hash:**
+- **Active Experiment:** `EXP-2026-V3-REAL-001`
+- **Current canonical configuration hash:**
   ```
-  1fc0ff3b17b2a077fdaf532615e7ca4ae2b38b36cdfc781059aeda3e7977b9b8
+  a1f859bc165b9b36de005af2eb33b27ba6594301f929f14157615a1a5d6e8652
   ```
-- **EXP-2026-V2-001 Candidate/Outcome Status:** Clean state. Zero premature candidate or outcome records in production storage.
 
 ### 7.2 Deterministic Test Suite
-Run the test suite at any time to verify cryptographic integrity:
+Run the repository verification suite:
 ```bash
 npm test
 ```
-The current verification suite covers the 19-stage pipeline, boundary edge cases, session revocation, token sanitation, momentum baseline formulas, SHA-256 telemetry chaining, and live-provider adapter diagnostics.
+It includes the strategy/pipeline contracts, storage recovery, security and provider tests, golden parity, and V3 safety invariants. `test:inventory` verifies that every repository `.test.ts` suite is included. One real-provider subcheck is credential-gated; it is skipped unless `P3_LIVE_INTEGRATION=1` is explicitly set.
+
+### 7.3 Canonical parameters, configuration identity, and telemetry
+
+- **Central parameters:** `src/engine/params.ts` owns `V3_STRATEGY_PARAMS`. Derived parameter constants are exported from that object. The canonical parameter digest is generated from its deterministic canonical JSON; it is not a second handwritten parameter list.
+- **`CONFIG_HASH`:** `src/engine/manifest.ts` builds `V3_CONFIG_SNAPSHOT` from the strategy version/experiment, identity epoch, full `V3_STRATEGY_PARAMS`, canonical parameter hash, session-config hash, and market-calendar hash. `CONFIG_HASH` is SHA-256 of the canonical JSON representation of that snapshot. The current parameter hash is `1ef39428852f65418a82daad603e1ef02557981028414e82592bdd39adf1e1b2`.
+- **Engine fingerprint:** `ENGINE_FINGERPRINT` is a deterministic SHA-256 identity over the strategy version, current config hash and epoch, parameter hash, session hash, and market-calendar hash. It distinguishes the declared engine/config identity; it is not a hash of the complete source-code tree or a substitute for a code review.
+- **Ledger purpose:** New signal-ledger events carry the engine fingerprint with the config identity so verification and historical review can detect records generated under a different declared configuration. Historical prior-epoch records are accepted only through the explicit compatibility path; arbitrary mismatched identities are not treated as current.
+- **Calculation source:** decisions are calculated by V3-native engine logic and its native telemetry (`decision_engine_v3`). Legacy `validation_metrics` and `pressure_observation` remain optional only for backward reads/rendering of stored records; they are not calculation inputs, and new records do not emit those legacy projections.
+
+PR-8 centralized/generated the configuration identity without changing any strategy threshold, score formula, gate rule, or frozen decision rule. The canonical parameter hash stayed unchanged; the `CONFIG_HASH`/fingerprint rotation is documented as a canonical snapshot/epoch change.
+
+### 7.4 Reviewing future parameter changes
+
+Treat `src/engine/params.ts` as the sole source of strategy parameter values; do not hand-edit generated snapshots or maintain parallel literals. For a proposed parameter change, review the exact before/after values and rationale, assess decision impact, run `npm ci`, lint, build, and the full suite, then run `npm run engine:fingerprint` and attach before/after parameter/config hashes plus golden-parity and safety-invariant results. A changed decision/golden count or safety output requires explicit justification and review; a hash change must be explained. Update the identity epoch only when the snapshot/schema identity contract itself changes, not merely to disguise a parameter edit.
+
+## 8. Runtime, CI, and npm audit
+
+- **Supported Node.js:** Node 22 and 24 (`package.json` engines `>=22 <25`); `.nvmrc` selects Node 22 as the canonical local runtime.
+- **CI:** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `npm ci`, `npm run lint`, `npm run build`, and `npm test` in that order on both Node versions.
+- **npm lockfile:** `package-lock.json` is authoritative; use `npm ci`. The unused Bun lockfile was removed after npm dependency resolution succeeded.
+- **Audit evidence:** `npm run audit:report` writes `docs/evidence/npm-audit-<UTC-date>.json` and `.md`. A nonzero `npm audit` result is preserved and fails the audit job; the PR-8 baseline is retained in the [dated Markdown report](docs/evidence/npm-audit-2026-11-11.md) and [JSON report](docs/evidence/npm-audit-2026-11-11.json), while the remediation validation is recorded in [npm-audit-remediation-2026-11-12.md](docs/evidence/npm-audit-remediation-2026-11-12.md).
+
+The six PR-8 findings were confined to the PWA/Workbox build chain. `vite-plugin-pwa` and its Workbox generator have been removed because the only npm automatic fix was an incompatible downgrade and the newer plugin release still resolved the same vulnerable chain. The static web-app manifest and icons remain available, but generated service-worker/offline caching is intentionally not part of this build until a separately reviewed, maintained replacement is selected.
 
 ---
 
-## 8. Available Scripts Reference
+## 9. Available Scripts Reference
 
 | Script | Command | Purpose |
 |---|---|---|
@@ -309,4 +337,4 @@ The current verification suite covers the 19-stage pipeline, boundary edge cases
 | `npm run start` | `node build/server.cjs` | Launches standalone compiled production server |
 | `npm test` | Configured TypeScript test suite | Runs PR-7 startup/session/operations tests plus the full strategy, safety, R8 and provider regression suite |
 | `npm run lint` | `tsc --noEmit` | Validates TypeScript types across whole codebase |
-| `npm run clean` | `rm -rf dist server.js` | Cleans production build output directory |
+| `npm run clean` | `rm -rf dist build server.js` | Cleans production build output directories |

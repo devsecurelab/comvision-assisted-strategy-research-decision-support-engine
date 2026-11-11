@@ -1,0 +1,11 @@
+At baseline, package.json `npm test` directly lists 42 test paths.
+
+Repository has 46 top-level test/*.test.ts files.
+
+The following were not directly included in the npm test command:
+- test/auth_hardening.test.ts — separately run with ADMIN_BOOTSTRAP_PASSWORD=baseline-test-password-123; exit 0.
+- test/gate_renumber_equivalence.test.ts — separately run; exit 0. It is also invoked by npm run test:gate-renumber from npm test.
+- test/pr5_twelve_data_only.test.ts — separately run; exit 0.
+- test/storage_recovery.test.ts — separately run; exit 0.
+
+The raw outputs are stored beside this file. The auth test requires a test-only bootstrap password because the runtime fail-closed policy rejects an unset ADMIN_BOOTSTRAP_PASSWORD before the assertions load.

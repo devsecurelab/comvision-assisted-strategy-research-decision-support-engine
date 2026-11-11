@@ -1,0 +1,15 @@
+{
+  "fixture": "test/fixtures/golden-b90004f.json",
+  "baseline": "b90004f",
+  "schema": [
+    "finalAction",
+    "systemDecision",
+    "mfci",
+    "stagePasses",
+    "gateStatuses"
+  ],
+  "idealCases": 24,
+  "randomGroups": 4,
+  "randomCases": 24000,
+  "totalCases": 24024
+}

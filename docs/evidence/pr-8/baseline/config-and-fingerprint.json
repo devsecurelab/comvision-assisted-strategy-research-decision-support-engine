@@ -1,0 +1,52 @@
+{
+  "CONFIG_HASH": "0a2418d28d76710e9fdae9ce54a4be3a6d9c1004695496d2068631f9cc6a1003",
+  "CONFIG_HASH_EPOCH": "V3_CANONICAL_2026-10-18_28ab43a2_bf1f14da",
+  "ENGINE_FINGERPRINT": "7ff16d8643ca931963e31936da624d265a3417ed2799dc4ad454f6a8195435e7",
+  "SESSION_CONFIG_HASH": "28ab43a2980876392e94e2813e26f9186ba9b33542bec35e94d81d9f3f0f68b7",
+  "MARKET_CALENDAR_HASH": "bf1f14da807ed0ab8d2e14156a58d6c48825073604518ea046e88c8d3483d3eb",
+  "V3_CONFIG_SNAPSHOT": {
+    "hash_epoch": "V3_CANONICAL_2026-10-18_28ab43a2_bf1f14da",
+    "strategy_version": "RDP_STRATEGY_V3.0",
+    "experiment_id": "EXP-2026-V3-REAL-001",
+    "engine": "strategyV3Engine",
+    "minimum_candles": 30,
+    "analysis_window": 120,
+    "fractal_n": 2,
+    "event_lookback": 20,
+    "sweep_lookback": 10,
+    "pool_lookback": 20,
+    "breaker_delta_sample": 50,
+    "gates": 9,
+    "stages": 19,
+    "mfci": {
+      "threshold": 0.85,
+      "full_weights": {
+        "structure": 0.35,
+        "order_flow": 0.25,
+        "liquidity": 0.2
+      },
+      "price_only_weights": {
+        "structure": 0.35,
+        "liquidity": 0.2
+      }
+    },
+    "wick_ratio_max": 0.5,
+    "fib_equilibrium_level": 0.5,
+    "ote": {
+      "start": 0.618,
+      "end": 0.786
+    },
+    "session": {
+      "london_timezone": "Europe/London",
+      "new_york_timezone": "America/New_York",
+      "kill_zone_local_start": "07:00",
+      "kill_zone_local_end": "10:00"
+    },
+    "news_guard": {
+      "restriction_window_minutes": 30,
+      "offline": "INCONCLUSIVE"
+    },
+    "market_calendar_hash": "bf1f14da807ed0ab8d2e14156a58d6c48825073604518ea046e88c8d3483d3eb",
+    "session_config_hash": "28ab43a2980876392e94e2813e26f9186ba9b33542bec35e94d81d9f3f0f68b7"
+  }
+}

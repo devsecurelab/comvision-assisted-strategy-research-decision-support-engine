@@ -1,0 +1,4 @@
+npm_audit=1
+lint=0
+build=0
+npm_test=0

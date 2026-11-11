@@ -320,7 +320,7 @@ export interface MasterTelemetry {
     session_start_utc?: string;
     session_end_utc?: string;
   };
-  validation_metrics: {
+  validation_metrics?: {
     structure: {
       status: 'PASS' | 'REJECT' | 'INCONCLUSIVE';
       swing_confirmed_at_timestamp?: string;
@@ -375,7 +375,7 @@ export interface MasterTelemetry {
     };
     bsl_ssl?: BslSslState;
   };
-  pressure_observation: PressureObservation;
+  pressure_observation?: PressureObservation;
   guardrails: {
     news_guard: {
       news_event_detected: boolean;
