@@ -1,0 +1,17 @@
+
+> react-example@0.0.0 engine:fingerprint
+> tsx scripts/engine-fingerprint.ts
+
+{
+  "strategy_version": "RDP_STRATEGY_V3.0",
+  "experiment_id": "EXP-2026-V3-REAL-001",
+  "config_hash": "0a2418d28d76710e9fdae9ce54a4be3a6d9c1004695496d2068631f9cc6a1003",
+  "config_hash_epoch": "V3_CANONICAL_2026-10-18_28ab43a2_bf1f14da",
+  "params_canonical_hash": "1ef39428852f65418a82daad603e1ef02557981028414e82592bdd39adf1e1b2",
+  "engine_fingerprint": "7ff16d8643ca931963e31936da624d265a3417ed2799dc4ad454f6a8195435e7",
+  "verification": {
+    "params_hash_matches": true,
+    "fingerprint_matches": true,
+    "canonical_json_bytes": 2091
+  }
+}

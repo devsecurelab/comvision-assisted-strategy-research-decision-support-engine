@@ -1,9 +1,9 @@
 PR-8 test suite inclusion inventory
-Generated: 2026-11-11
+Generated: 2026-11-12
 Nested npm run scripts are expanded when determining inclusion.
 
-All test files: 48
-Included by npm test (including test:gate-renumber): 45
+All test files: 49
+Included by npm test (including test:gate-renumber): 46
 Not included by npm test: 3
 
 INCLUDED
@@ -39,6 +39,7 @@ INCLUDED
 - pr7_termux_operations.test.ts
 - pr8_params_centralization.test.ts
 - pr8_params_scores_formulas.test.ts
+- pr8_v3_source_of_truth_fingerprint.test.ts
 - pr_a_owner_regressions.test.ts
 - provider_scheduler_concurrency.test.ts
 - r8_backtest_core.test.ts

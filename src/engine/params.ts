@@ -1,3 +1,6 @@
+import { canonicalJson } from '../utils/canonicalJson';
+import { sha256 } from '../utils/sha256';
+
 /**
  * Canonical owner-approved V3 strategy parameters.
  *
@@ -96,6 +99,10 @@ export const V3_STRATEGY_PARAMS = {
     equilibriumEpsilonMultiplier: 32,
   },
 } as const;
+
+/** Stable, sorted JSON representation of the owner-approved numeric parameters. */
+export const V3_PARAMS_CANONICAL_JSON = canonicalJson(V3_STRATEGY_PARAMS);
+export const V3_PARAMS_CANONICAL_HASH = sha256(V3_PARAMS_CANONICAL_JSON);
 
 // Compatibility exports retain the existing engine/test-facing names.
 export const MFCI_THRESHOLD = V3_STRATEGY_PARAMS.mfci.threshold;
