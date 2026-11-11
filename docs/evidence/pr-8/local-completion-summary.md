@@ -2,7 +2,7 @@
 
 **Baseline:** PR-8 documented baseline/final evidence from `09bad15` and the current canonical identity evidence.
 
-**Current revision:** `71f3536` (`test: isolate CI repository identity in server harness`).
+**Current revision:** `80a2eb9` (`docs: record successful node 24 CI gate`).
 
 **Local environment:** Node `v22.23.4`, npm `10.9.9`, Linux x64.
 
@@ -10,7 +10,7 @@
 |---|---|---|---|---|
 | `CONFIG_HASH` | Canonical engine identity | `0a2418d28d76710e9fdae9ce54a4be3a6d9c1004695496d2068631f9cc6a1003` | `a1f859bc165b9b36de005af2eb33b27ba6594301f929f14157615a1a5d6e8652` | PASS — documented canonicalization/epoch change |
 | Engine fingerprint | Deterministic engine identity | `7ff16d8643ca931963e31936da624d265a3417ed2799dc4ad454f6a8195435e7` | `e3419da92a169ebd0c42c04028b8df262d780f7caf26f143c616d0f38a858723` | PASS — `npm run engine:fingerprint`, params/fingerprint verification true |
-| R8 golden count | R8 regression/golden coverage | Preserved | Preserved; full suite passed | PASS |
+| R8 golden count | R8 regression/golden coverage | `24,024` | `24,024`; full suite passed | PASS |
 | Gate 4 parity | Golden parity and non-G4 invariants | `24,024` cases; `changed=15,079`; `PASS->BLOCKED=8,110`; `BLOCKED->PASS=6,969` | Same counts; non-G4 gates/stages/MFCI unchanged | PASS |
 | `v3_safety_invariants` | Eight safety assertions | 8/8 pass | 8/8 pass | PASS |
 | Node 22 | Install/lint/build/test runtime | Previous CI run failed in `pr_a_owner_regressions` readiness | GitHub Actions run `43110671736`: setup, `npm ci`, lint, build and full test all passed | PASS |
