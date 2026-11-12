@@ -57,8 +57,8 @@ The following results are API observations, not assumptions:
 | Feature | Observed status | Evidence / limitation |
 |---|---|---|
 | `npm audit` | PASS in the latest CI | The post-merge `main` workflow passed the canonical npm audit job with zero findings in the previously recorded validation |
-| GitHub vulnerability alerts | **Disabled** | `GET /repos/{owner}/{repo}/vulnerability-alerts` returned 404: “Vulnerability alerts are disabled.” |
-| Automated security fixes | **Disabled** | `GET /repos/{owner}/{repo}/automated-security-fixes` returned `enabled: false, paused: false` |
+| GitHub vulnerability alerts | **Enabled** | The enablement script returned success; verification request returned HTTP 204 No Content. |
+| Automated security fixes | **Enabled** | The enablement script enabled the feature and its verification step returned `enabled: true`. |
 | Secret scanning | **Not verifiable** | Alerts endpoint returned 403 “Resource not accessible by integration”; no positive enabled-state evidence was available |
 | Code scanning | **Disabled / not configured** | Alerts endpoint returned 403 with “Code scanning is not enabled for this repository” |
 | Security policy | **Not configured** | `SECURITY.md` was not found and repository metadata reported `isSecurityPolicyEnabled: false` |
@@ -98,6 +98,6 @@ The script enables and then verifies both vulnerability alerts and automated sec
 
 1. Keep the archive branch as the immutable historical reference unless a retention policy says otherwise.
 2. Upgrade the GitHub plan, use an organization plan with private-repository protection support, or temporarily make the repository public if current branch-protection verification is required again.
-3. Consider enabling vulnerability alerts, automated security fixes, Dependabot, secret scanning, and code scanning after confirming plan support.
+3. Consider adding Dependabot, secret scanning, and code scanning after confirming plan support.
 4. Add a `SECURITY.md` policy if the repository will accept vulnerability reports.
 5. Merge this report through the normal pull-request workflow so the evidence itself is retained on `main`.
