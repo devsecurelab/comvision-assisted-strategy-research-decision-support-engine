@@ -84,6 +84,16 @@ After the repository was returned to **private**, `GET /repos/{owner}/{repo}/bra
 
 Therefore the current private-repository enforcement state cannot be independently read or re-verified with the available GitHub plan/token. This report records the last successful public-state apply/verification and does **not** falsely claim that the rules are currently observable while private.
 
+## Enablement script
+
+The repository now includes [`scripts/enable-github-security-features.sh`](../../../scripts/enable-github-security-features.sh). Run it with an authenticated GitHub CLI session:
+
+```bash
+./scripts/enable-github-security-features.sh devsecurelab/comvision-assisted-strategy-research-decision-support-engine
+```
+
+The script enables and then verifies both vulnerability alerts and automated security fixes. It fails closed with the GitHub plan/permission remediation when the private-repository API returns 403.
+
 ## Follow-up actions
 
 1. Keep the archive branch as the immutable historical reference unless a retention policy says otherwise.
