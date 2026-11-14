@@ -368,6 +368,11 @@ export class ScanLoop {
   }
   public setEnabled(enabled: boolean, timeframe?: ScanTimeframe) { this.save({ enabled, ...(timeframe ? { timeframe } : {}) }); }
 
+  /** Records a broker-price-backed manual taken event in the canonical signal ledger. */
+  public recordManualTaken(signalId: string, brokerEntryPrice: number): string {
+    return this.service.recordManualTaken(signalId, brokerEntryPrice);
+  }
+
   private schedule(generation = this.generation): void {
     if (generation !== this.generation || !this.state().enabled) return;
     const { timeframe } = this.state();

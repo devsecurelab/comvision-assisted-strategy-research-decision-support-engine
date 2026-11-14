@@ -23,7 +23,7 @@ import { analyticsService } from './src/server/analyticsService';
 import { chatService } from './src/server/chatService';
 import { payoutRegistry, normalizePair, displayPair, FAVORITE_SYMBOLS } from './src/server/payoutRegistry';
 import { favoriteRegistry } from './src/server/favoriteRegistry';
-import { SignalLedger } from './src/engine/signalLedger';
+import { SignalLedger, signalIdFor } from './src/engine/signalLedger';
 import { ScanLoop, ScanService, SCAN_TIMEFRAMES, type ScanLoopState, type ScanTimeframe } from './src/engine/scanScheduler';
 import { buildLedgerReport, formatLedgerReport } from './src/engine/edgeMonitor';
 import { createOperationalBootChecks, evaluateSelfChecks, validateDataDirectory } from './src/server/runtimeSelfCheck';
@@ -376,13 +376,30 @@ app.post('/api/engine/select-timeframe', requireOperator, (req: AuthenticatedReq
 });
 
 app.post('/api/engine/record-action', requireResearcher, (req: AuthenticatedRequest, res) => {
-  const { setupId, action } = req.body;
+  const { setupId, action, brokerEntryPrice } = req.body;
   if (!setupId || !action) {
     return res.status(400).json({ error: 'Missing setupId or action' });
   }
   const validActions = ['PENDING', 'TAKEN', 'NOT_TAKEN', 'NOT_RECORDED', 'SKIPPED'];
   if (typeof setupId !== 'string' || setupId.length > 128 || typeof action !== 'string' || !validActions.includes(action)) {
     return res.status(400).json({ error: 'INVALID_ACTION', message: `Action must be one of: ${validActions.join(', ')}.` });
+  }
+
+  let canonicalSignalId: string | undefined;
+  if (action === 'TAKEN') {
+    if (typeof brokerEntryPrice !== 'number' || !Number.isFinite(brokerEntryPrice) || brokerEntryPrice <= 0) {
+      return res.status(400).json({ error: 'BROKER_ENTRY_PRICE_REQUIRED', message: 'TAKEN requires a finite positive brokerEntryPrice.' });
+    }
+    const candidate = experimentTracker.getCandidates('ALL').find((item) => item.metadata.setup_id === setupId);
+    const pair = String(candidate?.metadata.pair || candidate?.metadata.asset || '').replace('/', '').toUpperCase();
+    const timeframe = candidate?.market_context.selected_timeframe;
+    const timestamp = candidate?.metadata.signal_timestamp_utc || candidate?.metadata.timestamp_utc;
+    if (!candidate || !/^[A-Z]{6}$/.test(pair) || !['5m', '15m', '30m'].includes(String(timeframe)) || !timestamp) {
+      return res.status(422).json({ error: 'SIGNAL_ID_UNAVAILABLE', message: 'Cannot derive the canonical signal ledger identity for this setup.' });
+    }
+    canonicalSignalId = signalIdFor(`${pair.slice(0, 3)}/${pair.slice(3)}`, String(timeframe), timestamp);
+    const ledgerResult = scanLoop.recordManualTaken(canonicalSignalId, brokerEntryPrice);
+    if (ledgerResult.startsWith('ERROR')) return res.status(422).json({ error: 'TRADE_TAKEN_NOT_RECORDED', message: ledgerResult });
   }
 
   const success = experimentTracker.recordUserAction(setupId, action as UserRecordedAction);
@@ -394,7 +411,7 @@ app.post('/api/engine/record-action', requireResearcher, (req: AuthenticatedRequ
     event_type: 'USER_ACTION_RECORDED',
     actor_id: req.user?.id,
     actor_email: req.user?.email,
-    details: { setup_id: setupId, action },
+    details: { setup_id: setupId, action, ...(canonicalSignalId ? { signal_id: canonicalSignalId, broker_entry_price: brokerEntryPrice } : {}) },
   });
 
   res.json({ success: true, setupId, action });
