@@ -8,6 +8,8 @@ import os from 'node:os';
 import { MasterTelemetry, UserAccount, UserRecordedAction } from '../engine/types';
 import { compactScanSummary, ScanSummaryRing, shouldWriteSummary, type CompactScanSummary } from './operationalStorage';
 
+const MAX_PERSISTED_SIGNALS = Math.max(100, Number(process.env.SIGNAL_RETENTION_LIMIT || 500));
+
 // Research Outcome Semantics:
 // Frozen compatibility outcomes: NEXT_CANDLE_FAVORABLE | NEXT_CANDLE_UNFAVORABLE | NEXT_CANDLE_NEUTRAL | NEXT_CANDLE_INCONCLUSIVE
 // Historical v1.0 legacy compatibility: WIN | LOSS | INVALIDATED | UNRESOLVED
@@ -282,7 +284,9 @@ export class DurableStorage {
     const priorSignals = this.readJson<MasterTelemetry[]>(this.signalsFile, [], (value): value is MasterTelemetry[] => Array.isArray(value));
     const signalMap = new Map<string, MasterTelemetry>(priorSignals.map((candidate) => [candidate.metadata?.setup_id, candidate]));
     for (const candidate of candidates.filter((item) => item.system_execution?.system_decision === 'PASS')) signalMap.set(candidate.metadata?.setup_id, candidate);
-    const signals = [...signalMap.values()];
+    const signals = [...signalMap.values()]
+      .sort((a, b) => Date.parse(b.metadata?.timestamp_utc || '') - Date.parse(a.metadata?.timestamp_utc || ''))
+      .slice(0, MAX_PERSISTED_SIGNALS);
     this.writeJson(this.signalsFile, signals);
     const ring = new ScanSummaryRing(Number(process.env.SCAN_SUMMARY_RING_SIZE || 200));
     for (const candidate of candidates) {

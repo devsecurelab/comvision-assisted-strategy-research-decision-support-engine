@@ -10,6 +10,8 @@ import { sha256 } from '../utils/sha256';
 import { milestonesToNotify, type Milestone } from './milestones';
 import { readLegacyOptional } from './legacyTelemetry';
 
+const MAX_CANDIDATE_HISTORY = Math.max(100, Number(process.env.CANDIDATE_HISTORY_LIMIT || 500));
+
 export interface ExperimentStats {
   experimentId: string;
   strategyVersion: string;
@@ -158,7 +160,7 @@ export class ExperimentManager {
           deduped.push(item);
         }
       }
-      this.candidatesHistory = deduped;
+      this.candidatesHistory = deduped.slice(0, MAX_CANDIDATE_HISTORY);
       const validLast = deduped.find((c) => c.metadata.sha256_hash);
       if (validLast?.metadata.sha256_hash) {
         this.lastHash = validLast.metadata.sha256_hash;
@@ -337,6 +339,9 @@ export class ExperimentManager {
       this.candidatesHistory[existingIndex] = telemetry;
     } else {
       this.candidatesHistory.unshift(telemetry);
+    }
+    if (this.candidatesHistory.length > MAX_CANDIDATE_HISTORY) {
+      this.candidatesHistory.length = MAX_CANDIDATE_HISTORY;
     }
 
     // Update active alert if valid
