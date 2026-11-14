@@ -221,7 +221,8 @@ app.post('/api/auth/logout', authenticateToken, (req: AuthenticatedRequest, res)
 // --- PROTECTED ENGINE API ROUTES (APPROVED OPERATORS ONLY) ---
 
 app.get(['/api/engine/dashboard-state', '/api/engine/status'], requireApprovedUser, (_req, res) => {
-  const stats = experimentTracker.getStats();
+  const experimentStats = experimentTracker.getStats();
+  const ledgerStats = signalLedger.stats();
   const activeAlert = experimentTracker.getActiveAlert();
   const serverNowUtc = new Date().toISOString();
   const signalTimestamp = activeAlert?.metadata.signal_timestamp_utc || activeAlert?.metadata.timestamp_utc;
@@ -232,7 +233,12 @@ app.get(['/api/engine/dashboard-state', '/api/engine/status'], requireApprovedUs
   const validSetups = experimentTracker.getCandidates('PASS');
 
   res.json({
-    stats,
+    // Runtime outcome statistics come only from the append-only SignalLedger.
+    // ExperimentTracker remains available as diagnostics for migration/UI
+    // compatibility, but is not the source of truth for wins/losses/rate.
+    stats: ledgerStats,
+    ledgerStats,
+    experimentStats,
     activeAlert,
     serverNowUtc,
     signal_age_seconds: signalAgeSeconds,
