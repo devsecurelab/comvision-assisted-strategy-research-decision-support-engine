@@ -104,11 +104,11 @@ assert.equal(stagePassed(asia, 16), false); assert.equal(stagePassed(asia, 17), 
 const midday = idealPriceOnlySetup(base, '15m', 'BULLISH', '2026-01-14T11:00:00.000Z');
 assert.equal(stagePassed(midday, 16), true); assert.equal(stagePassed(midday, 17), false);
 assert.equal(run(midday).gates[7].status, 'HOLD');
-// S18: offline news is manual NOT_CHECKED; an active high-impact window still blocks.
-const offline = run(ideal(), { newsSourceOnline: false });
-assert.equal(offline.operationalGuards[0].status, 'PASS'); assert.equal(offline.stages[17].available, false); assert.equal(offline.stages[17].passed, null);
-const news = run(ideal(), { newsEvents: [{ id: 'n', title: 'NFP', currency: 'USD', impact: 'HIGH', timestamp: '2026-01-14T08:50:00.000Z' }] });
-assert.equal(news.binarySignal, 'NO_TRADE'); assert.match(news.statusReason, /NEWS_WINDOW_BLOCKED/);
+	// S18: news is manual NOT_CHECKED and never blocks the strategy.
+	const offline = run(ideal(), { newsSourceOnline: false });
+	assert.equal(offline.operationalGuards[0].status, 'PASS'); assert.equal(offline.stages[17].available, true); assert.equal(offline.stages[17].passed, true);
+	const news = run(ideal(), { newsEvents: [{ id: 'n', title: 'NFP', currency: 'USD', impact: 'HIGH', timestamp: '2026-01-14T08:50:00.000Z' }] });
+	assert.equal(news.operationalGuards[0].status, 'PASS'); assert.equal(news.stages[17].passed, true);
 
 // P1: direction is owned by the engine via the HTF bias. Opposite or unclear bias never yields an alert.
 assert.equal(run(ideal(), { htfBias: 'BEARISH' }).binarySignal, 'NO_TRADE');

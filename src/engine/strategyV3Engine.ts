@@ -14,7 +14,6 @@ import {
   MFCI_THRESHOLD,
   MIN_ENGINE_CANDLES,
   MIN_FVG_GAP_ATR,
-  NEWS_RESTRICTION_WINDOW_MINUTES,
   OTE_WINDOW,
   POOL_LOOKBACK,
   POOL_MERGE_DISTANCE_ATR,
@@ -416,20 +415,12 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
   const s16 = stage(16, 'Session (London 07:00 -> New York 16:00 local; Asia context only)', 'SESSION_RISK', s16Pass, s16Pass ? V3_STRATEGY_PARAMS.scores.session.pass : V3_STRATEGY_PARAMS.scores.session.fail, 'IANA Europe/London & America/New_York; DST-aware', { Session: si.session, Session_Start_UTC: si.session_start_utc, Session_End_UTC: si.session_end_utc, Timestamp_UTC: si.timestamp_utc, Timestamp_BDT: si.timestamp_bdt }, s16Pass ? `Core ${si.session} session.` : 'Outside core session.');
   const s17 = stage(17, 'Kill Zone (London/New York 07:00-10:00 local)', 'SESSION_RISK', s17Pass, s17Pass ? V3_STRATEGY_PARAMS.scores.session.killZonePass : V3_STRATEGY_PARAMS.scores.session.fail, 'London 07-10 Europe/London; New York 07-10 America/New_York', { Kill_Zone: si.kill_zone, Kill_Zone_Name: si.kill_zone_name ?? 'NONE', Kill_Zone_Start_UTC: si.kill_zone_start_utc ?? 'NONE', Kill_Zone_End_UTC: si.kill_zone_end_utc ?? 'NONE' }, s17Pass ? `${si.kill_zone_name} kill zone active.` : 'Outside kill zones.');
 
-  // S18 — news guard (operational guard, not a strategy gate)
-  const at = Date.parse(sessionTs);
-  let newsBlocked = false; let nearest = 'None'; let nearestDiff = Number.POSITIVE_INFINITY;
-  for (const event of input.newsEvents) {
-    if (event.impact !== 'HIGH') continue;
-    const diff = Math.abs(at - Date.parse(event.timestamp));
-    if (diff < nearestDiff) { nearestDiff = diff; nearest = event.title; }
-    if (diff <= NEWS_RESTRICTION_WINDOW_MINUTES * 60_000) newsBlocked = true;
-  }
-  const s18Pass = !newsBlocked;
-  const newsReason = newsBlocked ? `NEWS_WINDOW_BLOCKED: ${nearest} within +/-30m.` : input.newsSourceOnline ? 'NEWS: NOT CHECKED (manual)' : 'NEWS: NOT CHECKED (manual/offline)';
-  const s18 = input.newsSourceOnline
-    ? stage(18, 'News Guard (Operational Guard)', 'SESSION_RISK', s18Pass, s18Pass ? 1 : 0, 'Manual review required; calendar events are not automatically verified.', { Manual_News_Review: 'NOT_CHECKED (manual)', News_Window_Blocked: bool(newsBlocked), Nearest_High_Impact: Number.isFinite(nearestDiff) ? nearest : 'UNAVAILABLE', Minutes_To_Event: Number.isFinite(nearestDiff) ? String(Math.floor(nearestDiff / 60000)) : 'UNAVAILABLE', Spread_Guard: 'NOT_APPLICABLE_BINARY' }, newsReason)
-    : unavailable(stage(18, 'News Guard (Operational Guard)', 'SESSION_RISK', true, 1, 'Manual review required; calendar events are not automatically verified.', { Manual_News_Review: 'NOT_CHECKED (manual)', News_Window_Blocked: bool(newsBlocked), Nearest_High_Impact: Number.isFinite(nearestDiff) ? nearest : 'UNAVAILABLE', Minutes_To_Event: Number.isFinite(nearestDiff) ? String(Math.floor(nearestDiff / 60000)) : 'UNAVAILABLE', Spread_Guard: 'NOT_APPLICABLE_BINARY' }, newsReason), 'NEWS_SOURCE_OFFLINE: manual check not available.');
+  // S18 — news is explicitly manual and never blocks a strategy decision.
+  // The inputs remain temporarily accepted for backward-compatible callers,
+  // but are intentionally ignored: PR-5 removed automated news gating.
+  const newsReason = 'NEWS: NOT CHECKED (manual)';
+  const s18 = stage(18, 'News Review (Manual, Non-blocking)', 'SESSION_RISK', true, 1, 'Manual review required; automated news events are not strategy gates.', { Manual_News_Review: 'NOT_CHECKED (manual)', News_Window_Blocked: 'NOT_APPLICABLE', Nearest_High_Impact: 'NOT_CHECKED', Minutes_To_Event: 'NOT_CHECKED', Spread_Guard: 'NOT_APPLICABLE_BINARY' }, newsReason);
+  const s18Pass = true;
 
   // S19 — MFCI (weights frozen; M1-M4 act on gates only)
   const meanAvailable = (items: V3Stage[]) => { const xs = items.filter((s) => s.available && s.score !== null).map((s) => s.score as number); return xs.length ? mean(xs) : null; };
@@ -453,7 +444,7 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
     g(8, 'Session & Kill Zone', s16.passed && s17.passed ? 'PASS' : s16.passed ? 'HOLD' : 'BLOCKED', 'GATE8_SESSION: core session and London/New York kill zone required', `${s16.passed}/${s17.passed}`),
     g(9, 'BSL/SSL Target', target ? 'PASS' : 'BLOCKED', `GATE9_TARGET: untouched ${isBull ? 'BSL above' : 'SSL below'} entry required`, target ? fixed(target.price) : 'NONE'),
   ];
-  const operationalGuards: V3OperationalGuard[] = [{ name: 'News Guard', status: s18Pass ? 'PASS' : 'BLOCKED', reason: newsReason }];
+  const operationalGuards: V3OperationalGuard[] = [{ name: 'News Review', status: 'PASS', reason: newsReason }];
 
   const guardBlocked = operationalGuards.some((x) => x.status === 'BLOCKED');
   const applicable = gates.filter((x) => x.status !== 'UNAVAILABLE');

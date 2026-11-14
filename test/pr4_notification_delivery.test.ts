@@ -141,9 +141,10 @@ async function testPersistedSendingResumesOnlyWithinValidityWindow(): Promise<vo
     signalId: expiredSignalId,
     validUntil: new Date(clockMs - 1).toISOString(),
   });
-  assert.equal(expired.telegram, 'FAILED');
-  assert.equal(requests.length, 0, 'expired in-flight signal must not be sent after restart');
-  assert.match(String(durableStorage.loadNotifications().find((notification) => notification.setup_id === expiredSignalId && notification.channel === 'TELEGRAM')?.error_message), /expired.*not resent/i);
+  assert.equal(expired.telegram, 'SENT');
+  assert.equal(requests.length, 1, 'expired in-flight signal must send only the safe expiry notice after restart');
+  assert.equal(requests[0].payload?.text, `SIGNAL EXPIRED — do not enter (${expiredSignalId})`);
+  assert.equal(durableStorage.loadNotifications().find((notification) => notification.setup_id === expiredSignalId && notification.channel === 'TELEGRAM')?.status, 'SENT');
 }
 
 async function testExpiredSignalSendsOnlySafeNotice(): Promise<void> {

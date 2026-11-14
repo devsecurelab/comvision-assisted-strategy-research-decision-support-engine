@@ -60,13 +60,18 @@ export class TwelveDataAdapter implements IForexDataProvider {
     const url = new URL('https://api.twelvedata.com/time_series');
     url.searchParams.set('symbol', pair);
     url.searchParams.set('interval', INTERVAL[timeframe]);
-    url.searchParams.set('outputsize', '5000');
+    // Keep every request below the PR-5 provider truncation boundary.
+    url.searchParams.set('outputsize', '4500');
     url.searchParams.set('timezone', 'UTC');
     url.searchParams.set('order', 'asc');
     url.searchParams.set('start_date', startDate);
     url.searchParams.set('end_date', endDateInclusive);
     const response = await requestJson(this.id, this.request, url, signal, { Authorization: `apikey ${this.apiKey}` });
-    return { ...this.parsePayload(response.payload as any, response.serverDate), creditsUsed: response.creditsUsed, creditsLeft: response.creditsLeft };
+    const payload = response.payload as any;
+    if (Array.isArray(payload?.values) && payload.values.length >= 4500) {
+      throw new ProviderAdapterError(this.id, 'HISTORICAL_TRUNCATED', 'Twelve Data returned the historical output cap; reduce the date range and retry.');
+    }
+    return { ...this.parsePayload(payload, response.serverDate), creditsUsed: response.creditsUsed, creditsLeft: response.creditsLeft };
   }
 
   private parsePayload(payload: any, serverDate: string | null): ProviderCandlePayload {

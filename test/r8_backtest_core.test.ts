@@ -81,15 +81,18 @@ for (const chunk of fetchChunks) {
   fetchedChunks.push(await historicalManager.fetchHistoricalCandles('EUR/USD', '5m', chunk.start, chunk.end));
 }
 assert.deepEqual(fetchChunks, [
-  { start: '2026-09-01', end: '2026-09-15' },
-  { start: '2026-09-16', end: '2026-09-30' },
+  { start: '2026-09-01', end: '2026-09-14' },
+  { start: '2026-09-15', end: '2026-09-28' },
+  { start: '2026-09-29', end: '2026-09-30' },
 ]);
-assert.equal(requestedUrls.length, 2);
-assert.deepEqual(requestedUrls.map((url) => url.searchParams.get('end_date')), ['2026-09-15 23:59:59', '2026-09-30 23:59:59']);
-assert.equal(fetchedChunks[0].candles.at(-1)?.timestamp, '2026-09-15T23:55:00.000Z');
-assert.equal(fetchedChunks[1].candles.at(-1)?.timestamp, '2026-09-30T23:55:00.000Z');
-assert.ok(fetchedChunks[0].candles.every((candle) => Date.parse(candle.timestamp) < Date.parse('2026-09-16T00:00:00.000Z')));
-assert.ok(fetchedChunks[1].candles.every((candle) => Date.parse(candle.timestamp) < Date.parse('2026-10-01T00:00:00.000Z')));
+assert.equal(requestedUrls.length, 3);
+assert.deepEqual(requestedUrls.map((url) => url.searchParams.get('end_date')), ['2026-09-14 23:59:59', '2026-09-28 23:59:59', '2026-09-30 23:59:59']);
+assert.equal(fetchedChunks[0].candles.at(-1)?.timestamp, '2026-09-14T23:55:00.000Z');
+assert.equal(fetchedChunks[1].candles.at(-1)?.timestamp, '2026-09-28T23:55:00.000Z');
+assert.equal(fetchedChunks[2].candles.at(-1)?.timestamp, '2026-09-30T23:55:00.000Z');
+assert.ok(fetchedChunks[0].candles.every((candle) => Date.parse(candle.timestamp) < Date.parse('2026-09-15T00:00:00.000Z')));
+assert.ok(fetchedChunks[1].candles.every((candle) => Date.parse(candle.timestamp) < Date.parse('2026-09-29T00:00:00.000Z')));
+assert.ok(fetchedChunks[2].candles.every((candle) => Date.parse(candle.timestamp) < Date.parse('2026-10-01T00:00:00.000Z')));
 const fullRangeCandles = mergeCandles(fetchedChunks.map((chunk) => chunk.candles));
 assert.equal(fullRangeCandles.length, 30 * 24 * 12, 'all 30 days of 5m candles are returned');
 assert.equal(fullRangeCandles[0].timestamp, '2026-09-01T00:00:00.000Z');
