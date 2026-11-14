@@ -16,6 +16,13 @@ export interface FormattedSignalTime {
   rawIso: string;
 }
 
+/** Formats a canonical UTC timestamp using a display-only fixed broker offset. */
+export function formatOffsetTime(timestampUtc: string, offsetMinutes: number): string {
+  const date = new Date(timestampUtc);
+  if (!Number.isFinite(date.getTime()) || !Number.isInteger(offsetMinutes)) return 'N/A';
+  return new Date(date.getTime() + offsetMinutes * 60_000).toISOString().slice(11, 19);
+}
+
 /**
  * Formats a canonical UTC ISO string into UTC and Bangladesh Time (Asia/Dhaka)
  * Retains canonical UTC and converts for display using timezone 'Asia/Dhaka'

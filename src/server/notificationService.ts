@@ -6,6 +6,7 @@ import nodemailer from 'nodemailer';
 import { MasterTelemetry } from '../engine/types';
 import { durableStorage, NotificationRecord, SignalOutcomeRecord } from './storage';
 import { formatSignalTime } from '../utils/timeFormat';
+import { formatOffsetTime } from '../utils/timeFormat';
 import { displayPair, isSupportedPair, payoutRegistry } from './payoutRegistry';
 import { favoriteRegistry } from './favoriteRegistry';
 import { feedManager } from '../engine/dataProviders';
@@ -14,6 +15,7 @@ import { SCAN_TIMEFRAMES } from '../engine/scanScheduler';
 import { buildLedgerReport, formatLedgerReport } from '../engine/edgeMonitor';
 import { telegramSend, type TelegramMethod, type TelegramSendOptions, type TelegramSendResult } from './telegramSend';
 import { experimentTracker } from '../engine/experimentTracker';
+import { tolerancePips } from '../engine/price';
 
 function alertReason(reason: string): string {
   return reason.replace(/news[^.]*clear/gi, 'manual news review not performed')
@@ -24,7 +26,16 @@ function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!);
 }
 
-const validationSummary = 'Validation: TypeScript PASS | full test suite PASS | invariant tests PASS | live-provider integration SKIPPED';
+const validationSummary = 'Validation evidence: PR-1 CI and test results are recorded in the repository evidence; live-provider integration is opt-in and remains SKIPPED unless explicitly enabled.';
+function brokerOffsetMinutes(): number {
+  const saved = durableStorage.loadAppSettings().brokerUtcOffsetMinutes;
+  const configured = Number(saved ?? process.env.BROKER_UTC_OFFSET_MINUTES ?? 0);
+  return Number.isInteger(configured) && configured >= -720 && configured <= 840 ? configured : 0;
+}
+function offsetLabel(offsetMinutes: number): string {
+  const sign = offsetMinutes >= 0 ? '+' : '-'; const absolute = Math.abs(offsetMinutes);
+  return `UTC${sign}${String(Math.floor(absolute / 60)).padStart(2, '0')}:${String(absolute % 60).padStart(2, '0')}`;
+}
 
 export interface NotificationConfig {
   telegramEnabled: boolean;
@@ -67,6 +78,8 @@ export class NotificationService {
 
   public formatScanResult(result: ScanResult): string {
     const time = result.signal_candle_open_ts ? formatSignalTime(result.signal_candle_open_ts) : undefined;
+    const brokerOffset = brokerOffsetMinutes();
+    const validUntil = result.valid_until ? formatSignalTime(result.valid_until) : undefined;
     const v3 = result.telemetry?.decision_engine_v3;
     return [
       `${result.status} ${result.pair} ${result.timeframe}${result.cached ? ' (same candle, cached — no credit used)' : ''}`,
@@ -76,8 +89,8 @@ export class NotificationService {
       `Signal candle: ${time ? `${time.utcTime} UTC / ${time.bdtTime} BDT` : 'UNAVAILABLE'}`,
       result.signal_price !== undefined ? `Signal price: ${result.signal_price}` : '',
       result.quote_price !== undefined ? `Quote: ${result.quote_price} (${result.quote_ts || 'timestamp unavailable'})` : 'Quote: QUOTE_UNAVAILABLE',
-      result.price_tolerance !== undefined ? `${result.status} tolerance: ${result.price_tolerance} (do not enter if broker price is ${result.status === 'CALL' ? 'above' : 'below'} signal price by more than tolerance)` : '',
-      result.valid_until ? `Enter by: ${result.valid_until} UTC / BDT / Broker (display only)` : '',
+      result.price_tolerance !== undefined && result.signal_price !== undefined ? `${result.status}: do not enter if broker price is ${result.status === 'CALL' ? 'above' : 'below'} ${result.signal_price} by more than ${tolerancePips(result.pair, result.price_tolerance)} pips (${result.price_tolerance})` : '',
+      validUntil ? `Enter by: ${validUntil.utcTime} UTC / ${validUntil.bdtTime} BDT / ${formatOffsetTime(result.valid_until!, brokerOffset)} Broker (${offsetLabel(brokerOffset)}, display only)` : '',
       result.provider || result.htf_provider ? `Providers: LTF ${result.provider ?? 'UNAVAILABLE'} | HTF ${result.htf_provider ?? 'UNAVAILABLE'}` : '',
       result.signal_id ? `Signal ID: ${result.signal_id} | valid until ${result.valid_until}` : '',
       'Research alert only — no execution.',
@@ -559,12 +572,24 @@ export class NotificationService {
       return this.scanService.recordManualTaken(tokens[1], price);
     }
     if (command === '/brokertime') {
-      const offsetMinutes = Number(process.env.BROKER_UTC_OFFSET_MINUTES || 0);
-      if (!Number.isInteger(offsetMinutes) || offsetMinutes < -720 || offsetMinutes > 840) return 'ERROR INVALID_BROKER_UTC_OFFSET: configure BROKER_UTC_OFFSET_MINUTES between -720 and 840.';
-      const brokerMs = Date.now() + offsetMinutes * 60_000;
-      const time = new Date(brokerMs).toISOString().slice(11, 19);
-      const sign = offsetMinutes >= 0 ? '+' : '-'; const absolute = Math.abs(offsetMinutes);
-      return `Broker time ${time} (UTC${sign}${String(Math.floor(absolute / 60)).padStart(2, '0')}:${String(absolute % 60).padStart(2, '0')}).`;
+      const requested = tokens[1];
+      let offsetMinutes = brokerOffsetMinutes();
+      if (requested) {
+        if (!/^\d{2}:\d{2}:\d{2}$/.test(requested)) return 'ERROR INVALID_BROKER_TIME: use /brokertime HH:MM:SS.';
+        const [hours, minutes, seconds] = requested.split(':').map(Number);
+        if (hours > 23 || minutes > 59 || seconds > 59) return 'ERROR INVALID_BROKER_TIME: use /brokertime HH:MM:SS.';
+        const now = new Date(this.now());
+        const utcSeconds = now.getUTCHours() * 3600 + now.getUTCMinutes() * 60 + now.getUTCSeconds();
+        let delta = hours * 3600 + minutes * 60 + seconds - utcSeconds;
+        while (delta <= -43_200) delta += 86_400;
+        while (delta > 43_200) delta -= 86_400;
+        if (delta % 60 !== 0) return 'ERROR INVALID_BROKER_TIME: broker offset must resolve to whole minutes.';
+        offsetMinutes = delta / 60;
+        if (offsetMinutes < -720 || offsetMinutes > 840) return 'ERROR INVALID_BROKER_TIME: resolved offset is outside -12:00 to +14:00.';
+        durableStorage.saveAppSettings({ ...durableStorage.loadAppSettings(), brokerUtcOffsetMinutes: offsetMinutes });
+      }
+      const time = new Date(this.now() + offsetMinutes * 60_000).toISOString().slice(11, 19);
+      return `Broker time ${time} (${offsetLabel(offsetMinutes)})${requested ? ' saved.' : '.'}`;
     }
     if (command === '/health') return this.buildHealthText();
     if (command === '/mute') {
@@ -624,6 +649,8 @@ export class NotificationService {
     const tf = telemetry.market_context?.selected_timeframe || 'UNAVAILABLE';
     const signalTs = telemetry.metadata?.signal_candle_open_ts || telemetry.metadata?.signal_timestamp_utc;
     const time = signalTs ? formatSignalTime(signalTs) : undefined;
+    const brokerOffset = brokerOffsetMinutes();
+    const validUntil = extra.validUntil ? formatSignalTime(extra.validUntil) : undefined;
     const payout = telemetry.metadata?.payout_pct;
     const gateLine = (v3?.gates || []).map((gate: any) => `G${gate.gateNumber} ${gate.status}`).join(' | ');
     return [
@@ -634,10 +661,10 @@ export class NotificationService {
       `HTF (1h) bias: ${telemetry.metadata?.htf_bias || 'UNAVAILABLE'}`,
       `Signal candle open: ${time ? `${time.utcTime} UTC / ${time.bdtTime} BDT` : 'UNAVAILABLE'}`,
       extra.signalId ? `Signal ID: ${extra.signalId}` : '',
-      extra.validUntil ? `Enter by: ${extra.validUntil} UTC / BDT / Broker (display only)` : '',
+      validUntil ? `Enter by: ${validUntil.utcTime} UTC / ${validUntil.bdtTime} BDT / ${formatOffsetTime(extra.validUntil!, brokerOffset)} Broker (${offsetLabel(brokerOffset)}, display only)` : '',
       extra.signalPrice !== undefined ? `Signal price: ${extra.signalPrice}` : '',
       extra.quotePrice !== undefined ? `Quote: ${extra.quotePrice} (${extra.quoteTs || 'timestamp unavailable'})` : 'Quote: QUOTE_UNAVAILABLE',
-      extra.priceTolerance !== undefined ? `${binarySignal} tolerance: ${extra.priceTolerance} (do not enter if broker price is ${binarySignal === 'CALL' ? 'above' : 'below'} signal price by more than tolerance)` : '',
+      extra.priceTolerance !== undefined && extra.signalPrice !== undefined ? `${binarySignal}: do not enter if broker price is ${binarySignal === 'CALL' ? 'above' : 'below'} ${extra.signalPrice} by more than ${tolerancePips(pair, extra.priceTolerance)} pips (${extra.priceTolerance})` : '',
       `Payout: ${payout === undefined ? 'UNSET' : `${payout}% (breakeven ${(100 / (1 + payout / 100)).toFixed(1)}%)`}`,
       `MFCI (confluence score, not probability): ${v3 ? v3.mfci.totalMfci.toFixed(3) : 'UNAVAILABLE'} (${v3?.mfciBand || 'UNAVAILABLE'}) | Mode: ${v3?.engineMode || telemetry.metadata?.engine_mode || 'UNAVAILABLE'}`,
       `Gates: ${gateLine || 'UNAVAILABLE'}`,

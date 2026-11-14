@@ -24,6 +24,7 @@ export function entryWindowBounds(entryMs: number, timeframe: ScanTimeframe): { 
 export function isWithinEntryWindow(nowMs: number, entryMs: number, timeframe: ScanTimeframe): boolean { return nowMs <= entryWindowBounds(entryMs, timeframe).endMs; }
 export const RETRY_BACKOFF_MS = [1_000, 2_000, 3_000];
 const PAIR_RE = /^[A-Z]{6}$/;
+const RETRYABLE_SCAN_FAILURE = /LATEST_CLOSED_CANDLE_MISSING|PROVIDER_HTTP_ERROR|PROVIDER_ERROR|PROVIDER_UNAVAILABLE|PROVIDER_API_ERROR|STALE_MARKET_DATA|RATE_LIMITED|QUOTE_UNAVAILABLE|DATA_QUALITY_FAIL/;
 
 export interface ScanResult {
   pair: string;
@@ -88,6 +89,7 @@ export function nextCandleCloseMs(nowMs: number, timeframe: Timeframe): number {
 export class ScanService {
   private readonly cache = new Map<string, ScanResult>();
   private readonly htfCache = new Map<string, { hourOpen: number; result: FetchedMarketData }>();
+  private readonly batchMarketData = new Map<string, FetchedMarketData>();
   public readonly edge: EdgeMonitor;
 
   constructor(private readonly deps: ScanDeps) { this.edge = new EdgeMonitor(deps.ledger); }
@@ -182,7 +184,7 @@ export class ScanService {
     let primary: FetchedMarketData | undefined;
     let htf: FetchedMarketData | undefined;
     try {
-      primary = await this.fetchMarketData(displayScanPair(pair), timeframe, kind);
+        primary = this.batchMarketData.get(`${pair}|${timeframe}`) ?? await this.fetchMarketData(displayScanPair(pair), timeframe, kind);
       if (this.deps.now() - generationStartedAt > GENERATION_DEADLINE_MS) return expired();
       markCandleAvailable(new Date(this.deps.now()).toISOString());
       htf = await this.htfCandles(displayScanPair(pair), nowMs, kind);
@@ -268,6 +270,27 @@ export class ScanService {
     if (classifySessionAndKillZone(new Date(expectedOpen).toISOString()).kill_zone !== 'INSIDE_KILL_ZONE') return this.deps.favorites().map((fav) => this.recordUnfetchedScan(this.noTrade(normalizeScanPair(fav), timeframe, 'AUTO', 'OUTSIDE_KILL_ZONE')));
     const results: ScanResult[] = [];
     let scanned = 0;
+    const batchPairs = this.deps.fetchCandlesBatch
+      ? this.deps.favorites().map((favorite) => displayScanPair(favorite)).filter((pair, index, all) => {
+        if (index !== all.indexOf(pair) || scanned >= MAX_AUTO_PAIRS[timeframe]) return false;
+        const payout = this.deps.getPayout(normalizeScanPair(pair));
+        if (!payout || payout.pct < MIN_PAYOUT_PCT || this.deps.getPayoutStatus?.(pair, nowMs) === 'PAYOUT_STALE') return false;
+        if (this.deps.autoBudgetRemaining() < 2) return false;
+        scanned++;
+        return true;
+      })
+      : [];
+    if (batchPairs.length && this.deps.fetchCandlesBatch) {
+      try {
+        const batch = await this.deps.fetchCandlesBatch(batchPairs, timeframe, this.deps.providers()[0], 'AUTO');
+        for (const [pair, data] of Object.entries(batch)) this.batchMarketData.set(`${normalizeScanPair(pair)}|${timeframe}`, data);
+        const secondsIntoHour = Math.floor((nowMs % 3_600_000) / 1_000);
+        if (secondsIntoHour >= 1 && secondsIntoHour <= 5) {
+          await Promise.allSettled(batchPairs.map((pair) => this.htfCandles(displayScanPair(pair), nowMs, 'AUTO')));
+        }
+      } catch { /* individual scans below retain their fail-closed behavior */ }
+    }
+    scanned = 0;
     for (const fav of this.deps.favorites()) {
       if (!shouldContinue()) break;
       const pair = normalizeScanPair(fav);
@@ -278,7 +301,7 @@ export class ScanService {
       if (this.deps.autoBudgetRemaining() < 2) { results.push(this.recordUnfetchedScan(this.noTrade(pair, timeframe, 'AUTO', 'BUDGET_LIMIT: daily auto-scan budget (70%) exhausted.'))); continue; }
       scanned++;
       let result = await this.scanPair(pair, timeframe, 'AUTO', shouldContinue);
-      for (let attempt = 0; attempt < RETRY_BACKOFF_MS.length && /LATEST_CLOSED_CANDLE_MISSING|PROVIDER_HTTP_ERROR|PROVIDER_ERROR|STALE_MARKET_DATA/.test(result.reason) && this.deps.autoBudgetRemaining() >= 1; attempt++) {
+      for (let attempt = 0; attempt < RETRY_BACKOFF_MS.length && RETRYABLE_SCAN_FAILURE.test(result.reason) && this.deps.autoBudgetRemaining() >= 1; attempt++) {
         if (!shouldContinue()) break;
         await sleep(RETRY_BACKOFF_MS[attempt]);
         if (!shouldContinue()) break;

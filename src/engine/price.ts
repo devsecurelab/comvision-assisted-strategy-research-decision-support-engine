@@ -9,7 +9,8 @@ export function priceTolerance(pair: string, atr14: number, fraction = Number(pr
 }
 
 export function tolerancePips(pair: string, tolerance: number): number {
-  return tolerance / pipSize(pair);
+  if (!Number.isFinite(tolerance) || tolerance < 0) throw new Error('Price tolerance must be a non-negative finite number.');
+  return Number((tolerance / pipSize(pair)).toFixed(6));
 }
 
 export function slippagePips(pair: string, signalPrice: number, brokerPrice: number): number {
