@@ -313,7 +313,8 @@ export default function App() {
   const handleRecordUserAction = async (
     setupId: string,
     action: UserRecordedAction,
-    observation?: NextCandleObservation
+    observation?: NextCandleObservation,
+    brokerEntryPrice?: number,
   ): Promise<boolean> => {
     if (!authToken) return false;
     try {
@@ -324,7 +325,7 @@ export default function App() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${authToken}`,
         },
-        body: JSON.stringify({ setupId, action }),
+        body: JSON.stringify({ setupId, action, ...(brokerEntryPrice !== undefined ? { brokerEntryPrice } : {}) }),
       });
 
       // 2. Record only the operator's observation; never invent OHLC data in the client.
@@ -365,6 +366,18 @@ export default function App() {
     }
   };
 
+
+  const handleMarkTaken = async (): Promise<void> => {
+    if (!currentAlert) return;
+    const raw = window.prompt('Enter the broker entry price used for this taken setup:');
+    if (raw === null || !raw.trim()) return;
+    const brokerEntryPrice = Number(raw);
+    if (!Number.isFinite(brokerEntryPrice) || brokerEntryPrice <= 0) {
+      window.alert('A finite positive broker entry price is required. No action was recorded.');
+      return;
+    }
+    await handleRecordUserAction(currentAlert.metadata.setup_id, 'TAKEN', undefined, brokerEntryPrice);
+  };
 
   const handleSelectTimeframe = async (tf: Timeframe) => {
     setSelectedTimeframe(tf);
@@ -606,13 +619,7 @@ export default function App() {
                     validSetupsList={validSetups}
                     onSelectSetup={(setup) => dispatchAlert({ type: 'SELECT_SETUP', setup })}
                     onOpenAllList={() => setIsValidSetupsModalOpen(true)}
-                    onMarkTaken={() =>
-                      currentAlert &&
-                      handleRecordUserAction(
-                        currentAlert.metadata.setup_id,
-                        'TAKEN'
-                      )
-                    }
+                    onMarkTaken={handleMarkTaken}
                     onSkip={() =>
                       currentAlert &&
                       handleRecordUserAction(

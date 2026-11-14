@@ -376,13 +376,30 @@ app.post('/api/engine/select-timeframe', requireOperator, (req: AuthenticatedReq
 });
 
 app.post('/api/engine/record-action', requireResearcher, (req: AuthenticatedRequest, res) => {
-  const { setupId, action } = req.body;
+  const { setupId, action, brokerEntryPrice } = req.body;
   if (!setupId || !action) {
     return res.status(400).json({ error: 'Missing setupId or action' });
   }
   const validActions = ['PENDING', 'TAKEN', 'NOT_TAKEN', 'NOT_RECORDED', 'SKIPPED'];
   if (typeof setupId !== 'string' || setupId.length > 128 || typeof action !== 'string' || !validActions.includes(action)) {
     return res.status(400).json({ error: 'INVALID_ACTION', message: `Action must be one of: ${validActions.join(', ')}.` });
+  }
+
+  let canonicalSignalId: string | undefined;
+  if (action === 'TAKEN') {
+    if (typeof brokerEntryPrice !== 'number' || !Number.isFinite(brokerEntryPrice) || brokerEntryPrice <= 0) {
+      return res.status(400).json({ error: 'BROKER_ENTRY_PRICE_REQUIRED', message: 'TAKEN requires a finite positive brokerEntryPrice.' });
+    }
+    const candidate = experimentTracker.getCandidates('ALL').find((item) => item.metadata.setup_id === setupId);
+    if (!candidate) {
+      return res.status(422).json({ error: 'SIGNAL_ID_UNAVAILABLE', message: 'Cannot derive the canonical signal ledger identity for this setup.' });
+    }
+    // ScanScheduler currently emits the immutable setup_id as signal_id. Do
+    // not recompute a different hash here: that would orphan the TRADE_TAKEN
+    // event from the SIGNAL entry already present in the ledger.
+    canonicalSignalId = setupId;
+    const ledgerResult = scanLoop.recordManualTaken(canonicalSignalId, brokerEntryPrice);
+    if (ledgerResult.startsWith('ERROR')) return res.status(422).json({ error: 'TRADE_TAKEN_NOT_RECORDED', message: ledgerResult });
   }
 
   const success = experimentTracker.recordUserAction(setupId, action as UserRecordedAction);
@@ -394,7 +411,7 @@ app.post('/api/engine/record-action', requireResearcher, (req: AuthenticatedRequ
     event_type: 'USER_ACTION_RECORDED',
     actor_id: req.user?.id,
     actor_email: req.user?.email,
-    details: { setup_id: setupId, action },
+    details: { setup_id: setupId, action, ...(canonicalSignalId ? { signal_id: canonicalSignalId, broker_entry_price: brokerEntryPrice } : {}) },
   });
 
   res.json({ success: true, setupId, action });
