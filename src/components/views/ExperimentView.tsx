@@ -4,19 +4,21 @@ import React, { useState } from 'react';
 import { FlaskConical, Lock, ShieldAlert, Check, Copy, Hash } from 'lucide-react';
 import { MasterTelemetry } from '../../engine/types';
 import { ACTIVE_STRATEGY_VERSION, ACTIVE_EXPERIMENT_ID, CONFIG_HASH } from '../../engine/manifest';
+import type { LedgerStats } from '../../engine/signalLedger';
 
 interface ExperimentViewProps {
   candidates: MasterTelemetry[];
+  ledgerStats?: LedgerStats | null;
 }
 
-export const ExperimentView: React.FC<ExperimentViewProps> = ({ candidates }) => {
+export const ExperimentView: React.FC<ExperimentViewProps> = ({ candidates, ledgerStats }) => {
   const [copiedHash, setCopiedHash] = useState(false);
 
   const validSetups = candidates.filter(
     (c) => c.system_execution.system_decision === 'PASS'
   );
   const targetCount = 100;
-  const currentCount = validSetups.length;
+  const currentCount = ledgerStats?.signals ?? validSetups.length;
   const progressPct = Math.min(100, Math.round((currentCount / targetCount) * 100));
 
   const favorableSetups = validSetups.filter(
@@ -42,8 +44,12 @@ export const ExperimentView: React.FC<ExperimentViewProps> = ({ candidates }) =>
       c.system_execution.user_recorded_action === 'PENDING'
   );
 
-  const decidedObservations = favorableSetups.length + unfavorableSetups.length;
-  const favorableRate = decidedObservations > 0 ? ((favorableSetups.length / decidedObservations) * 100).toFixed(1) : 'N/A';
+  const decidedObservations = ledgerStats?.decisive ?? favorableSetups.length + unfavorableSetups.length;
+  const favorableRate = ledgerStats?.winRatePercentage !== null && ledgerStats?.winRatePercentage !== undefined
+    ? ledgerStats.winRatePercentage.toFixed(1)
+    : decidedObservations > 0 ? ((favorableSetups.length / decidedObservations) * 100).toFixed(1) : 'N/A';
+  const favorableCount = ledgerStats?.wins ?? favorableSetups.length;
+  const unfavorableCount = ledgerStats?.losses ?? unfavorableSetups.length;
 
   const copyConfigHash = () => {
     navigator.clipboard.writeText(CONFIG_HASH);
@@ -133,18 +139,18 @@ export const ExperimentView: React.FC<ExperimentViewProps> = ({ candidates }) =>
           </span>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
             <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
-              <span className="text-slate-500 text-[10px] block">TOTAL EVALUATED</span>
-              <span className="text-lg font-bold text-slate-200">{candidates.length}</span>
+              <span className="text-slate-500 text-[10px] block">LEDGER SIGNALS</span>
+              <span className="text-lg font-bold text-slate-200">{currentCount}</span>
             </div>
 
             <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
               <span className="text-slate-500 text-[10px] block">NEXT_CANDLE_FAVORABLE</span>
-              <span className="text-lg font-bold text-emerald-400">{favorableSetups.length}</span>
+              <span className="text-lg font-bold text-emerald-400">{favorableCount}</span>
             </div>
 
             <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
               <span className="text-slate-500 text-[10px] block">NEXT_CANDLE_UNFAVORABLE</span>
-              <span className="text-lg font-bold text-rose-400">{unfavorableSetups.length}</span>
+              <span className="text-lg font-bold text-rose-400">{unfavorableCount}</span>
             </div>
 
             <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
@@ -153,6 +159,10 @@ export const ExperimentView: React.FC<ExperimentViewProps> = ({ candidates }) =>
                 {favorableRate !== 'N/A' ? `${favorableRate}%` : 'Awaiting Records'}
               </span>
             </div>
+            {ledgerStats?.wilson95 && <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
+              <span className="text-slate-500 text-[10px] block">WILSON 95% INTERVAL</span>
+              <span className="text-sm font-bold text-indigo-300">{(ledgerStats.wilson95.low * 100).toFixed(1)}–{(ledgerStats.wilson95.high * 100).toFixed(1)}%</span>
+            </div>}
           </div>
         </div>
 

@@ -21,9 +21,14 @@ ledger.recordResult({ signal_id: signals[0].signal_id, outcome: 'WIN', source: '
 ledger.recordResult({ signal_id: signals[1].signal_id, outcome: 'LOSS', source: 'AUTO_PROVIDER' });
 ledger.recordResult({ signal_id: signals[2].signal_id, outcome: 'TIE', source: 'AUTO_PROVIDER' });
 const authoritative = ledger.stats();
-assert.deepEqual(authoritative, { signals: 4, resolved: 3, wins: 1, losses: 1, ties: 1, winRatePercentage: 50 });
-// /api/ledger/stats returns this authoritative object directly; preserve exact field parity.
+assert.deepEqual({ signals: authoritative.signals, resolved: authoritative.resolved, wins: authoritative.wins, losses: authoritative.losses, ties: authoritative.ties, winRatePercentage: authoritative.winRatePercentage }, { signals: 4, resolved: 3, wins: 1, losses: 1, ties: 1, winRatePercentage: 50 });
+assert.equal(authoritative.decisive, 2);
+assert.equal(authoritative.winRate, 0.5);
+assert.deepEqual(authoritative.wilson95 && Object.keys(authoritative.wilson95).sort(), ['high', 'low']);
+assert.equal(authoritative.sprt.state, 'CONTINUE');
+assert.ok(authoritative.byVariant.TRADE_WITHIN_ZONE);
+assert.ok(authoritative.byGrade.ABOVE_THRESHOLD);
+// /api/ledger/stats returns this authoritative object directly, including advanced statistics.
 const apiResponse = ledger.stats();
-assert.deepEqual(Object.keys(apiResponse).sort(), ['losses', 'resolved', 'signals', 'ties', 'winRatePercentage', 'wins'].sort());
 assert.deepEqual(apiResponse, authoritative);
 console.log('[pr2_stats_parity] PASS');

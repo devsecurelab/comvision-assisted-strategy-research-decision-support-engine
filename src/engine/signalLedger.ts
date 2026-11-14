@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { slippagePips } from './price';
+import { wilsonInterval } from './backtestStats';
 import { CONFIG_HASH, CONFIG_HASH_EPOCH, ENGINE_FINGERPRINT, PREVIOUS_V3_CONFIG_HASH, PREVIOUS_V3_CONFIG_HASH_EPOCH, PREVIOUS_V3_ENGINE_FINGERPRINT, SESSION_CONFIG, SESSION_CONFIG_HASH, STRATEGY_MANIFEST } from './manifest';
 
 /**
@@ -44,6 +45,9 @@ export interface SignalPayload {
   quote_price?: number;
   quote_ts?: string;
   price_tolerance?: number;
+  /** Canonical runtime grouping dimensions; grade defaults to the MFCI band. */
+  variant?: string;
+  grade?: string;
 }
 
 export interface ScanPayload {
@@ -92,7 +96,9 @@ export interface SignalView extends SignalPayload {
 export interface TradeTakenPayload { signal_id: string; broker_entry_price: number }
 export interface CandleRevisionPayload { signal_id: string; candle_revision_pips: number }
 export interface SignalSentPayload { signal_id: string; telegram_sent_at: string }
-export interface LedgerStats { signals: number; resolved: number; wins: number; losses: number; ties: number; winRatePercentage: number | null }
+export interface LedgerStatsBucket { signals: number; resolved: number; wins: number; losses: number; ties: number; winRatePercentage: number | null; wilson95: { low: number; high: number } | null }
+export interface SprtState { state: 'INSUFFICIENT_DATA' | 'CONTINUE' | 'ACCEPT_ALTERNATIVE' | 'ACCEPT_NULL'; n: number; wins: number; p0: number; p1: number; logLikelihoodRatio: number; lowerBoundary: number; upperBoundary: number }
+export interface LedgerStats extends LedgerStatsBucket { decisive: number; winRate: number | null; sprt: SprtState; byVariant: Record<string, LedgerStatsBucket>; byGrade: Record<string, LedgerStatsBucket> }
 
 export const GENESIS_HASH = '0'.repeat(64);
 
@@ -316,13 +322,38 @@ export class SignalLedger {
     return this.signals().find((s) => s.signal_id.toUpperCase() === signalId.toUpperCase());
   }
 
-  public stats(): LedgerStats {
-    const signals = this.signals();
+  private statsBucket(signals: SignalView[]): LedgerStatsBucket {
     const wins = signals.filter((s) => s.outcome === 'WIN').length;
     const losses = signals.filter((s) => s.outcome === 'LOSS').length;
     const ties = signals.filter((s) => s.outcome === 'TIE').length;
     const resolved = wins + losses + ties;
-    return { signals: signals.length, resolved, wins, losses, ties, winRatePercentage: wins + losses ? Number((wins / (wins + losses) * 100).toFixed(1)) : null };
+    const interval = wilsonInterval(wins, wins + losses);
+    return { signals: signals.length, resolved, wins, losses, ties, winRatePercentage: wins + losses ? Number((wins / (wins + losses) * 100).toFixed(1)) : null, wilson95: interval ? { low: interval[0], high: interval[1] } : null };
+  }
+  private sprt(wins: number, losses: number): SprtState {
+    const n = wins + losses;
+    const p0 = 0.5; const p1 = 0.6; const alpha = 0.05; const beta = 0.10;
+    const lowerBoundary = Math.log(beta / (1 - alpha));
+    const upperBoundary = Math.log((1 - beta) / alpha);
+    const logLikelihoodRatio = wins * Math.log(p1 / p0) + losses * Math.log((1 - p1) / (1 - p0));
+    const state = n === 0 ? 'INSUFFICIENT_DATA' : logLikelihoodRatio >= upperBoundary ? 'ACCEPT_ALTERNATIVE' : logLikelihoodRatio <= lowerBoundary ? 'ACCEPT_NULL' : 'CONTINUE';
+    return { state, n, wins, p0, p1, logLikelihoodRatio, lowerBoundary, upperBoundary };
+  }
+  public stats(): LedgerStats {
+    const signals = this.signals();
+    const overall = this.statsBucket(signals);
+    const byDimension = (key: 'variant' | 'grade') => {
+      const groups = new Map<string, SignalView[]>();
+      for (const signal of signals) {
+        const value = key === 'variant'
+          ? signal.variant ?? String((signal as SignalView & { rule_variant?: string }).rule_variant ?? 'UNKNOWN')
+          : signal.grade ?? signal.mfci_band ?? 'UNKNOWN';
+        const rows = groups.get(value) ?? []; rows.push(signal); groups.set(value, rows);
+      }
+      return Object.fromEntries([...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([value, rows]) => [value, this.statsBucket(rows)]));
+    };
+    const decisive = overall.wins + overall.losses;
+    return { ...overall, decisive, winRate: decisive ? overall.wins / decisive : null, sprt: this.sprt(overall.wins, overall.losses), byVariant: byDimension('variant'), byGrade: byDimension('grade') };
   }
 
   public pending(nowMs: number): SignalView[] {

@@ -245,6 +245,7 @@ export class ScanService {
           signal_candle_open_ts: latest.timestamp, entry_ts: new Date(entryMs).toISOString(), expiry_ts: new Date(entryMs + expiryMs).toISOString(),
           valid_until: new Date(validUntil).toISOString(), payout_pct: payout.pct, breakeven: breakevenFor(payout.pct),
           mfci_total: v3.mfci.totalMfci, mfci_band: v3.mfciBand, engine_mode: v3.engineMode ?? 'PRICE_ONLY', provider: primary.provider,
+          variant: SESSION_CONFIG.entryRule, grade: v3.mfciBand,
           ltf_provider: primary.provider, htf_provider: htf.provider,
           setup_id: telemetry.metadata.setup_id, experiment_id: ACTIVE_EXPERIMENT_ID, config_hash: CONFIG_HASH, config_hash_epoch: CONFIG_HASH_EPOCH, session_config_hash: SESSION_CONFIG_HASH, session: telemetry.market_context.session, kill_zone: telemetry.market_context.kill_zone,
           signal_price: latest.close, quote_price: quotePrice, quote_ts: quoteTs, price_tolerance: tolerance,

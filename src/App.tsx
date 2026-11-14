@@ -39,6 +39,7 @@ import {
 import { ProviderStatus } from './engine/dataProviders';
 import { apiFetch } from './config/api';
 import { alertReducer, initialAlertState } from './alertState';
+import type { LedgerStats } from './engine/signalLedger';
 
 export default function App() {
   // Auth state
@@ -120,6 +121,7 @@ export default function App() {
   const currentAlert = (alertState.selectedSetup ?? alertState.serverActiveAlert) as MasterTelemetry | null;
   const actionAlert = alertState.actionCardVisible ? currentAlert : null;
   const [candidateHistory, setCandidateHistory] = useState<MasterTelemetry[]>([]);
+  const [ledgerStats, setLedgerStats] = useState<LedgerStats | null>(null);
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | undefined>();
   const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('5m');
   const [selectedProvider, setSelectedProvider] = useState<'TWELVE_DATA'>('TWELVE_DATA');
@@ -212,6 +214,14 @@ export default function App() {
           }
           setCandidateHistory(uniqueList);
         }
+      }
+
+      // 3. Runtime outcome statistics come only from the append-only SignalLedger.
+      const ledgerStatsRes = await apiFetch('/api/ledger/stats', {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (ledgerStatsRes.ok && ledgerStatsRes.headers.get('content-type')?.includes('application/json')) {
+        setLedgerStats(await ledgerStatsRes.json() as LedgerStats);
       }
 
     } catch (err) {
@@ -653,7 +663,7 @@ export default function App() {
 
           <Suspense fallback={<div className="p-8 text-slate-400">Loading dashboard view…</div>}>
           {activeTab === 'experiment' && (
-            <ExperimentView candidates={candidateHistory} />
+            <ExperimentView candidates={candidateHistory} ledgerStats={ledgerStats} />
           )}
 
           {activeTab === 'logs' && (
