@@ -54,6 +54,24 @@ async function strictPayloadValidation() {
   );
 }
 
+async function historicalRequestCeiling() {
+  const urls: URL[] = [];
+  const adapter = new TwelveDataAdapter(async (input) => {
+    urls.push(new URL(String(input)));
+    return response({ values: [{ datetime: '2026-10-26T10:00:00.000Z', open: '1.1', high: '1.2', low: '1.0', close: '1.1' }] });
+  }, 'test-key');
+  await adapter.fetchHistoricalCandles('EUR/USD', '5m', '2026-10-01', '2026-10-02', new AbortController().signal);
+  assert.equal(urls[0]?.searchParams.get('outputsize'), '4500');
+
+  const truncated = new TwelveDataAdapter(async () => response({
+    values: Array.from({ length: 4500 }, (_, i) => ({ datetime: new Date(Date.UTC(2026, 9, 1, 0, i * 5)).toISOString(), open: '1.1', high: '1.2', low: '1.0', close: '1.1' })),
+  }), 'test-key');
+  await assert.rejects(
+    truncated.fetchHistoricalCandles('EUR/USD', '5m', '2026-10-01', '2026-10-02', new AbortController().signal),
+    (error: unknown) => error instanceof ProviderAdapterError && error.code === 'HISTORICAL_TRUNCATED',
+  );
+}
+
 async function circuitSemantics() {
   let now = Date.parse('2026-10-26T10:00:10.000Z');
   const manager = new TwelveDataCircuit(() => now);
@@ -77,26 +95,33 @@ async function circuitSemantics() {
   assert.ok(timeoutFailures > 0);
 }
 
-function newsOfflineDoesNotBlockSignal() {
+function resultInput(candles: ReturnType<typeof generateResearchCandles>) {
+  return { candles, htfBias: 'BULLISH' as const, newsEvents: [], newsSourceOnline: true, timeframe: '15m' as const };
+}
+
+function newsIsManualAndNonBlocking() {
   const candles = generateResearchCandles(60, 1.085, '15m');
-  const result = evaluateStrategyV3({
-    candles,
-    htfBias: 'BULLISH',
-    newsEvents: [],
-    newsSourceOnline: false,
-    timeframe: '15m',
+  const offline = evaluateStrategyV3({ ...resultInput(candles), newsSourceOnline: false });
+  const online = evaluateStrategyV3(resultInput(candles));
+  const highImpact = evaluateStrategyV3({
+    ...resultInput(candles),
+    newsEvents: [{ id: 'n', title: 'NFP', currency: 'USD', impact: 'HIGH', timestamp: candles.at(-1)!.timestamp }],
   });
-  const online = evaluateStrategyV3({ candles, htfBias: 'BULLISH', newsEvents: [], newsSourceOnline: true, timeframe: '15m' });
-  assert.equal(result.binarySignal, online.binarySignal);
-  assert.equal(result.operationalGuards[0]?.status, online.operationalGuards[0]?.status);
-  const stage18 = result.stages.find((stage) => stage.stageNumber === 18);
-  assert.equal(stage18?.available, false);
-  assert.equal(stage18?.passed, null);
+  assert.equal(offline.binarySignal, online.binarySignal);
+  assert.equal(offline.operationalGuards[0]?.status, 'PASS');
+  assert.equal(highImpact.operationalGuards[0]?.status, 'PASS');
+  for (const result of [offline, online, highImpact]) {
+    const stage18 = result.stages.find((stage) => stage.stageNumber === 18);
+    assert.equal(stage18?.available, true);
+    assert.equal(stage18?.passed, true);
+    assert.match(stage18?.telemetry || '', /NOT CHECKED/);
+  }
 }
 
 assert.deepEqual(PROVIDER_ORDER, ['TWELVE_DATA']);
 await httpClassification();
 await strictPayloadValidation();
+await historicalRequestCeiling();
 await circuitSemantics();
-newsOfflineDoesNotBlockSignal();
+newsIsManualAndNonBlocking();
 console.log('[pr5_twelve_data_only] RED/GREEN contract suite completed');

@@ -48,7 +48,7 @@ export interface MarketDataResult {
   creditsUsed?: number;
   creditsLeft?: number;
   clockDriftMs?: number | null;
-  clockStatus?: 'CLOCK_OK' | 'CLOCK_DRIFT' | 'CLOCK_UNAVAILABLE';
+  clockStatus?: 'CLOCK_OK' | 'CLOCK_DRIFT' | 'CLOCK_UNAVAILABLE' | 'CLOCK_UNVERIFIED';
 }
 
 export class MarketDataError extends Error {
@@ -101,7 +101,7 @@ export class MarketFeedManager {
   private lastSuccessfulProvider: MarketDataProvider | undefined;
   private lastFailedProvider: MarketDataProvider | undefined;
   private lastClockDriftMs: number | null = null;
-  private lastClockStatus: 'CLOCK_OK' | 'CLOCK_DRIFT' | 'CLOCK_UNAVAILABLE' = 'CLOCK_UNAVAILABLE';
+  private lastClockStatus: 'CLOCK_OK' | 'CLOCK_DRIFT' | 'CLOCK_UNAVAILABLE' | 'CLOCK_UNVERIFIED' = 'CLOCK_UNAVAILABLE';
   private readonly twelveDataAdapter: TwelveDataAdapter;
 
   constructor(twelveDataKey = '', requestFn: typeof fetch = fetch, providerKeys: ProviderKeys = {}) {
@@ -142,7 +142,7 @@ export class MarketFeedManager {
     };
   }
 
-  public getClockState(): { driftMs: number | null; status: 'CLOCK_OK' | 'CLOCK_DRIFT' | 'CLOCK_UNAVAILABLE'; lastSuccessfulSync: string; lastSuccessfulProvider?: MarketDataProvider; lastFailedProvider?: MarketDataProvider } {
+  public getClockState(): { driftMs: number | null; status: 'CLOCK_OK' | 'CLOCK_DRIFT' | 'CLOCK_UNAVAILABLE' | 'CLOCK_UNVERIFIED'; lastSuccessfulSync: string; lastSuccessfulProvider?: MarketDataProvider; lastFailedProvider?: MarketDataProvider } {
     return { driftMs: this.lastClockDriftMs, status: this.lastClockStatus, lastSuccessfulSync: this.lastSuccessfulSync, lastSuccessfulProvider: this.lastSuccessfulProvider, lastFailedProvider: this.lastFailedProvider };
   }
 
@@ -285,6 +285,10 @@ export class MarketFeedManager {
           this.lastClockDriftMs = clock.driftMs;
           this.lastClockStatus = clock.status;
           if (!clock.ok) throw new ProviderAdapterError(provider, 'CLOCK_DRIFT', `Local clock differs from ${LABEL} by ${clock.driftMs} ms (> ${MAX_CLOCK_DRIFT_MS} ms). DATA_QUALITY_FAIL.`);
+          if (!historical && clock.status === 'CLOCK_UNAVAILABLE') {
+            this.lastClockStatus = 'CLOCK_UNVERIFIED';
+            throw new ProviderAdapterError(provider, 'CLOCK_UNVERIFIED', `${LABEL} response did not include a trustworthy server clock. NO_TRADE.`);
+          }
           const normalized = normalizeCandles(raw, provider, timeframe, requireClosed);
           const latest = normalized.candles[normalized.candles.length - 1];
           if (requireClosed) {

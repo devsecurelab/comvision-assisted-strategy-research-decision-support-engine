@@ -172,10 +172,10 @@ export function csvToCandles(csv: string): Candle[] {
 
 export const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
 
-/** Date chunks small enough that one Twelve Data request (<= 5000 rows) covers each chunk. */
+/** Date chunks small enough that one Twelve Data request stays below 4500 rows. */
 export function dateChunks(startDate: string, endDate: string, timeframe: Timeframe): Array<{ start: string; end: string }> {
   const perDay = 1440 / (timeframeMs(timeframe) / 60_000);
-  const days = Math.max(1, Math.floor((5000 * 0.9) / perDay));
+  const days = Math.max(1, Math.floor((4500 * 0.9) / perDay));
   const out: Array<{ start: string; end: string }> = [];
   let cursor = Date.parse(`${startDate}T00:00:00Z`); const end = Date.parse(`${endDate}T00:00:00Z`);
   while (cursor <= end) {

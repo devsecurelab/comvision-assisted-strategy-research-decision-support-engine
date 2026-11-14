@@ -247,9 +247,31 @@ export class NotificationService {
     if (previousStatus === 'SENDING') {
       const validUntilMs = extra.validUntil ? Date.parse(extra.validUntil) : Number.NaN;
       if (!Number.isFinite(validUntilMs) || this.now() >= validUntilMs) {
-        const error = 'Signal validity window expired while prior delivery was SENDING; not resent.';
-        this.recordSignalDelivery(signalId, 'FAILED', `SUPPRESSED EXPIRED SIGNAL ${payloadSummary}`, error);
-        return { ok: false, attempts: 0, error };
+        // A crash may leave a durable SENDING record behind. Never replay the
+        // original signal after expiry, but do deliver the explicit safe notice.
+        // requestTelegram() will replace the payload with expiredText when the
+        // validity window has elapsed.
+        const expiredExtra = {
+          ...extra,
+          expiredText: extra.expiredText || `SIGNAL EXPIRED — do not enter (${signalId})`,
+        };
+        const pending = (async () => {
+          this.recordSignalDelivery(signalId, 'SENDING', `SENDING EXPIRED NOTICE ${payloadSummary}`);
+          const result = await this.requestTelegram('sendMessage', payload, expiredExtra);
+          this.recordSignalDelivery(
+            signalId,
+            result.ok ? 'SENT' : 'FAILED',
+            `${result.expired ? 'EXPIRED NOTICE' : 'SIGNAL ALERT'} ${payloadSummary}`,
+            result.error,
+          );
+          return result;
+        })();
+        this.signalSendInFlight.set(signalId, pending);
+        try {
+          return await pending;
+        } finally {
+          if (this.signalSendInFlight.get(signalId) === pending) this.signalSendInFlight.delete(signalId);
+        }
       }
     }
 
