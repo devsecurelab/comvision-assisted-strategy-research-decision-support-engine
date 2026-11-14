@@ -23,7 +23,7 @@ import { analyticsService } from './src/server/analyticsService';
 import { chatService } from './src/server/chatService';
 import { payoutRegistry, normalizePair, displayPair, FAVORITE_SYMBOLS } from './src/server/payoutRegistry';
 import { favoriteRegistry } from './src/server/favoriteRegistry';
-import { SignalLedger, signalIdFor } from './src/engine/signalLedger';
+import { SignalLedger } from './src/engine/signalLedger';
 import { ScanLoop, ScanService, SCAN_TIMEFRAMES, type ScanLoopState, type ScanTimeframe } from './src/engine/scanScheduler';
 import { buildLedgerReport, formatLedgerReport } from './src/engine/edgeMonitor';
 import { createOperationalBootChecks, evaluateSelfChecks, validateDataDirectory } from './src/server/runtimeSelfCheck';
@@ -391,13 +391,13 @@ app.post('/api/engine/record-action', requireResearcher, (req: AuthenticatedRequ
       return res.status(400).json({ error: 'BROKER_ENTRY_PRICE_REQUIRED', message: 'TAKEN requires a finite positive brokerEntryPrice.' });
     }
     const candidate = experimentTracker.getCandidates('ALL').find((item) => item.metadata.setup_id === setupId);
-    const pair = String(candidate?.metadata.pair || candidate?.metadata.asset || '').replace('/', '').toUpperCase();
-    const timeframe = candidate?.market_context.selected_timeframe;
-    const timestamp = candidate?.metadata.signal_timestamp_utc || candidate?.metadata.timestamp_utc;
-    if (!candidate || !/^[A-Z]{6}$/.test(pair) || !['5m', '15m', '30m'].includes(String(timeframe)) || !timestamp) {
+    if (!candidate) {
       return res.status(422).json({ error: 'SIGNAL_ID_UNAVAILABLE', message: 'Cannot derive the canonical signal ledger identity for this setup.' });
     }
-    canonicalSignalId = signalIdFor(`${pair.slice(0, 3)}/${pair.slice(3)}`, String(timeframe), timestamp);
+    // ScanScheduler currently emits the immutable setup_id as signal_id. Do
+    // not recompute a different hash here: that would orphan the TRADE_TAKEN
+    // event from the SIGNAL entry already present in the ledger.
+    canonicalSignalId = setupId;
     const ledgerResult = scanLoop.recordManualTaken(canonicalSignalId, brokerEntryPrice);
     if (ledgerResult.startsWith('ERROR')) return res.status(422).json({ error: 'TRADE_TAKEN_NOT_RECORDED', message: ledgerResult });
   }
