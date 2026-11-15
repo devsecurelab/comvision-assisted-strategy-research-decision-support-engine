@@ -57,6 +57,32 @@ async function testParseEntity400RetriesWithoutParseMode(): Promise<void> {
   assert.equal(payloads[1]?.parse_mode, undefined);
 }
 
+async function testFinalAttemptParseEntity400StillUsesPlainFallback(): Promise<void> {
+  const payloads: Array<Record<string, unknown> | undefined> = [];
+  const delays: number[] = [];
+  const result = await telegramSend({
+    token,
+    method: 'sendMessage',
+    payload: { chat_id: '42', text: 'literal <reason>', parse_mode: 'HTML' },
+    sleep: async (ms: number) => { delays.push(ms); },
+    fetchImpl: async (_input: RequestInfo | URL, init?: RequestInit) => {
+      payloads.push(init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined);
+      if (payloads.length <= 3) return jsonResponse(503, { ok: false, description: 'temporarily unavailable' });
+      if (payloads.length === 4) {
+        return jsonResponse(400, { ok: false, error_code: 400, description: "Bad Request: can't parse entities" });
+      }
+      return jsonResponse(200, { ok: true, result: { message_id: 989 } });
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.attempts, 5, 'the final plain fallback is reported as a distinct delivery attempt');
+  assert.deepEqual(delays, [1000, 2000, 4000]);
+  assert.equal(payloads[3]?.parse_mode, 'HTML', 'the last normal attempt should still use the original payload');
+  assert.equal(payloads[4]?.text, 'literal <reason>');
+  assert.equal(payloads[4]?.parse_mode, undefined, 'the extra final fallback is plain text');
+}
+
 async function testTimeoutIsBoundedAndUsesConfiguredBackoff(): Promise<void> {
   const delays: number[] = [];
   const signals: AbortSignal[] = [];
@@ -234,6 +260,7 @@ async function testFetchUrlIsRedactedIncludingGetUpdates(): Promise<void> {
 
 await test429HonorsRetryAfterAndReturnsMessageId();
 await testParseEntity400RetriesWithoutParseMode();
+await testFinalAttemptParseEntity400StillUsesPlainFallback();
 await testTimeoutIsBoundedAndUsesConfiguredBackoff();
 await testDefaultTimeoutIsFiveSeconds();
 await testRetryAfterExpirySendsOnlySafeExpiredNotice();

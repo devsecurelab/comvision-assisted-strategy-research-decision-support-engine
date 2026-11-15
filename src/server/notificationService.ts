@@ -266,6 +266,7 @@ export class NotificationService {
         // validity window has elapsed.
         const expiredExtra = {
           ...extra,
+          validUntil: Number.isFinite(validUntilMs) ? extra.validUntil : new Date(this.now() - 1).toISOString(),
           expiredText: extra.expiredText || `SIGNAL EXPIRED — do not enter (${signalId})`,
         };
         const pending = (async () => {

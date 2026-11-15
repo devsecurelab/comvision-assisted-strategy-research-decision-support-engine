@@ -1,5 +1,7 @@
 # ComVision Engine Handover — 2026-10-16
 
+> **Historical snapshot:** validation totals and status below describe the 2026-10-16/C5 work at the named commits; they are not current PR-4 validation. See [the PR-4 Telegram follow-up evidence](docs/evidence/pr4-telegram-followup-2026-11-15.md) for the current reliability follow-up and its test results.
+
 ## Status
 
 The authorized C1–C5 scope, F1 fetch-boundary fix, and tests are complete. The current September EUR/USD R8 replay uses complete raw CSVs, excludes scheduled FX-closure timestamps only from analysis, and reports exact raw/analyzed/excluded counts; raw provider CSVs remain unchanged. The original F2 inspection found no fully flat OHLC bars. The Owner explicitly accepts the A4 `reused` metadata markers and A10 header-capture limitation as passes. Strategy predicates, thresholds, weights, and FULL-mode default remain unchanged; `ENGINE_FULL_MODE_ENABLED=false` remains the default.

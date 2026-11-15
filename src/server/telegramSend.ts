@@ -72,7 +72,7 @@ function failure(
 function isExpired(validUntil: string | undefined, now: () => number): boolean {
   if (!validUntil) return false;
   const expiryMs = Date.parse(validUntil);
-  return Number.isFinite(expiryMs) && now() >= expiryMs;
+  return !Number.isFinite(expiryMs) || now() >= expiryMs;
 }
 
 export async function telegramSend(options: TelegramSendOptions): Promise<TelegramSendResult> {
@@ -90,8 +90,9 @@ export async function telegramSend(options: TelegramSendOptions): Promise<Telegr
   let lastStatus: number | undefined;
   let lastErrorCode: number | undefined;
   let lastError = 'Telegram request failed.';
+  let maxAttempts = RETRY_DELAYS_MS.length + 1;
 
-  for (let attempt = 1; attempt <= RETRY_DELAYS_MS.length + 1; attempt++) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     if (!expired && options.expiredText && isExpired(options.validUntil, now)) {
       payload = { ...payload, text: options.expiredText };
       delete payload.parse_mode;
@@ -145,10 +146,14 @@ export async function telegramSend(options: TelegramSendOptions): Promise<Telegr
         && Boolean(payload.parse_mode)
         && !parseModeFallbackUsed
         && (normalizedDescription.includes("can't parse entities") || normalizedDescription.includes('parse entities'));
-      if (isParseEntityError && attempt < RETRY_DELAYS_MS.length + 1) {
+      if (isParseEntityError) {
         payload = { ...payload };
         delete payload.parse_mode;
         parseModeFallbackUsed = true;
+        // A plain-text fallback is a distinct delivery attempt. Preserve the
+        // normal 4-attempt retry budget, but allow one extra send if the parse
+        // error arrives on its final attempt.
+        if (attempt >= maxAttempts) maxAttempts = attempt + 1;
         continue;
       }
 
@@ -177,5 +182,5 @@ export async function telegramSend(options: TelegramSendOptions): Promise<Telegr
     }
   }
 
-  return failure(options.token, RETRY_DELAYS_MS.length + 1, lastError, lastStatus, lastErrorCode, expired);
+  return failure(options.token, maxAttempts, lastError, lastStatus, lastErrorCode, expired);
 }

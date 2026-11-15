@@ -145,6 +145,25 @@ async function testPersistedSendingResumesOnlyWithinValidityWindow(): Promise<vo
   assert.equal(requests.length, 1, 'expired in-flight signal must send only the safe expiry notice after restart');
   assert.equal(requests[0].payload?.text, `SIGNAL EXPIRED — do not enter (${expiredSignalId})`);
   assert.equal(durableStorage.loadNotifications().find((notification) => notification.setup_id === expiredSignalId && notification.channel === 'TELEGRAM')?.status, 'SENT');
+
+  for (const [suffix, validUntil] of [['MISSING', undefined], ['MALFORMED', 'not-a-date']] as const) {
+    resetNotifications();
+    const unsafeSignalId = `TEST-SIGNAL-SENDING-${suffix}`;
+    durableStorage.recordNotification({
+      setup_id: unsafeSignalId,
+      type: 'SIGNAL_ALERT',
+      channel: 'TELEGRAM',
+      recipient: 'OWNER_CHAT',
+      status: 'SENDING',
+      payload_summary: 'SENDING TEST SIGNAL',
+    } as any);
+    const retryExtra = { signalId: unsafeSignalId, ...(validUntil ? { validUntil } : {}) };
+    const unsafeRetry = await newService().dispatchSignalAlert(telemetry(unsafeSignalId, 'test recovery'), retryExtra);
+    assert.equal(unsafeRetry.telegram, 'SENT');
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].payload?.text, `SIGNAL EXPIRED — do not enter (${unsafeSignalId})`);
+    assert.equal(durableStorage.loadNotifications().find((notification) => notification.setup_id === unsafeSignalId && notification.channel === 'TELEGRAM')?.status, 'SENT');
+  }
 }
 
 async function testExpiredSignalSendsOnlySafeNotice(): Promise<void> {
