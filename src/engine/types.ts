@@ -60,6 +60,17 @@ export interface FVGZone {
   creationTimestamp: string;
   mitigationState: FVGMitigationState;
   direction: 'BULLISH' | 'BEARISH';
+  ceLevel?: number;
+  wickReachedCE?: boolean;
+  bodyBeyondCE?: boolean;
+  tapCount?: number;
+}
+
+export interface InducementState {
+  idmDetected: boolean;
+  idmLevel: number | null;
+  idmSwept: boolean;
+  reason: string;
 }
 
 // Stage 5: Inverse Fair Value Gap (IFVG)
@@ -260,6 +271,14 @@ export interface V3DecisionTelemetry {
   signalCandleOpenTs?: string | null;
   pocLabel?: 'PROVIDER_VOLUME_POC' | 'UNAVAILABLE';
   entryPrice: number;
+  ceMitigation?: {
+    ceLevel: number;
+    wickReachedCE: boolean;
+    bodyBeyondCE: boolean;
+    tapCount: number;
+    verdict: 'UNMITIGATED' | 'CE_TAPPED' | 'CE_BREACHED' | 'COMPLETELY_FILLED';
+  };
+  inducement?: InducementState;
 }
 
 export interface MasterTelemetry {

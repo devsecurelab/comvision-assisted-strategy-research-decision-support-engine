@@ -23,6 +23,12 @@ assert.ok(ok.gates.every((g) => g.status !== 'UNAVAILABLE'), 'Gate 3 is restored
 assert.ok(Math.abs((ok.mfci.totalMfci as number) - (0.35 * (ok.mfci.sStructure as number) + 0.20 * (ok.mfci.sLiquidity as number)) / 0.55) < 1e-12);
 assert.equal(ok.mfci.sOrderFlow, null);
 assert.ok(ok.excludedStages.some((x) => x.reason === 'CHOCH_DELTA_UNAVAILABLE'));
+assert.equal(ok.stages.length, 19, 'CE/IDM telemetry must not change the stage count');
+assert.equal(ok.gates.length, 9, 'CE/IDM telemetry must not change the gate count');
+assert.ok(ok.ceMitigation, 'authoritative V3 output must expose CE mitigation when an active FVG exists');
+assert.equal(typeof ok.ceMitigation?.ceLevel, 'number');
+assert.equal(typeof ok.ceMitigation?.tapCount, 'number');
+assert.ok(ok.inducement, 'authoritative V3 output must expose IDM state');
 
 // S1 fail: a perfectly monotonic series has no 5-candle fractal swing.
 const mono: Candle[] = Array.from({ length: 40 }, (_, i) => ({ timestamp: new Date(Date.parse(SIGNAL_TS) - (39 - i) * 900_000).toISOString(), open: p(50 + i), high: p(51.5 + i), low: p(49.5 + i), close: p(51 + i), volume: null }));

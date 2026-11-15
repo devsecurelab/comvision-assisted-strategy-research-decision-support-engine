@@ -1,4 +1,4 @@
-import type { Candle, BprState, FVGZone, IfvgState } from './types';
+import type { Candle, BprState, FVGZone, IfvgState, InducementState } from './types';
 
 export interface VolumeWeightedPoc {
   available: boolean;
@@ -21,6 +21,7 @@ export function detectFvgZones(candles: Candle[]): FVGZone[] {
         creationTimestamp: right.timestamp,
         mitigationState: 'UNMITIGATED',
         direction: 'BULLISH',
+        ceLevel: (left.high + right.low) / 2,
       });
     } else if (right.high < left.low) {
       zones.push({
@@ -29,10 +30,49 @@ export function detectFvgZones(candles: Candle[]): FVGZone[] {
         creationTimestamp: right.timestamp,
         mitigationState: 'UNMITIGATED',
         direction: 'BEARISH',
+        ceLevel: (right.high + left.low) / 2,
       });
     }
   }
   return zones;
+}
+
+/**
+ * Finds the nearest confirmed minor swing before a POI and checks whether the
+ * POI candle swept it. The POI candle is never used to confirm the swing, so
+ * this helper remains causal when called with the current visible candle.
+ */
+export function evaluateInducement(
+  candles: Candle[],
+  poiIndex: number,
+  bias: 'BULLISH' | 'BEARISH',
+): InducementState {
+  if (!Number.isInteger(poiIndex) || poiIndex < 0 || poiIndex >= candles.length) {
+    return { idmDetected: false, idmLevel: null, idmSwept: false, reason: 'No valid POI index for inducement evaluation.' };
+  }
+  const lookbackStart = Math.max(1, poiIndex - 6);
+  const lookbackEnd = Math.min(poiIndex - 2, candles.length - 2);
+  const poiCandle = candles[poiIndex];
+  for (let i = lookbackEnd; i >= lookbackStart; i -= 1) {
+    const current = candles[i];
+    const previous = candles[i - 1];
+    const next = candles[i + 1];
+    const isMinorSwing = bias === 'BEARISH'
+      ? current.high > previous.high && current.high > next.high
+      : current.low < previous.low && current.low < next.low;
+    if (!isMinorSwing) continue;
+    const idmLevel = bias === 'BEARISH' ? current.high : current.low;
+    const idmSwept = bias === 'BEARISH' ? poiCandle.high >= idmLevel : poiCandle.low <= idmLevel;
+    return {
+      idmDetected: true,
+      idmLevel,
+      idmSwept,
+      reason: idmSwept
+        ? `Inducement detected at ${idmLevel.toFixed(5)} and swept by the POI candle.`
+        : `Inducement detected at ${idmLevel.toFixed(5)} but not swept by the POI candle.`,
+    };
+  }
+  return { idmDetected: false, idmLevel: null, idmSwept: false, reason: 'No confirmed minor swing (inducement) detected before the POI.' };
 }
 
 function overlaps(a: FVGZone, b: FVGZone) {

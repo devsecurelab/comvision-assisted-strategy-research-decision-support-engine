@@ -1,5 +1,5 @@
-import type { Candle, NewsEvent, Timeframe } from './types';
-import { computeVolumeWeightedPoc, detectBprFromCandles, evaluateIfvg } from './marketStructureV3';
+import type { Candle, InducementState, NewsEvent, Timeframe } from './types';
+import { computeVolumeWeightedPoc, detectBprFromCandles, evaluateIfvg, evaluateInducement } from './marketStructureV3';
 import { classifySessionAndKillZone, isCoreSession } from './session';
 import { validateCandleSeries } from './dataIntegrity';
 import {
@@ -52,6 +52,14 @@ export interface V3Decision {
   signalCandleOpenTs: string | null;
   pocLabel: 'PROVIDER_VOLUME_POC' | 'UNAVAILABLE';
   entryPrice: number | null;
+  ceMitigation?: {
+    ceLevel: number;
+    wickReachedCE: boolean;
+    bodyBeyondCE: boolean;
+    tapCount: number;
+    verdict: 'UNMITIGATED' | 'CE_TAPPED' | 'CE_BREACHED' | 'COMPLETELY_FILLED';
+  };
+  inducement?: InducementState;
 }
 
 export interface V3Input {
@@ -227,14 +235,35 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
   const minGap = MIN_FVG_GAP_ATR * a14;
   const fvgAt = (k: number) => {
     const a = cs[k - 2]; const c = cs[k];
-    if (isBull && c.low > a.high) { const gap = c.low - a.high; const ce = a.high + gap / V3_STRATEGY_PARAMS.formulas.midpointDivisor; const status = cur.close <= a.high ? 'COMPLETELY_FILLED' : cur.close < ce ? 'CE_BREACHED' : cur.close < c.low ? 'PARTIAL_FILL' : 'UNMITIGATED'; return { gap, ce, status, valid: gap >= minGap, bottom: a.high, top: c.low }; }
-    if (!isBull && c.high < a.low) { const gap = a.low - c.high; const ce = c.high + gap / V3_STRATEGY_PARAMS.formulas.midpointDivisor; const status = cur.close >= a.low ? 'COMPLETELY_FILLED' : cur.close > ce ? 'CE_BREACHED' : cur.close > c.high ? 'PARTIAL_FILL' : 'UNMITIGATED'; return { gap, ce, status, valid: gap >= minGap, bottom: c.high, top: a.low }; }
+    if (isBull && c.low > a.high) {
+      const gap = c.low - a.high; const ce = a.high + gap / V3_STRATEGY_PARAMS.formulas.midpointDivisor;
+      const touches = cs.slice(k + 1).filter((bar) => bar.low <= ce && bar.high >= a.high);
+      const wickReachedCE = touches.length > 0;
+      const bodyBeyondCE = cs.slice(k + 1).some((bar) => bar.close <= ce);
+      const status = cur.close <= a.high ? 'COMPLETELY_FILLED' : cur.close < ce ? 'CE_BREACHED' : cur.close < c.low ? 'PARTIAL_FILL' : 'UNMITIGATED';
+      return { index: k, gap, ce, status, valid: gap >= minGap, bottom: a.high, top: c.low, wickReachedCE, bodyBeyondCE, tapCount: touches.length };
+    }
+    if (!isBull && c.high < a.low) {
+      const gap = a.low - c.high; const ce = c.high + gap / V3_STRATEGY_PARAMS.formulas.midpointDivisor;
+      const touches = cs.slice(k + 1).filter((bar) => bar.high >= ce && bar.low <= a.low);
+      const wickReachedCE = touches.length > 0;
+      const bodyBeyondCE = cs.slice(k + 1).some((bar) => bar.close >= ce);
+      const status = cur.close >= a.low ? 'COMPLETELY_FILLED' : cur.close > ce ? 'CE_BREACHED' : cur.close > c.high ? 'PARTIAL_FILL' : 'UNMITIGATED';
+      return { index: k, gap, ce, status, valid: gap >= minGap, bottom: c.high, top: a.low, wickReachedCE, bodyBeyondCE, tapCount: touches.length };
+    }
     return undefined;
   };
   let fvg: ReturnType<typeof fvgAt>;
   for (let k = last; k >= Math.max(2, last - FVG_SEARCH_LOOKBACK) && !fvg?.valid; k--) { const f = fvgAt(k); if (f && (f.status === 'UNMITIGATED' || f.status === 'PARTIAL_FILL')) fvg = f; }
   const s4Pass = !!fvg && fvg.valid && (fvg.status === 'UNMITIGATED' || fvg.status === 'PARTIAL_FILL');
-  const s4 = stage(4, 'FVG Mechanics (Fair Value Gap & CE Tracking)', 'IMBALANCE', s4Pass, s4Pass ? (fvg!.status === 'PARTIAL_FILL' ? V3_STRATEGY_PARAMS.scores.imbalance.fvgPartial : V3_STRATEGY_PARAMS.scores.imbalance.fvgUnmitigated) : V3_STRATEGY_PARAMS.scores.imbalance.fvgFail, 'Gap >= 0.2*ATR14; CE = gap midpoint', { Gap_Size: fixed(fvg?.gap), Min_Required_Gap: fixed(minGap), CE_Level: fixed(fvg?.ce), Status: fvg?.status ?? 'NONE' }, s4Pass ? 'Active directional imbalance.' : 'No active directional FVG in the last 6 candles.');
+  const ceMitigation = fvg ? {
+    ceLevel: fvg.ce,
+    wickReachedCE: fvg.wickReachedCE,
+    bodyBeyondCE: fvg.bodyBeyondCE,
+    tapCount: fvg.tapCount,
+    verdict: fvg.status === 'COMPLETELY_FILLED' ? 'COMPLETELY_FILLED' : fvg.bodyBeyondCE ? 'CE_BREACHED' : fvg.wickReachedCE ? 'CE_TAPPED' : 'UNMITIGATED',
+  } as const : undefined;
+  const s4 = stage(4, 'FVG Mechanics (Fair Value Gap & CE Tracking)', 'IMBALANCE', s4Pass, s4Pass ? (fvg!.status === 'PARTIAL_FILL' ? V3_STRATEGY_PARAMS.scores.imbalance.fvgPartial : V3_STRATEGY_PARAMS.scores.imbalance.fvgUnmitigated) : V3_STRATEGY_PARAMS.scores.imbalance.fvgFail, 'Gap >= 0.2*ATR14; CE = gap midpoint', { Gap_Size: fixed(fvg?.gap), Min_Required_Gap: fixed(minGap), CE_Level: fixed(fvg?.ce), CE_Wick_Reached: bool(fvg?.wickReachedCE ?? false), CE_Body_Beyond: bool(fvg?.bodyBeyondCE ?? false), CE_Tap_Count: String(fvg?.tapCount ?? 0), Status: fvg?.status ?? 'NONE' }, s4Pass ? 'Active directional imbalance.' : 'No active directional FVG in the last 6 candles.');
 
   // S5 — IFVG from a real prior FVG: body-close inversion then retest
   const ifvg = evaluateIfvg(cs.slice(-REFERENCE_LOOKBACK), isBull ? 'BULLISH' : 'BEARISH');
@@ -310,6 +339,8 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
   const s8 = s8Unavailable ? unavailable(s8Raw, s8Unavailable) : s8Raw;
 
   // S9 — Liquidity sweep in the recent window; FULL adds CVD divergence
+  const poiIndex = fvg?.index ?? ob?.index ?? last;
+  const inducement = evaluateInducement(cs, poiIndex, isBull ? 'BULLISH' : 'BEARISH');
   let sweep: { k: number; swing: Swing } | undefined;
   for (let k = last; k >= Math.max(0, last - SWEEP_LOOKBACK + 1) && !sweep; k--) { const sw = sweepAt(k); if (sw) sweep = { k, swing: sw }; }
   let s9Flow = true; let s9Cvd = 'CVD_UNAVAILABLE';
@@ -318,7 +349,8 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
     s9Flow = now !== undefined && then !== undefined && (isBull ? now > then : now < then); s9Cvd = bool(s9Flow);
   }
   const s9Pass = !!sweep && s9Flow;
-  const s9 = stage(9, 'Liquidity Sweep (Confirmed Swing Pierce + Close Back)', 'LIQUIDITY', s9Pass, s9Pass ? V3_STRATEGY_PARAMS.scores.liquidity.sweepPass : sweep ? V3_STRATEGY_PARAMS.scores.liquidity.sweepCandidate : V3_STRATEGY_PARAMS.scores.liquidity.sweepFail, isBull ? 'Low_k < latest confirmed Swing Low AND Close_k > Swing Low' : 'High_k > latest confirmed Swing High AND Close_k < Swing High', { Price_Swept: bool(!!sweep), Swept_Level: fixed(sweep?.swing.price), Sweep_Bar_Offset: sweep ? String(last - sweep.k) : 'NONE', CVD_Divergence: full ? s9Cvd : 'CVD_UNAVAILABLE', CVD_Status: full ? 'AVAILABLE' : 'CVD_UNAVAILABLE' }, s9Pass ? 'Liquidity sweep validated.' : 'No liquidity sweep of a confirmed swing.');
+  const idmWarning = inducement.idmDetected && !inducement.idmSwept;
+  const s9 = stage(9, 'Liquidity Sweep (Confirmed Swing Pierce + Close Back)', 'LIQUIDITY', s9Pass, s9Pass ? V3_STRATEGY_PARAMS.scores.liquidity.sweepPass : sweep ? V3_STRATEGY_PARAMS.scores.liquidity.sweepCandidate : V3_STRATEGY_PARAMS.scores.liquidity.sweepFail, isBull ? 'Low_k < latest confirmed Swing Low AND Close_k > Swing Low' : 'High_k > latest confirmed Swing High AND Close_k < Swing High', { Price_Swept: bool(!!sweep), Swept_Level: fixed(sweep?.swing.price), Sweep_Bar_Offset: sweep ? String(last - sweep.k) : 'NONE', CVD_Divergence: full ? s9Cvd : 'CVD_UNAVAILABLE', CVD_Status: full ? 'AVAILABLE' : 'CVD_UNAVAILABLE', IDM_Detected: bool(inducement.idmDetected), IDM_Level: fixed(inducement.idmLevel), IDM_Swept: bool(inducement.idmSwept), IDM_Warning: bool(idmWarning) }, `${s9Pass ? 'Liquidity sweep validated.' : 'No liquidity sweep of a confirmed swing.'}${idmWarning ? ` High-risk inducement warning: ${inducement.reason}` : ''}`);
 
   // S10/S11 — BSL/SSL pools (ATR-normalized), with untouched tracking for Gate 9
   const poolStart = Math.max(0, n - POOL_LOOKBACK);
@@ -466,5 +498,7 @@ export function evaluateStrategyV3(input: V3Input): V3Decision {
     mfciBand: totalMfci === null ? 'UNAVAILABLE' : meets ? 'ABOVE_THRESHOLD' : 'BELOW_THRESHOLD',
     status: systemDecision, statusReason, firstFailedGate: failed?.gateNumber,
     signalCandleOpenTs: cur.timestamp, pocLabel, entryPrice: cur.close,
+    ceMitigation,
+    inducement,
   };
 }
