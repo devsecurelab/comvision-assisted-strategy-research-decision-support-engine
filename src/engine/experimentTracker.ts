@@ -10,6 +10,11 @@ import { sha256 } from '../utils/sha256';
 import { milestonesToNotify, type Milestone } from './milestones';
 import { readLegacyOptional } from './legacyTelemetry';
 
+const configuredCandidateHistoryLimit = Number(process.env.CANDIDATE_HISTORY_LIMIT || 500);
+const MAX_CANDIDATE_HISTORY = Number.isFinite(configuredCandidateHistoryLimit)
+  ? Math.max(100, Math.floor(configuredCandidateHistoryLimit))
+  : 500;
+
 export interface ExperimentStats {
   experimentId: string;
   strategyVersion: string;
@@ -48,6 +53,7 @@ export class ExperimentManager {
   private candidatesHistory: MasterTelemetry[] = [];
   private currentActiveAlert: MasterTelemetry | null = null;
   private lastHash = '0'.repeat(64); // Genesis hash for SHA-256 chain
+  private historyAnchorHash = '0'.repeat(64); // Hash immediately before the oldest retained frame
 
   constructor() {
     this.initializeFromStorage();
@@ -141,12 +147,13 @@ export class ExperimentManager {
       this.alertsMuted = state.alertsMuted !== undefined ? state.alertsMuted : false;
       this.alertsMuteUntil = state.alertsMuteUntil ?? null;
       this.lastHash = state.lastHash || '0'.repeat(64);
+      this.historyAnchorHash = state.historyAnchorHash || '0'.repeat(64);
       this.notifiedMilestones = new Set(state.notifiedMilestones ?? []);
       this.pendingMilestones = new Set(state.pendingMilestones ?? []);
     }
 
     // 2. Load candidates from durable storage
-    const stored = durableStorage.loadCandidates();
+    const stored = durableStorage.loadCandidateHistory();
     if (stored && stored.length > 0) {
       // Deduplicate by setup_id to ensure key uniqueness
       const seenIds = new Set<string>();
@@ -158,7 +165,12 @@ export class ExperimentManager {
           deduped.push(item);
         }
       }
-      this.candidatesHistory = deduped;
+      const historyWasTruncated = deduped.length > MAX_CANDIDATE_HISTORY;
+      this.candidatesHistory = deduped.slice(0, MAX_CANDIDATE_HISTORY);
+      const oldestRetained = this.candidatesHistory.at(-1);
+      if (historyWasTruncated || !state?.historyAnchorHash) {
+        this.historyAnchorHash = oldestRetained?.metadata?.prev_hash || '0'.repeat(64);
+      }
       const validLast = deduped.find((c) => c.metadata.sha256_hash);
       if (validLast?.metadata.sha256_hash) {
         this.lastHash = validLast.metadata.sha256_hash;
@@ -172,6 +184,7 @@ export class ExperimentManager {
     this.candidatesHistory = [];
     this.currentActiveAlert = null;
     this.lastHash = '0'.repeat(64);
+    this.historyAnchorHash = '0'.repeat(64);
     this.isLocked = true;
     this.scannerActive = true;
     this.alertsMuted = false;
@@ -188,6 +201,7 @@ export class ExperimentManager {
       scannerActive: this.scannerActive,
       alertsMuted: this.alertsMuted,
       lastHash: this.lastHash,
+      historyAnchorHash: this.historyAnchorHash,
       targetValidSetups: STRATEGY_MANIFEST.scope_freeze.target_valid_setups,
       updatedAt: new Date().toISOString(),
       alertsMuteUntil: this.alertsMuteUntil,
@@ -338,6 +352,10 @@ export class ExperimentManager {
     } else {
       this.candidatesHistory.unshift(telemetry);
     }
+    if (this.candidatesHistory.length > MAX_CANDIDATE_HISTORY) {
+      this.candidatesHistory.length = MAX_CANDIDATE_HISTORY;
+      this.historyAnchorHash = this.candidatesHistory.at(-1)?.metadata.prev_hash || '0'.repeat(64);
+    }
 
     // Update active alert if valid
     if (telemetry.system_execution.system_decision === 'PASS') {
@@ -375,7 +393,7 @@ export class ExperimentManager {
     }
 
     const chronological = [...this.candidatesHistory].reverse();
-    let expectedPrevHash = '0'.repeat(64);
+    let expectedPrevHash = this.historyAnchorHash;
 
     for (let i = 0; i < chronological.length; i++) {
       const record = chronological[i];

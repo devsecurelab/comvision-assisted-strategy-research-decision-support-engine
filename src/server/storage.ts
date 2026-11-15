@@ -8,6 +8,15 @@ import os from 'node:os';
 import { MasterTelemetry, UserAccount, UserRecordedAction } from '../engine/types';
 import { compactScanSummary, ScanSummaryRing, shouldWriteSummary, type CompactScanSummary } from './operationalStorage';
 
+const configuredSignalRetentionLimit = Number(process.env.SIGNAL_RETENTION_LIMIT || 500);
+const MAX_PERSISTED_SIGNALS = Number.isFinite(configuredSignalRetentionLimit)
+  ? Math.max(100, Math.floor(configuredSignalRetentionLimit))
+  : 500;
+const configuredCandidateHistoryLimit = Number(process.env.CANDIDATE_HISTORY_LIMIT || 500);
+const MAX_PERSISTED_CANDIDATES = Number.isFinite(configuredCandidateHistoryLimit)
+  ? Math.max(100, Math.floor(configuredCandidateHistoryLimit))
+  : 500;
+
 // Research Outcome Semantics:
 // Frozen compatibility outcomes: NEXT_CANDLE_FAVORABLE | NEXT_CANDLE_UNFAVORABLE | NEXT_CANDLE_NEUTRAL | NEXT_CANDLE_INCONCLUSIVE
 // Historical v1.0 legacy compatibility: WIN | LOSS | INVALIDATED | UNRESOLVED
@@ -98,6 +107,7 @@ export interface ExperimentState {
   alertsMuted: boolean;
   alertsMuteUntil?: string | null;
   lastHash: string;
+  historyAnchorHash?: string;
   targetValidSetups: number;
   updatedAt: string;
   notifiedMilestones?: number[];
@@ -278,18 +288,27 @@ export class DurableStorage {
     return this.readJson<MasterTelemetry[]>(this.candidatesFile, [], (value): value is MasterTelemetry[] => Array.isArray(value));
   }
 
+  public loadCandidateHistory(): MasterTelemetry[] {
+    const candidates = this.readJson<MasterTelemetry[]>(this.candidatesFile, [], (value): value is MasterTelemetry[] => Array.isArray(value));
+    return candidates.length > 0 ? candidates : this.loadCandidates();
+  }
+
   public saveCandidates(candidates: MasterTelemetry[]) {
+    // Keep a bounded, complete candidate window for contiguous hash-chain verification.
+    // The separate signals file remains a PASS-only view for compatibility.
+    this.writeJson(this.candidatesFile, candidates.slice(0, MAX_PERSISTED_CANDIDATES));
     const priorSignals = this.readJson<MasterTelemetry[]>(this.signalsFile, [], (value): value is MasterTelemetry[] => Array.isArray(value));
     const signalMap = new Map<string, MasterTelemetry>(priorSignals.map((candidate) => [candidate.metadata?.setup_id, candidate]));
     for (const candidate of candidates.filter((item) => item.system_execution?.system_decision === 'PASS')) signalMap.set(candidate.metadata?.setup_id, candidate);
-    const signals = [...signalMap.values()];
+    const signals = [...signalMap.values()]
+      .sort((a, b) => Date.parse(b.metadata?.timestamp_utc || '') - Date.parse(a.metadata?.timestamp_utc || ''))
+      .slice(0, MAX_PERSISTED_SIGNALS);
     this.writeJson(this.signalsFile, signals);
     const ring = new ScanSummaryRing(Number(process.env.SCAN_SUMMARY_RING_SIZE || 200));
     for (const candidate of candidates) {
       ring.push(compactScanSummary({ pair: candidate.metadata?.pair || candidate.metadata?.asset || 'UNKNOWN', timeframe: candidate.market_context?.selected_timeframe || 'UNKNOWN', status: candidate.system_execution?.system_decision || 'UNKNOWN', reason: candidate.metadata?.status_reason || candidate.system_execution?.rejection_reason || '', signal_id: candidate.metadata?.setup_id, delivered_at: candidate.metadata?.timestamp_utc || new Date().toISOString() }));
     }
     if (shouldWriteSummary(this.dataDirSize(), Number(process.env.SUMMARY_STORAGE_CAP_MB || 50) * 1024 * 1024)) this.writeJson(this.scanSummariesFile, ring.values(), false);
-    if (fs.existsSync(this.candidatesFile)) { try { fs.unlinkSync(this.candidatesFile); } catch {} }
   }
 
   public loadScanSummaries(): CompactScanSummary[] { return this.readJson<CompactScanSummary[]>(this.scanSummariesFile, [], (value): value is CompactScanSummary[] => Array.isArray(value)); }
