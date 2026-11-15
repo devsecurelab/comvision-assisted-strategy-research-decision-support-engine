@@ -31,8 +31,9 @@ import { validateRuntimeConfig } from './src/server/runtimeConfig';
 import { buildOperationalStatus, payoutReminderMessages, detectScanGap, pingDeadManSwitch, scanGapActionState, deliverPendingScanGapNotification } from './src/server/operations';
 import { classifySessionAndKillZone } from './src/engine/session';
 import { isFxMarketClosed } from './src/engine/marketHours';
-import { loadSessionConfig, sessionConfigHash, signalDeliveryWithinConfiguredSession } from './src/engine/sessionConfig';
+import { loadSessionConfig, sessionConfigHash } from './src/engine/sessionConfig';
 import { loadMarketCalendar, marketCalendarHash } from './src/engine/marketCalendar';
+import { alertBeforeTelemetry } from './src/server/alertBeforeTelemetry';
 
 if (typeof __dirname !== 'undefined' && (__dirname === '.' || !path.isAbsolute(__dirname))) {
   // @ts-ignore
@@ -668,30 +669,17 @@ const scanService = new ScanService({
   onScan: async (result) => {
     if (!result.telemetry) return;
     if (result.trigger === 'AUTO' && !scanLoop.state().enabled) return;
-    const recorded = experimentTracker.recordCandidate(result.telemetry);
+    const { alertResult: operationalOverride } = await alertBeforeTelemetry(result, async (scanResult) => {
+      if (!scanResult.telemetry) return undefined;
+      const delivery = await notificationService.dispatchSignalAlert(scanResult.telemetry, { signalId: scanResult.signal_id, validUntil: scanResult.valid_until, signalPrice: scanResult.signal_price, quotePrice: scanResult.quote_price, quoteTs: scanResult.quote_ts, priceTolerance: scanResult.price_tolerance });
+      if (delivery.telegram === 'SENT' && scanResult.signal_id) signalLedger.recordTelegramSent(scanResult.signal_id);
+      return undefined;
+    }, (telemetry) => experimentTracker.recordCandidate(telemetry));
     for (const milestone of experimentTracker.pendingMilestoneNotifications()) {
       const delivered = await notificationService.sendTelegramText(`MILESTONE: ${milestone} valid signals recorded. Research tracking continues; no execution is performed.`);
       if (delivered) experimentTracker.markMilestoneNotified(milestone);
     }
-    if (!experimentTracker.isAlertsMuted() && result.status !== 'NO_TRADE' && recorded.system_execution.system_decision === 'PASS') {
-      const signal = result.signal_id ? signalLedger.get(result.signal_id) : undefined;
-      const entryMs = signal ? Date.parse(signal.entry_ts) : Number.NaN;
-      const zoneName = Number.isFinite(entryMs) ? classifySessionAndKillZone(new Date(entryMs).toISOString()).kill_zone_name : undefined;
-      const deliveryNow = Date.now();
-      const deliverable = Boolean(signal && result.valid_until && signalDeliveryWithinConfiguredSession({
-        deliveryMs: deliveryNow,
-        entryMs,
-        validUntil: result.valid_until,
-        timeframe: signal.timeframe,
-        zoneName,
-        config: SESSION_CONFIG,
-      }));
-      if (!deliverable) {
-        return { status: 'NO_TRADE' as const, reason: 'SIGNAL_OUTSIDE_WINDOW' };
-      }
-      const delivery = await notificationService.dispatchSignalAlert(recorded, { signalId: result.signal_id, validUntil: result.valid_until, signalPrice: result.signal_price, quotePrice: result.quote_price, quoteTs: result.quote_ts, priceTolerance: result.price_tolerance });
-      if (delivery.telegram === 'SENT' && result.signal_id) signalLedger.recordTelegramSent(result.signal_id);
-    }
+    return operationalOverride;
   },
   onResolved: async (signal, outcome) => {
     await notificationService.sendTelegramText(`RESULT ${signal.signal_id} ${signal.pair} ${signal.timeframe} ${signal.direction}: ${outcome} (open ${signal.entry_price ?? 'UNAVAILABLE'} -> close ${signal.exit_price ?? 'UNAVAILABLE'}). Research record only.`);
