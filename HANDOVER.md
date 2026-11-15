@@ -2,6 +2,12 @@
 
 > **Historical snapshot:** validation totals and status below describe the 2026-10-16/C5 work at the named commits; they are not current PR-4 validation. See [the PR-4 Telegram follow-up evidence](docs/evidence/pr4-telegram-followup-2026-11-15.md) for the current reliability follow-up and its test results.
 
+## Current post-merge audit — 2026-11-15
+
+The current `main` is `ec73c9b9efd67e9c15224d0540fcebc959852e2f`, the squash merge commit for PR #40 (`fix: harden Telegram expiry and final fallback`). PR #40 passed the required `Node CI and npm audit` workflow (run `43685875719`) before merge, was merged without bypass or force merge, and its remote feature branch was deleted. A post-merge `npm test` run completed with exit code 0; the detailed audit record, suite scope, and live-test boundary are in [the PR #40/#41 post-merge audit](docs/evidence/post-merge-audit-pr40-pr41-2026-11-15.md).
+
+Before this documentation follow-up was opened, the requested PR #41 was not present in GitHub: the API returned 404 and the recent repository history ended at PR #40. This follow-up is now submitted as documentation-only PR #41; it has no production merge or post-merge runtime result to report. If it is merged, record its own required CI conclusion, merge commit, and branch cleanup separately.
+
 ## Status
 
 The authorized C1–C5 scope, F1 fetch-boundary fix, and tests are complete. The current September EUR/USD R8 replay uses complete raw CSVs, excludes scheduled FX-closure timestamps only from analysis, and reports exact raw/analyzed/excluded counts; raw provider CSVs remain unchanged. The original F2 inspection found no fully flat OHLC bars. The Owner explicitly accepts the A4 `reused` metadata markers and A10 header-capture limitation as passes. Strategy predicates, thresholds, weights, and FULL-mode default remain unchanged; `ENGINE_FULL_MODE_ENABLED=false` remains the default.
