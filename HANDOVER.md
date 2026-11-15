@@ -1,6 +1,12 @@
-# ComVision Engine Handover — 2026-10-16
+# ComVision Engine Handover — 2026-11-16
 
 > **Historical snapshot:** validation totals and status below describe the 2026-10-16/C5 work at the named commits; they are not current PR-4 validation. See [the PR-4 Telegram follow-up evidence](docs/evidence/pr4-telegram-followup-2026-11-15.md) for the current reliability follow-up and its test results.
+
+## Current main status — PR #42
+
+PR #42 was squash-merged without bypass into main at `f212f523c2eb2517f13eda1b8944dbd07b3240b2` after successful remote CI and recorded validation. The post-merge full configured `npm test` suite passed on that exact main commit. The complete merge, CI, pre-merge, and post-merge audit trail is in [docs/evidence/post-merge-audit-pr42-2026-11-16.md](docs/evidence/post-merge-audit-pr42-2026-11-16.md).
+
+PR #42 adds CE mitigation and IDM telemetry under authoritative `decision_engine_v3` only. The 19 internal stages, 9 external gates, Gate 4 golden parity, and safety invariants remain unchanged. No live provider or Telegram test was initiated; configuration/session hashes, engine fingerprint, and migration status must be captured immediately before a future live test.
 
 ## Status
 
@@ -81,7 +87,7 @@ F2 uses exact OHLC comparisons on UTC timestamps. **Fully flat (`high==low` and 
 - Strategy profitability, or any claim of real-money readiness.
 - Full R8 evidence with N≥200 and an appropriate historical news CSV.
 - Live scan soak or live Telegram commands.
-- Merge, release tag, or fresh-clone post-merge validation. The Owner requires written approval before merge; none is assumed here.
+- Live provider/Telegram soak testing and fresh-clone validation after PR #42. The PR-42 merge and post-merge local suite are documented above; no live test was initiated.
 
 ## Raw outputs
 
