@@ -51,16 +51,16 @@ assert.ok(ideal.every((c) => c.volume === null));
 console.log('[price_only_no_zero_fill] PASS');
 
 // P2 data integrity units.
-assert.equal(validateCandleSeries(ideal, { timeframe: tf }).ok, true);
+assert.equal(validateCandleSeries(ideal, { timeframe: tf, nowMs: Date.parse(ideal.at(-1)!.timestamp) + 15 * 60_000 }).ok, true);
 const dup = [...ideal]; dup.splice(10, 0, { ...ideal[10] });
-assert.ok(validateCandleSeries(dup, { timeframe: tf }).issues.some((i) => i.code === 'DUPLICATE_TIMESTAMP'));
+assert.ok(validateCandleSeries(dup, { timeframe: tf, nowMs: Date.parse(ideal.at(-1)!.timestamp) + 15 * 60_000 }).issues.some((i) => i.code === 'DUPLICATE_TIMESTAMP'));
 const misaligned = ideal.map((c, i) => (i === 5 ? { ...c, timestamp: new Date(Date.parse(c.timestamp) + 60_000).toISOString() } : c));
-assert.ok(validateCandleSeries(misaligned, { timeframe: tf }).issues.some((i) => i.code === 'MISALIGNED_TIMESTAMP'));
+assert.ok(validateCandleSeries(misaligned, { timeframe: tf, nowMs: Date.parse(ideal.at(-1)!.timestamp) + 15 * 60_000 }).issues.some((i) => i.code === 'MISALIGNED_TIMESTAMP'));
 const weekend: Candle[] = [
   { timestamp: '2026-01-09T21:45:00.000Z', open: 1, high: 1.1, low: 0.9, close: 1, volume: null },
   { timestamp: '2026-01-11T21:00:00.000Z', open: 1, high: 1.1, low: 0.9, close: 1, volume: null },
 ];
-assert.equal(validateCandleSeries(weekend, { timeframe: tf }).ok, true, 'weekend closure is not a gap');
+assert.equal(validateCandleSeries(weekend, { timeframe: tf, nowMs: Date.parse(weekend.at(-1)!.timestamp) + 15 * 60_000 }).ok, true, 'weekend closure is not a gap');
 assert.equal(measureClockDrift(new Date(1_000_000).toUTCString(), 1_000_000 + 4_000, 1_000_000 + 4_100).status, 'CLOCK_DRIFT');
 assert.equal(measureClockDrift(new Date(1_000_000).toUTCString(), 1_000_300, 1_000_400).status, 'CLOCK_OK');
 assert.equal(measureClockDrift(null, 0, 1).status, 'CLOCK_UNAVAILABLE');

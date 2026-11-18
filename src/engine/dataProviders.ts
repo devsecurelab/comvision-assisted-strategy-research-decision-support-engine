@@ -200,7 +200,7 @@ export class MarketFeedManager {
     if (!budget.allowed) throw new MarketDataError('RATE_LIMITED', `Provider batch request blocked by scheduler: ${budget.reason}.`, provider);
     this.incrementRequests(provider);
     const startedAt = Date.now();
-    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 3_000);
+    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(new DOMException('request timed out', 'TimeoutError')), 3_000);
     try {
       const raw = await adapter.fetchCandlesBatch(normalizedPairs, timeframe, controller.signal);
       const fetchedAt = new Date().toISOString(); const result: Record<string, MarketDataResult> = {};
@@ -208,7 +208,8 @@ export class MarketFeedManager {
         const payload = raw[pair]; if (!payload) continue;
         const normalized = normalizeCandles(payload, provider, timeframe, true);
         const latest = normalized.candles.at(-1); if (!latest) continue;
-        result[pair] = { candles: normalized.candles, provider, dataProvenance: 'LIVE_INGESTED', fetchedAt, lastTickAt: latest.timestamp, latencyMs: Date.now() - startedAt, cacheHit: false, volumeAvailable: normalized.volumeAvailable, creditsUsed: payload.creditsUsed, creditsLeft: payload.creditsLeft, clockStatus: 'CLOCK_UNAVAILABLE', clockDriftMs: null };
+        const clock = measureClockDrift(payload.serverDate, startedAt, Date.now());
+        result[pair] = { candles: normalized.candles, provider, dataProvenance: 'LIVE_INGESTED', fetchedAt, lastTickAt: latest.timestamp, latencyMs: Date.now() - startedAt, cacheHit: false, volumeAvailable: normalized.volumeAvailable, creditsUsed: payload.creditsUsed, creditsLeft: payload.creditsLeft, clockStatus: clock.status, clockDriftMs: clock.driftMs };
       }
       this.lastSuccessfulSync = fetchedAt; this.lastSuccessfulProvider = provider; this.lastFailedProvider = undefined;
       return result;
@@ -227,7 +228,7 @@ export class MarketFeedManager {
     const budget = await this.schedulers.get(provider)!.consumeWhenAvailable('ON_DEMAND');
     if (!budget.allowed) throw new MarketDataError('RATE_LIMITED', `Provider quote blocked by scheduler: ${budget.reason}.`, provider);
     this.incrementRequests(provider);
-    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 3_000);
+    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(new DOMException('request timed out', 'TimeoutError')), 3_000);
     try { const quote = await adapter.fetchQuote(normalizedPair, controller.signal); return { price: quote.price, ts: quote.ts }; }
     catch (error) { if (error instanceof ProviderAdapterError) throw new MarketDataError(error.code, error.message, provider); throw error instanceof MarketDataError ? error : new MarketDataError('QUOTE_UNAVAILABLE', 'Provider quote request failed.', provider); }
     finally { clearTimeout(timeout); }
@@ -272,7 +273,7 @@ export class MarketFeedManager {
       this.incrementRequests(provider);
     }
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3_000);
+    const timeout = setTimeout(() => controller.abort(new DOMException('request timed out', 'TimeoutError')), 3_000);
     try {
       const operation = async (): Promise<MarketDataResult> => {
         try {

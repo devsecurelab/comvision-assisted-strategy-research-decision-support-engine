@@ -69,6 +69,7 @@ export class NotificationService {
   private readonly mailTimeoutMs: number;
   private readonly signalSendInFlight = new Map<string, Promise<TelegramSendResult>>();
   private readonly sentSignalIds = new Set<string>();
+  private readonly credentialAlertsSent = new Set<string>();
 
   /** Wires the R9 scan service and loop so owner commands (/scan, /result, /health, /resume, /report, /autoscan) can use them. */
   public attachScanService(service: ScanService, loop: ScanLoop): void {
@@ -660,6 +661,13 @@ export class NotificationService {
       payload_summary: text.slice(0, 160).split(token).join('[REDACTED_BOT_TOKEN]'),
     });
     return response.ok;
+  }
+
+  /** Emits one owner alert per provider credential incident until the process restarts. */
+  public async notifyCredentialInvalid(provider: string): Promise<boolean> {
+    if (this.credentialAlertsSent.has(provider)) return false;
+    this.credentialAlertsSent.add(provider);
+    return this.sendTelegramText(`CREDENTIAL_INVALID — ${provider} credentials were rejected. Scans are fail-closed; update the server-side key before retrying.`);
   }
 
   /**

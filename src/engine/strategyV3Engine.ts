@@ -1,7 +1,7 @@
 import type { Candle, InducementState, NewsEvent, Timeframe } from './types';
 import { computeVolumeWeightedPoc, detectBprFromCandles, evaluateIfvg, evaluateInducement } from './marketStructureV3';
 import { classifySessionAndKillZone, isCoreSession } from './session';
-import { validateCandleSeries } from './dataIntegrity';
+import { timeframeMs, validateCandleSeries } from './dataIntegrity';
 import {
   ANALYSIS_WINDOW,
   ATR_PERIOD,
@@ -69,6 +69,8 @@ export interface V3Input {
   newsEvents: NewsEvent[];
   newsSourceOnline: boolean;
   timeframe?: Timeframe;
+  /** Wall clock for freshness validation; replay callers may use the last candle close. */
+  nowMs?: number;
   timestamp?: string;
   /** FULL mode requires real provider volume/delta AND explicit enablement (ENGINE_FULL_MODE_ENABLED=true). */
   fullModeEnabled?: boolean;
@@ -164,7 +166,9 @@ export function isFullModeEnabled(explicit?: boolean): boolean {
 export function evaluateStrategyV3(input: V3Input): V3Decision {
   const d: Direction = input.htfBias === 'BULLISH' || input.htfBias === 'BEARISH' ? input.htfBias : 'NEUTRAL';
   if (d === 'NEUTRAL') return failClosed(input, d, 'HTF_BIAS_UNCLEAR: latest closed 1h structure gives no direction. NO_TRADE.');
-  const quality = validateCandleSeries(input.candles, { timeframe: input.timeframe, minCandles: MIN_ENGINE_CANDLES });
+  const timeframe = input.timeframe ?? '5m';
+  const qualityNowMs = input.nowMs ?? Date.parse(input.candles.at(-1)!.timestamp) + timeframeMs(timeframe);
+  const quality = validateCandleSeries(input.candles, { timeframe, nowMs: qualityNowMs, minCandles: MIN_ENGINE_CANDLES });
   if (!quality.ok) return failClosed(input, d, `DATA_QUALITY_FAIL: ${quality.issues.slice(0, 3).map((i) => i.code).join(', ')}`);
 
   const cs = input.candles.slice(-ANALYSIS_WINDOW);

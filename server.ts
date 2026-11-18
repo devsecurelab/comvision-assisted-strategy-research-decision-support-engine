@@ -666,6 +666,7 @@ const scanService = new ScanService({
   autoBudgetRemaining: () => { const snapshot = feedManager.getSchedulerSnapshot(); return Math.min(snapshot.remainingAuto, snapshot.remainingDay); },
   now: () => Date.now(),
   ledger: signalLedger,
+  onProviderCredentialInvalid: async (provider) => { await notificationService.notifyCredentialInvalid(provider); },
   onScan: async (result) => {
     if (!result.telemetry) return;
     if (result.trigger === 'AUTO' && !scanLoop.state().enabled) return;

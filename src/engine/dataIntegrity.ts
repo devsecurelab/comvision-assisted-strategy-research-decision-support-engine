@@ -11,6 +11,7 @@ export type DataQualityCode =
   | 'MISALIGNED_TIMESTAMP'
   | 'CANDLE_GAP'
   | 'FORMING_CANDLE'
+  | 'STALE_LAST_CANDLE'
   | 'CLOCK_DRIFT';
 
 export interface DataQualityIssue { code: DataQualityCode; index?: number; detail: string }
@@ -39,7 +40,7 @@ export function isScheduledMarketBarClosed(openMs: number, durationMs: number): 
  */
 export function validateCandleSeries(
   candles: Candle[],
-  options: { timeframe?: Timeframe; nowMs?: number; minCandles?: number } = {},
+  options: { timeframe?: Timeframe; nowMs: number; minCandles?: number },
 ): DataQualityReport {
   const issues: DataQualityIssue[] = [];
   const minCandles = options.minCandles ?? 1;
@@ -78,8 +79,11 @@ export function validateCandleSeries(
     }
     previousMs = ms;
   });
-  if (interval && options.nowMs !== undefined && previousMs !== undefined && previousMs + interval > options.nowMs) {
+  if (interval && previousMs !== undefined && previousMs + interval > options.nowMs) {
     issues.push({ code: 'FORMING_CANDLE', index: candles.length - 1, detail: 'Latest candle has not closed; decisions use closed candles only.' });
+  }
+  if (interval && previousMs !== undefined && previousMs + interval + interval + 60_000 < options.nowMs) {
+    issues.push({ code: 'STALE_LAST_CANDLE', index: candles.length - 1, detail: 'Latest closed candle is older than the allowed freshness window.' });
   }
   return { ok: issues.length === 0, status: issues.length === 0 ? 'DATA_QUALITY_OK' : 'DATA_QUALITY_FAIL', issues };
 }
