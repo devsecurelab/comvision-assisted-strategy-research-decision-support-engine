@@ -17,32 +17,34 @@
     "verify:legacy-chain": "tsx scripts/verify-legacy-chain.ts",
     "engine:fingerprint": "tsx scripts/engine-fingerprint.ts",
     "test:inventory": "tsx scripts/verify-test-inventory.ts",
-    "audit:report": "tsx scripts/npm-audit-report.ts"
+    "audit:report": "tsx scripts/npm-audit-report.ts",
+    "audit:production": "npm audit --omit=dev"
   },
   "dependencies": {
     "@noble/hashes": "^1.8.0",
-    "@vitejs/plugin-react": "^6.1.1",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "nodemailer": "^10.0.10",
     "react": "^19.0.1",
-    "react-dom": "^19.0.1",
-    "vite": "^8.3.0"
+    "react-dom": "^19.0.1"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.5",
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "@types/nodemailer": "^8.0.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.28.2",
     "postcss": "^8.5.6",
-    "tailwindcss": "^3.4.17",
+    "tailwindcss": "^4.3.5",
     "tsx": "^4.21.0",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
   },
   "engines": {
     "node": ">=22 <25"
