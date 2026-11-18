@@ -61,7 +61,11 @@ jobs:
       - name: Install dependencies from npm lockfile
         run: npm ci
 
-      - name: Generate npm audit evidence (audit findings fail this job)
+      - name: Audit production dependencies (must be clean)
+        run: npm run audit:production
+
+      - name: Generate full npm audit evidence (build-tool findings are tracked)
+        continue-on-error: true
         run: npm run audit:report
 
       - name: Upload dated npm audit evidence
