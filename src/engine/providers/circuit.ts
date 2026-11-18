@@ -35,7 +35,7 @@ export class TwelveDataCircuit {
         this.state.lastFailureCode = code;
         this.state.lastFailureAt = failedAt;
         if (code === 'RATE_LIMITED') this.state.retryAt = nextUtcMinute(failedAt);
-        else if (code === 'DAILY_QUOTA_EXHAUSTED') this.state.retryAt = nextUtcMidnight(failedAt);
+        else if (code === 'DAILY_QUOTA_EXHAUSTED') this.state.retryAt = error instanceof ProviderAdapterError && error.retryAt && error.retryAt > failedAt ? error.retryAt : nextUtcMidnight(failedAt);
         else if (['PROVIDER_TIMEOUT', 'PROVIDER_SERVER_ERROR', 'PROVIDER_UNAVAILABLE'].includes(code)) this.state.retryAt = failedAt + 60_000;
       }
       throw error;

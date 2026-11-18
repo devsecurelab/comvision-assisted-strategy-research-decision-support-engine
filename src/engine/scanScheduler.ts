@@ -64,6 +64,7 @@ export interface ScanDeps {
   now(): number;
   ledger: SignalLedger;
   onScan?(result: ScanResult): Promise<Partial<ScanResult> | void> | Partial<ScanResult> | void;
+  onProviderCredentialInvalid?(provider: MarketDataProvider): Promise<void> | void;
   onResolved?(signal: SignalView, outcome: SignalOutcome): Promise<void> | void;
   onEdgeLost?(reason: string): Promise<void> | void;
   loadState?(): ScanLoopState | undefined;
@@ -191,6 +192,7 @@ export class ScanService {
       if (this.deps.now() - generationStartedAt > GENERATION_DEADLINE_MS) return expired();
     } catch (error) {
       const code = error instanceof MarketDataError ? error.code : 'PROVIDER_ERROR';
+      if (code === 'CREDENTIAL_INVALID') await this.deps.onProviderCredentialInvalid?.(error instanceof MarketDataError ? error.provider : 'TWELVE_DATA');
       const reason = code === 'RATE_LIMITED' ? `BUDGET_LIMIT: ${error instanceof Error ? error.message : ''}` : `${code}: ${error instanceof Error ? error.message : 'market data unavailable'}`;
       return this.noTrade(pair, timeframe, trigger, reason, { provider: primary?.provider });
     }
@@ -204,7 +206,9 @@ export class ScanService {
     const telemetry = executeStrategyPipeline({
       candles, currentCandleIndex: candles.length - 1, selectedTimeframe: timeframe,
       htfCandles, newsEvents: this.deps.newsEvents(), newsSourceOnline: this.deps.newsSourceOnline(),
-      dataProvenance: primary.dataProvenance, provider: primary.provider, pair: displayScanPair(pair), asset: displayScanPair(pair),
+      dataProvenance: primary.dataProvenance, provider: primary.provider,
+      clockStatus: primary.clockStatus !== 'CLOCK_OK' ? primary.clockStatus : htf.clockStatus,
+      pair: displayScanPair(pair), asset: displayScanPair(pair),
       payoutPct: payout.pct, payoutSetAt: payout.setAt, nowMs,
     });
     const v3 = telemetry.decision_engine_v3;

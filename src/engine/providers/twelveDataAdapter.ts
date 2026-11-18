@@ -71,6 +71,13 @@ export class TwelveDataAdapter implements IForexDataProvider {
     if (Array.isArray(payload?.values) && payload.values.length >= 4500) {
       throw new ProviderAdapterError(this.id, 'HISTORICAL_TRUNCATED', 'Twelve Data returned the historical output cap; reduce the date range and retry.');
     }
+    const endText = endDateInclusive.trim();
+    const requestedEndMs = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(endText) ? `${endText}T23:59:59Z` : `${endText.replace(' ', 'T')}Z`);
+    const lastRow = Array.isArray(payload?.values) ? payload.values.at(-1) : undefined;
+    const lastRowMs = Date.parse(String(lastRow?.datetime ?? ''));
+    if (Number.isFinite(requestedEndMs) && Number.isFinite(lastRowMs) && lastRowMs > requestedEndMs) {
+      throw new ProviderAdapterError(this.id, 'HISTORICAL_END_BOUNDARY_MISMATCH', 'Twelve Data returned a candle after the requested historical end boundary.');
+    }
     return { ...this.parsePayload(payload, response.serverDate), creditsUsed: response.creditsUsed, creditsLeft: response.creditsLeft };
   }
 

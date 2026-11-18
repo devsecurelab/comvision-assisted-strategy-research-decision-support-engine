@@ -13,6 +13,7 @@ export class ProviderAdapterError extends Error {
     public readonly code: string,
     message: string,
     public readonly httpStatus?: number,
+    public readonly retryAt?: number,
   ) {
     super(message);
     this.name = 'ProviderAdapterError';
@@ -31,8 +32,9 @@ export async function requestJson(
     response = await request(url, { signal, headers: { Accept: 'application/json', ...headers } });
   } catch (error: unknown) {
     if (error instanceof ProviderAdapterError) throw error;
-    const aborted = error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError');
-    const timeout = error instanceof Error && error.name === 'TimeoutError';
+    const timeout = signal.reason instanceof Error && signal.reason.name === 'TimeoutError'
+      || error instanceof Error && error.name === 'TimeoutError';
+    const aborted = error instanceof Error && error.name === 'AbortError';
     throw new ProviderAdapterError(provider, timeout ? 'PROVIDER_TIMEOUT' : aborted ? 'OPERATOR_ABORT' : 'PROVIDER_UNAVAILABLE', timeout ? `${provider} request timed out.` : aborted ? `${provider} request aborted by operator.` : `${provider} market-data request failed.`);
   }
 
@@ -42,7 +44,11 @@ export async function requestJson(
   if (response.status === 401 || response.status === 403 || payloadCode === 401 || payloadCode === 403) throw new ProviderAdapterError(provider, 'CREDENTIAL_INVALID', `${provider} credentials were rejected.`, response.status || payloadCode);
   if (response.status === 429 || payloadCode === 429) {
     const daily = /daily|day|quota/i.test(String(payload?.message || payload?.error || ''));
-    throw new ProviderAdapterError(provider, daily ? 'DAILY_QUOTA_EXHAUSTED' : 'RATE_LIMITED', `${provider} ${daily ? 'daily quota exhausted' : 'rate limit reached'}.`, response.status || 429);
+    const detail = String(payload?.message || payload?.error || '');
+    const absolute = detail.match(/\b(20\d{2}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?(?:Z|[+-]\d{2}:?\d{2})?))\b/);
+    const parsed = absolute ? Date.parse(absolute[1]) : NaN;
+    const retryAt = Number.isFinite(parsed) ? parsed : undefined;
+    throw new ProviderAdapterError(provider, daily ? 'DAILY_QUOTA_EXHAUSTED' : 'RATE_LIMITED', `${provider} ${daily ? 'daily quota exhausted' : 'rate limit reached'}${retryAt ? `; reset at ${new Date(retryAt).toISOString()}` : '.'}`, response.status || 429, retryAt);
   }
   if (response.status >= 500) throw new ProviderAdapterError(provider, 'PROVIDER_SERVER_ERROR', `${provider} server error (HTTP ${response.status}).`, response.status);
   if (!response.ok) throw new ProviderAdapterError(provider, 'PROVIDER_HTTP_ERROR', `${provider} returned HTTP ${response.status}.`, response.status);

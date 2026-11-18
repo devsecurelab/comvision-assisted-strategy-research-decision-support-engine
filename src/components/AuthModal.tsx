@@ -2,7 +2,7 @@
 // Supports Custom Credentials + Status Lifecycle + Quick Demo Logins
 
 import React, { useState } from 'react';
-import { X, Lock, Mail, User, ShieldCheck, AlertCircle, Sparkles } from 'lucide-react';
+import { X, Lock, Mail, User, ShieldCheck, AlertCircle } from 'lucide-react';
 import { UserAccount, UserStatus } from '../engine/types';
 import { apiFetch } from '../config/api';
 
@@ -199,55 +199,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               : 'Create Account (Pending Admin Review)'}
           </button>
         </form>
-
-        {/* 1-Click Quick Operator Access for Instant Evaluation */}
-        {isLogin && (
-          <div className="pt-2 border-t border-slate-800 space-y-2">
-            <div className="flex items-center justify-between text-[11px] text-slate-400">
-              <span className="flex items-center gap-1 text-slate-300 font-medium">
-                <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                Quick Operator Access:
-              </span>
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                APPROVED
-              </span>
-            </div>
-            <button
-              type="button"
-              disabled={loading}
-              onClick={async () => {
-                setEmail('analyst@devsecure.engine');
-                setPassword('TestAnalystPass2026!');
-                setLoading(true);
-                setErrorMessage(null);
-                try {
-                  const res = await apiFetch('/api/auth/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      email: 'analyst@devsecure.engine',
-                      password: 'TestAnalystPass2026!',
-                    }),
-                  });
-                  const data = await res.json();
-                  if (res.ok && data.token && data.user) {
-                    onSuccess(data.token, data.user);
-                    onClose();
-                  } else {
-                    setErrorMessage(data.message || 'Quick login failed');
-                  }
-                } catch (err: any) {
-                  setErrorMessage(err.message || 'Communication error during quick sign in');
-                } finally {
-                  setLoading(false);
-                }
-              }}
-              className="w-full py-2 px-3 bg-slate-800/90 hover:bg-slate-800 text-indigo-300 hover:text-white border border-indigo-500/30 hover:border-indigo-400 rounded-lg text-xs font-medium flex items-center justify-center gap-2 transition shadow-sm"
-            >
-              <span>1-Click Operator Sign In (analyst@devsecure.engine)</span>
-            </button>
-          </div>
-        )}
 
         {/* Toggle Login/Register */}
         <div className="text-center pt-2 border-t border-slate-800">

@@ -75,12 +75,12 @@ assert.deepEqual(filterFxOpenMarketCandles(boundaryBars, '15m').map((candle) => 
 const acrossWinterClosure = validateCandleSeries([
   { timestamp: '2026-01-09T21:45:00.000Z', open: 1.1, high: 1.2, low: 1.0, close: 1.1, volume: null },
   { timestamp: '2026-01-11T22:00:00.000Z', open: 1.1, high: 1.2, low: 1.0, close: 1.1, volume: null },
-], { timeframe: '15m' });
+], { timeframe: '15m', nowMs: Date.parse('2026-01-11T22:15:00.000Z') });
 assert.equal(acrossWinterClosure.ok, true, 'gap validation uses the same DST-aware closure schedule');
 const acrossExactClosureBoundary = validateCandleSeries([
   { timestamp: '2026-10-16T20:30:00.000Z', open: 1.1, high: 1.2, low: 1.0, close: 1.1, volume: null },
   { timestamp: '2026-10-18T21:00:00.000Z', open: 1.1, high: 1.2, low: 1.0, close: 1.1, volume: null },
-], { timeframe: '15m' });
+], { timeframe: '15m', nowMs: Date.parse('2026-10-18T21:15:00.000Z') });
 assert.equal(acrossExactClosureBoundary.ok, true, 'a closure-overlapping boundary bar is excluded and not reported as a data gap');
 
 // Open-time decision remains identical to the pre-closure engine path; closed pseudo-bar fails closed.

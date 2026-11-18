@@ -55,7 +55,7 @@ assert.equal(result.status, 2); assert.match(result.stderr, /R8_NOT_RUN: TWELVE_
 assert.equal(fs.existsSync('/tmp/r8-should-not-exist'), false);
 
 // Mocked historical fetch: date-only chunk ends previously stopped at 00:00,
-// losing the final day of each chunk. Verify full-day queries, clipping, and continuity.
+// losing the final day of each chunk. Verify full-day queries and continuity.
 const fetchChunks = dateChunks('2026-09-01', '2026-09-30', '5m');
 const requestedUrls: URL[] = [];
 const mockHistoricalRequest = (async (input: RequestInfo | URL) => {
@@ -66,13 +66,10 @@ const mockHistoricalRequest = (async (input: RequestInfo | URL) => {
   const end = endParameter.includes(' ')
     ? Date.parse(`${endParameter.replace(' ', 'T')}Z`)
     : Date.parse(`${endParameter}T00:00:00.000Z`);
-  const chunkEndExclusive = Date.parse(`${endParameter.slice(0, 10)}T00:00:00.000Z`) + 86_400_000;
   const values: Array<Record<string, string>> = [];
   for (let time = start; time <= end; time += 5 * 60_000) {
     values.push({ datetime: new Date(time).toISOString(), open: '1.1000', high: '1.1010', low: '1.0990', close: '1.1005' });
   }
-  // Simulate a provider returning the next boundary candle as well; the adapter must clip it.
-  values.push({ datetime: new Date(chunkEndExclusive).toISOString(), open: '1.1000', high: '1.1010', low: '1.0990', close: '1.1005' });
   return new Response(JSON.stringify({ status: 'ok', values }), { status: 200, headers: { 'Content-Type': 'application/json', Date: new Date().toUTCString() } });
 }) as typeof fetch;
 const historicalManager = new MarketFeedManager('mock-only-key', mockHistoricalRequest);

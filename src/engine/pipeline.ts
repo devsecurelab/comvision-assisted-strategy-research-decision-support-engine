@@ -29,6 +29,7 @@ export interface PipelineInput {
   newsSourceOnline: boolean;
   dataProvenance?: DataProvenance;
   provider?: 'TWELVE_DATA';
+  clockStatus?: 'CLOCK_OK' | 'CLOCK_DRIFT' | 'CLOCK_UNAVAILABLE' | 'CLOCK_UNVERIFIED';
   pair?: string;
   asset?: string;
   payoutPct?: number;
@@ -67,6 +68,9 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
   if (dataProvenance !== 'LIVE_INGESTED') {
     return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'DEGRADED', `NOT_LIVE_DATA: ${dataProvenance} is not verified live provider data. NO_TRADE.`, new Date().toISOString(), failContext);
   }
+  if (input.clockStatus !== undefined && input.clockStatus !== 'CLOCK_OK') {
+    return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'DEGRADED', `CLOCK_UNVERIFIED: provider clock status is ${input.clockStatus}. NO_TRADE.`, new Date().toISOString(), failContext);
+  }
   if (input.payoutPct === undefined || input.payoutPct === null || !Number.isFinite(input.payoutPct)) {
     return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'DEGRADED', 'PAYOUT_UNSET: payout not set via Telegram. NO_TRADE.', new Date().toISOString(), failContext);
   }
@@ -74,7 +78,8 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
     return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'DEGRADED', `PAYOUT_BELOW_MIN: ${input.payoutPct}% < ${MIN_PAYOUT_PCT}%. NO_TRADE.`, new Date().toISOString(), failContext);
   }
   const series = candles ? candles.slice(0, currentCandleIndex + 1) : [];
-  const quality = validateCandleSeries(series, { timeframe: selectedTimeframe, nowMs: input.nowMs, minCandles: MIN_ENGINE_CANDLES });
+  const qualityNowMs = input.nowMs ?? (decisionCandle ? Date.parse(decisionCandle.timestamp) + timeframeMs(selectedTimeframe) : Date.now());
+  const quality = validateCandleSeries(series, { timeframe: selectedTimeframe, nowMs: qualityNowMs, minCandles: MIN_ENGINE_CANDLES });
   if (!quality.ok) {
     return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'INVALID', `DATA_QUALITY_FAIL: ${quality.issues.slice(0, 3).map((issue) => `${issue.code} ${issue.detail}`).join('; ')}`, new Date().toISOString(), { ...failContext, dataQualityIssues: quality.issues.map((issue) => issue.code) });
   }
@@ -89,7 +94,7 @@ export function executeStrategyPipeline(input: PipelineInput): MasterTelemetry {
   }
   const c3 = candles[currentCandleIndex];
   const resolvedProvenance: DataProvenance = dataProvenance;
-  const v3Decision = evaluateStrategyV3({ candles: candles.slice(0, currentCandleIndex + 1), htfBias: resolvedHtfBias, newsEvents, newsSourceOnline, timeframe: selectedTimeframe, timestamp: c3.timestamp, gate4Mode: input.gate4Mode });
+  const v3Decision = evaluateStrategyV3({ candles: candles.slice(0, currentCandleIndex + 1), htfBias: resolvedHtfBias, newsEvents, newsSourceOnline, timeframe: selectedTimeframe, timestamp: c3.timestamp, nowMs: input.nowMs, gate4Mode: input.gate4Mode });
   if (v3Decision.mfci.totalMfci === null || v3Decision.mfci.sStructure === null || v3Decision.mfci.sLiquidity === null || v3Decision.entryPrice === null) {
     return createInconclusiveTelemetry(pair, asset, selectedTimeframe, 'INVALID', v3Decision.statusReason, new Date().toISOString(), failContext);
   }

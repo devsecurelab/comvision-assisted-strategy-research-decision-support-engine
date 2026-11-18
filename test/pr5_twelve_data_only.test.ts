@@ -4,6 +4,8 @@ import { ProviderAdapterError, requestJson } from '../src/engine/providers/http'
 import { TwelveDataAdapter } from '../src/engine/providers/twelveDataAdapter';
 import { normalizeCandles } from '../src/engine/providers/normalize';
 import { TwelveDataCircuit } from '../src/engine/providers/circuit';
+import { validateCandleSeries } from '../src/engine/dataIntegrity';
+import { executeStrategyPipeline } from '../src/engine/pipeline';
 import type { ProviderCandlePayload } from '../src/engine/providers/contracts';
 import { evaluateStrategyV3 } from '../src/engine/strategyV3Engine';
 import { generateResearchCandles } from './fixtures/marketCandles';
@@ -32,6 +34,25 @@ async function httpClassification() {
     requestJson('TWELVE_DATA', serverError, new URL('https://api.twelvedata.com/time_series'), new AbortController().signal),
     (error: unknown) => error instanceof ProviderAdapterError && error.code === 'PROVIDER_SERVER_ERROR',
   );
+
+  const quotaSignal = new AbortController();
+  await assert.rejects(
+    requestJson('TWELVE_DATA', async () => response({ code: 429, message: 'daily quota resets at 2026-10-26T12:34:00Z' }, 429), new URL('https://api.twelvedata.com/time_series'), quotaSignal.signal),
+    (error: unknown) => error instanceof ProviderAdapterError && error.code === 'DAILY_QUOTA_EXHAUSTED' && error.retryAt === Date.parse('2026-10-26T12:34:00Z'),
+  );
+
+  const timedOut = new AbortController();
+  timedOut.abort(new DOMException('request timed out', 'TimeoutError'));
+  await assert.rejects(
+    requestJson('TWELVE_DATA', async () => { throw new DOMException('aborted', 'AbortError'); }, new URL('https://api.twelvedata.com/time_series'), timedOut.signal),
+    (error: unknown) => error instanceof ProviderAdapterError && error.code === 'PROVIDER_TIMEOUT',
+  );
+  const operatorAbort = new AbortController();
+  operatorAbort.abort();
+  await assert.rejects(
+    requestJson('TWELVE_DATA', async () => { throw new DOMException('aborted', 'AbortError'); }, new URL('https://api.twelvedata.com/time_series'), operatorAbort.signal),
+    (error: unknown) => error instanceof ProviderAdapterError && error.code === 'OPERATOR_ABORT',
+  );
 }
 
 async function strictPayloadValidation() {
@@ -58,7 +79,7 @@ async function historicalRequestCeiling() {
   const urls: URL[] = [];
   const adapter = new TwelveDataAdapter(async (input) => {
     urls.push(new URL(String(input)));
-    return response({ values: [{ datetime: '2026-10-26T10:00:00.000Z', open: '1.1', high: '1.2', low: '1.0', close: '1.1' }] });
+    return response({ values: [{ datetime: '2026-10-02T10:00:00.000Z', open: '1.1', high: '1.2', low: '1.0', close: '1.1' }] });
   }, 'test-key');
   await adapter.fetchHistoricalCandles('EUR/USD', '5m', '2026-10-01', '2026-10-02', new AbortController().signal);
   assert.equal(urls[0]?.searchParams.get('outputsize'), '4500');
@@ -69,6 +90,12 @@ async function historicalRequestCeiling() {
   await assert.rejects(
     truncated.fetchHistoricalCandles('EUR/USD', '5m', '2026-10-01', '2026-10-02', new AbortController().signal),
     (error: unknown) => error instanceof ProviderAdapterError && error.code === 'HISTORICAL_TRUNCATED',
+  );
+
+  const beyondEnd = new TwelveDataAdapter(async () => response({ values: [{ datetime: '2026-10-03T00:00:00.000Z', open: '1.1', high: '1.2', low: '1.0', close: '1.1' }] }), 'test-key');
+  await assert.rejects(
+    beyondEnd.fetchHistoricalCandles('EUR/USD', '5m', '2026-10-01', '2026-10-02', new AbortController().signal),
+    (error: unknown) => error instanceof ProviderAdapterError && error.code === 'HISTORICAL_END_BOUNDARY_MISMATCH',
   );
 }
 
@@ -118,10 +145,19 @@ function newsIsManualAndNonBlocking() {
   }
 }
 
+function validationAndClockContracts() {
+  const candles = generateResearchCandles(30, 1.085, '15m');
+  const stale = validateCandleSeries(candles, { timeframe: '15m', nowMs: Date.parse(candles.at(-1)!.timestamp) + 60 * 60_000 });
+  assert.ok(stale.issues.some((issue) => issue.code === 'STALE_LAST_CANDLE'));
+  const unavailableClock = executeStrategyPipeline({ candles: [], currentCandleIndex: 0, selectedTimeframe: '15m', newsEvents: [], newsSourceOnline: false, dataProvenance: 'LIVE_INGESTED', provider: 'TWELVE_DATA', clockStatus: 'CLOCK_UNAVAILABLE' });
+  assert.match(unavailableClock.metadata.status_reason || '', /^CLOCK_UNVERIFIED/);
+}
+
 assert.deepEqual(PROVIDER_ORDER, ['TWELVE_DATA']);
 await httpClassification();
 await strictPayloadValidation();
 await historicalRequestCeiling();
 await circuitSemantics();
 newsIsManualAndNonBlocking();
+validationAndClockContracts();
 console.log('[pr5_twelve_data_only] RED/GREEN contract suite completed');

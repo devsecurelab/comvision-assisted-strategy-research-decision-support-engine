@@ -135,7 +135,7 @@ export function buildR8Report(candles: Candle[], htf: Candle[], opts: R8Options)
   if (opts.payoutPct < MIN_PAYOUT_PCT) throw new Error(`R8 payout ${opts.payoutPct}% is below ${MIN_PAYOUT_PCT}%.`);
   const analysisCandles = filterFxOpenMarketCandles(candles, opts.timeframe);
   const analysisHtf = filterFxOpenMarketCandles(htf, '1h');
-  const quality = validateCandleSeries(analysisCandles, { timeframe: opts.timeframe });
+  const quality = validateCandleSeries(analysisCandles, { timeframe: opts.timeframe, nowMs: Date.parse(analysisCandles.at(-1)!.timestamp) + timeframeMs(opts.timeframe) });
   const { trades, bars } = runCausalBacktest(analysisCandles, analysisHtf, opts);
   const splitTs = analysisCandles[Math.floor(analysisCandles.length * 2 / 3)]?.timestamp ?? analysisCandles.at(-1)?.timestamp ?? '';
   const isTrades = trades.filter((t) => t.signal_ts < splitTs); const oosTrades = trades.filter((t) => t.signal_ts >= splitTs);
