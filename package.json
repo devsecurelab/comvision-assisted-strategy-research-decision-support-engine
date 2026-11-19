@@ -18,7 +18,8 @@
     "engine:fingerprint": "tsx scripts/engine-fingerprint.ts",
     "test:inventory": "tsx scripts/verify-test-inventory.ts",
     "audit:report": "tsx scripts/npm-audit-report.ts",
-    "audit:production": "npm audit --omit=dev"
+    "audit:production": "npm audit --omit=dev",
+    "audit:full": "npm audit --audit-level=high"
   },
   "dependencies": {
     "@noble/hashes": "^1.8.0",
