@@ -66,10 +66,10 @@ export const ValidSetupsModal: React.FC<ValidSetupsModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold text-white tracking-wide">
-                  RECENT VALID SETUPS
+                  Recent signals (24h)
                 </h2>
                 <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                  {validSetups.length} PASS
+                  {validSetups.length} SIGNALS
                 </span>
               </div>
               <p className="text-xs text-slate-400">

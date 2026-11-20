@@ -28,7 +28,6 @@ const PrivacyView = lazy(() => import('./components/docs/PrivacyView').then((mod
 const TermsView = lazy(() => import('./components/docs/TermsView').then((module) => ({ default: module.TermsView })));
 const SecurityView = lazy(() => import('./components/docs/SecurityView').then((module) => ({ default: module.SecurityView })));
 import { Footer } from './components/Footer';
-import { SampleRate } from './components/SampleRate';
 import {
   MasterTelemetry,
   Timeframe,
@@ -39,6 +38,15 @@ import {
 import { ProviderStatus } from './engine/dataProviders';
 import { apiFetch } from './config/api';
 import { alertReducer, initialAlertState } from './alertState';
+
+interface LedgerStats {
+  signals: number;
+  resolved: number;
+  wins: number;
+  losses: number;
+  ties: number;
+  winRatePercentage: number | null;
+}
 
 export default function App() {
   // Auth state
@@ -120,6 +128,7 @@ export default function App() {
   const currentAlert = (alertState.selectedSetup ?? alertState.serverActiveAlert) as MasterTelemetry | null;
   const actionAlert = alertState.actionCardVisible ? currentAlert : null;
   const [candidateHistory, setCandidateHistory] = useState<MasterTelemetry[]>([]);
+  const [ledgerStats, setLedgerStats] = useState<LedgerStats | null>(null);
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | undefined>();
   const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('5m');
   const [selectedProvider, setSelectedProvider] = useState<'TWELVE_DATA'>('TWELVE_DATA');
@@ -212,6 +221,33 @@ export default function App() {
           }
           setCandidateHistory(uniqueList);
         }
+      }
+
+      // Signal/result counts must come from the authoritative append-only ledger.
+      // Candidate history remains a display source for inspectable recent signals.
+      const statsRes = await apiFetch('/api/ledger/stats', {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (statsRes.status === 401 || statsRes.status === 403) {
+        handleLogout();
+        return;
+      }
+      if (statsRes.ok && statsRes.headers.get('content-type')?.includes('application/json')) {
+        const stats = await statsRes.json() as Partial<LedgerStats>;
+        if (
+          Number.isFinite(stats.signals) &&
+          Number.isFinite(stats.resolved) &&
+          Number.isFinite(stats.wins) &&
+          Number.isFinite(stats.losses) &&
+          Number.isFinite(stats.ties) &&
+          (stats.winRatePercentage === null || Number.isFinite(stats.winRatePercentage))
+        ) {
+          setLedgerStats(stats as LedgerStats);
+        } else {
+          setLedgerStats(null);
+        }
+      } else {
+        setLedgerStats(null);
       }
 
     } catch (err) {
@@ -475,17 +511,15 @@ export default function App() {
   }
 
   // Calculate Overview Stats Cards
-  const totalEvaluated = candidateHistory.length;
   const validSetups = candidateHistory.filter(
     (c) => c.system_execution.system_decision === 'PASS'
   );
-  const validSetupsCount = validSetups.length;
-  const rejectedCount = candidateHistory.filter(
-    (c) => c.system_execution.system_decision === 'REJECT'
-  ).length;
-  const favorableCount = candidateHistory.filter((c) => c.next_candle_observation?.status === 'NEXT_CANDLE_FAVORABLE').length;
-  const unfavorableCount = candidateHistory.filter((c) => c.next_candle_observation?.status === 'NEXT_CANDLE_UNFAVORABLE').length;
-  const researchSampleSize = favorableCount + unfavorableCount;
+  const recentSignalCutoff = Date.now() - 24 * 60 * 60 * 1000;
+  const recentSignals = validSetups.filter((candidate) => {
+    const timestamp = Date.parse(candidate.metadata.signal_timestamp_utc || candidate.metadata.timestamp_utc || '');
+    return Number.isFinite(timestamp) && timestamp >= recentSignalCutoff;
+  });
+  const recentSignalsCount = recentSignals.length;
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans select-none">
@@ -535,13 +569,13 @@ export default function App() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
                 <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl shadow-sm">
                   <span className="text-[11px] font-mono text-slate-400 block">
-                    CANDIDATES SCANNED
+                    SIGNALS RECORDED
                   </span>
                   <span className="text-2xl font-bold font-mono text-white mt-1 block">
-                    {totalEvaluated}
+                    {ledgerStats?.signals ?? 'UNAVAILABLE'}
                   </span>
                   <span className="text-[10px] text-slate-500 mt-0.5 block">
-                    V3 telemetry records
+                    authoritative ledger count
                   </span>
                 </div>
 
@@ -560,48 +594,50 @@ export default function App() {
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-mono text-slate-400 block">
-                      VALID SETUPS (PASS)
+                      Recent signals (24h)
                     </span>
                     <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 group-hover:bg-emerald-500/20 transition flex items-center gap-0.5">
                       View All <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
                     </span>
                   </div>
                   <span className="text-2xl font-bold font-mono text-emerald-400 mt-1 block">
-                    {validSetupsCount}
+                    {recentSignalsCount}
                   </span>
                   <span className="text-[10px] text-emerald-500/80 mt-0.5 block font-mono">
-                    Click to view all {validSetupsCount} active setups →
+                    Click to view all {recentSignalsCount} recent signals →
                   </span>
                 </div>
 
                 <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl shadow-sm">
                   <span className="text-[11px] font-mono text-slate-400 block">
-                    FILTERED / REJECTED
+                    RESOLVED RESULTS
                   </span>
                   <span className="text-2xl font-bold font-mono text-rose-400 mt-1 block">
-                    {rejectedCount}
+                    {ledgerStats?.resolved ?? 'UNAVAILABLE'}
                   </span>
                   <span className="text-[10px] text-slate-500 mt-0.5 block">
-                    Outcome claim unavailable
+                    authoritative ledger count
                   </span>
                 </div>
 
                 <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl shadow-sm">
                   <span className="text-[11px] font-mono text-slate-400 block">
-                    RESEARCH OBSERVATION RATE
+                    WIN RATE
                   </span>
                   <span className="text-2xl font-bold font-mono text-indigo-300 mt-1 block">
-                    <SampleRate favorable={favorableCount} unfavorable={unfavorableCount} />
+                    {ledgerStats?.winRatePercentage === null || ledgerStats === null
+                      ? 'UNAVAILABLE'
+                      : `${ledgerStats.winRatePercentage.toFixed(1)}%`}
                   </span>
                   <span className="text-[10px] text-slate-500 mt-0.5 block">
-                    {researchSampleSize} recorded observations
+                    {ledgerStats ? `${ledgerStats.wins} wins / ${ledgerStats.losses} losses` : 'authoritative ledger unavailable'}
                   </span>
                 </div>
               </div>
 
-              {/* Active Valid Setups Horizontal Right-to-Left Feed */}
+              {/* Recent signals (24h) horizontal right-to-left feed */}
               <ValidSetupsFeed
-                validSetups={validSetups}
+                validSetups={recentSignals}
                 selectedSetupId={currentAlert?.metadata.setup_id}
                 onSelectSetup={(setup) => dispatchAlert({ type: 'SELECT_SETUP', setup })}
                 onOpenAllList={() => setIsValidSetupsModalOpen(true)}
@@ -616,7 +652,7 @@ export default function App() {
                 <div className="lg:col-span-2">
                   <DecisionAlertCard
                     alert={actionAlert}
-                    validSetupsList={validSetups}
+                    validSetupsList={recentSignals}
                     onSelectSetup={(setup) => dispatchAlert({ type: 'SELECT_SETUP', setup })}
                     onOpenAllList={() => setIsValidSetupsModalOpen(true)}
                     onMarkTaken={handleMarkTaken}
@@ -738,7 +774,7 @@ export default function App() {
       <ValidSetupsModal
         isOpen={isValidSetupsModalOpen}
         onClose={() => setIsValidSetupsModalOpen(false)}
-        validSetups={validSetups}
+        validSetups={recentSignals}
         selectedSetupId={currentAlert?.metadata.setup_id}
         onSelectSetup={(setup) => {
           dispatchAlert({ type: 'SELECT_SETUP', setup });
