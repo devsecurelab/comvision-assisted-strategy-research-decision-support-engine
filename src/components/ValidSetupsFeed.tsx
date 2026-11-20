@@ -66,7 +66,7 @@ export const ValidSetupsFeed: React.FC<ValidSetupsFeedProps> = ({
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
             <span className="text-xs font-mono font-bold tracking-wider text-emerald-400 uppercase">
-              Active Valid Setups Feed
+              Recent signals (24h)
             </span>
           </div>
           <span className="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">

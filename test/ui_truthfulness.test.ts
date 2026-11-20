@@ -56,6 +56,13 @@ for (const [file, text] of source) {
 }
 check(!app.includes('Capital Protected'), 'App.tsx must not claim capital is protected');
 check(!app.includes('Strategy v1.0 Pipeline'), 'App.tsx must not advertise the legacy pipeline');
+check(app.includes("'/api/ledger/stats'"), 'App.tsx must fetch authoritative ledger stats');
+check(!app.includes('const totalEvaluated = candidateHistory.length'), 'overview totals must not be derived from candidate history');
+check(!app.includes('const validSetupsCount = validSetups.length'), 'overview signal counts must not use the legacy valid-setups total');
+for (const file of ['src/components/ValidSetupsModal.tsx', 'src/components/ValidSetupsFeed.tsx', 'src/components/views/AnalyticsView.tsx']) {
+  const text = read(file);
+  check(!/VALID SETUPS|RECENT VALID SETUPS|Active Valid Setups|PASSED VALID SETUPS/.test(text), `${file}: legacy setup naming remains visible`);
+}
 check(!chat.includes("lower.includes('gu')"), 'chat pair matching must not use a broad gu substring');
 check(!vite.includes('AI Studio'), 'stale AI Studio Vite comment remains');
 

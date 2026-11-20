@@ -43,7 +43,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ candidates }) => {
       {/* High-Level Conversion Ratios */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-1">
-          <span className="text-xs text-slate-400 font-mono">PASSED VALID SETUPS</span>
+          <span className="text-xs text-slate-400 font-mono">RECENT SIGNALS (24H)</span>
           <div className="text-2xl font-bold font-mono text-emerald-400">
             {passCount}{' '}
             <span className="text-xs text-slate-500 font-normal">
