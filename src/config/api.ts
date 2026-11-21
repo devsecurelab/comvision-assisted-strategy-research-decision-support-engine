@@ -8,9 +8,13 @@ const STORAGE_KEY = 'comvision_api_base_url';
 
 export function getApiBaseUrl(): string {
   if (typeof window !== 'undefined') {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved && saved.trim()) {
-      return saved.trim().replace(/\/+$/, '');
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved && saved.trim()) {
+        return saved.trim().replace(/\/+$/, '');
+      }
+    } catch {
+      // Storage may be disabled; safely fall back to same-origin or build-time config.
     }
   }
   // Vite environment variable fallback
@@ -23,11 +27,15 @@ export function getApiBaseUrl(): string {
 
 export function setApiBaseUrl(url: string): void {
   if (typeof window !== 'undefined') {
-    const clean = url.trim().replace(/\/+$/, '');
-    if (clean) {
-      localStorage.setItem(STORAGE_KEY, clean);
-    } else {
-      localStorage.removeItem(STORAGE_KEY);
+    try {
+      const clean = url.trim().replace(/\/+$/, '');
+      if (clean) {
+        localStorage.setItem(STORAGE_KEY, clean);
+      } else {
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    } catch {
+      // Ignore persistence errors; the current page remains usable.
     }
   }
 }

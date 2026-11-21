@@ -22,6 +22,7 @@ interface HeaderProps {
   onStopScanning: () => void;
   onManualScan: () => void;
   providerStatus?: ProviderStatus;
+  controlsDisabled?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -32,6 +33,7 @@ export const Header: React.FC<HeaderProps> = ({
   onStopScanning,
   onManualScan,
   providerStatus,
+  controlsDisabled = false,
 }) => {
   return (
     <header
@@ -96,6 +98,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           id="btn-evaluate-next-candidate"
           onClick={onManualScan}
+          disabled={controlsDisabled}
           title="Trigger immediate sequential 9-stage evaluation on latest market frame"
           className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 text-xs font-semibold rounded-lg border border-indigo-500/30 transition shadow-sm"
         >
@@ -106,6 +109,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           id="btn-toggle-scanner"
           onClick={onToggleScanner}
+          disabled={controlsDisabled}
           className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition"
         >
           {scannerActive ? (
@@ -124,6 +128,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           id="btn-stop-scanning"
           onClick={onStopScanning}
+          disabled={controlsDisabled}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 text-xs font-semibold rounded-lg border border-rose-500/30 transition"
         >
           <Square className="w-3.5 h-3.5 fill-current" />

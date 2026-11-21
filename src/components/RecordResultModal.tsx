@@ -29,7 +29,7 @@ export const RecordResultModal: React.FC<RecordResultModalProps> = ({
   const [saveError, setSaveError] = useState<string | null>(null);
   // 1. Next Candle Research Observation State (Scientific price movement relative to bias)
   const [selectedObservation, setSelectedObservation] = useState<NextCandleObservation>(
-    currentObservation !== 'PENDING' ? currentObservation : 'NEXT_CANDLE_FAVORABLE'
+    currentObservation
   );
 
   // 2. Discretionary User Action State (Completely separate operator engagement field)
@@ -37,11 +37,15 @@ export const RecordResultModal: React.FC<RecordResultModalProps> = ({
     if (currentAction === 'TAKEN' || currentAction === 'NOT_TAKEN' || currentAction === 'NOT_RECORDED') {
       return currentAction;
     }
-    return 'TAKEN';
+    return 'PENDING';
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (selectedAction === 'PENDING' || selectedObservation === 'PENDING') {
+      setSaveError('Choose an explicit operator action and observation before saving.');
+      return;
+    }
     setIsSaving(true);
     setSaveError(null);
     try {
@@ -185,7 +189,7 @@ export const RecordResultModal: React.FC<RecordResultModalProps> = ({
               Completely separate from research observation outcome:
             </p>
 
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <button
                 type="button"
                 onClick={() => setSelectedAction('TAKEN')}
@@ -227,6 +231,15 @@ export const RecordResultModal: React.FC<RecordResultModalProps> = ({
                 <span className="text-xs font-mono">NOT_RECORDED</span>
                 <span className="text-[9px] text-slate-500">No log entered</span>
               </button>
+              <button
+                type="button"
+                onClick={() => setSelectedAction('SKIPPED')}
+                className={`p-2.5 rounded-xl border text-center transition flex flex-col items-center gap-1 ${selectedAction === 'SKIPPED' ? 'bg-rose-600/20 border-rose-500 text-rose-200 font-bold shadow-md' : 'bg-slate-950/80 border-slate-800 text-slate-400 hover:border-slate-700'}`}
+              >
+                <Ban className="w-4 h-4 text-rose-400" />
+                <span className="text-xs font-mono">SKIPPED</span>
+                <span className="text-[9px] text-slate-500">Explicitly skipped</span>
+              </button>
             </div>
           </div>
 
@@ -234,7 +247,7 @@ export const RecordResultModal: React.FC<RecordResultModalProps> = ({
           <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/80 text-[11px] text-slate-400 flex items-start gap-2">
             <ShieldCheck className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
             <span>
-              <strong>RDP Strategy V3.0 (Frozen):</strong> Storing research observation and operator action does not modify the 19-stage deterministic pipeline. Data is cryptographically hashed.
+              <strong>System-computed outcome is readonly:</strong> This modal records only the operator action and research observation; it does not overwrite provider-computed ledger results. Data is cryptographically hashed.
             </span>
           </div>
 

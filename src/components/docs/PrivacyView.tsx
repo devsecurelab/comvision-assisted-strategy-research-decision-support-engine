@@ -134,7 +134,7 @@ export const PrivacyView: React.FC = () => {
         </h2>
         <div className="p-5 bg-slate-900 border border-slate-800 rounded-xl space-y-3 text-xs text-slate-300 leading-relaxed">
           <p>
-            <strong>Storage &amp; Session Tokens:</strong> The client application stores the authenticated operator's bearer token in browser <code>localStorage</code> for session continuity. Logging out invalidates the server session and immediately clears local browser storage.
+            <strong>Storage &amp; Session Tokens:</strong> The client application stores the authenticated operator's bearer token in browser <code>sessionStorage</code> for the current browser session. Non-secret profile and API endpoint preferences may use <code>localStorage</code>. Logging out invalidates the server session and clears the token.
           </p>
           <p>
             <strong>Security Controls:</strong> All communications occur over encrypted TLS/HTTPS. Passwords are salted and hashed with <code>scrypt</code>. Protected API routes strictly enforce bearer token authorization. Dashboard-entered provider keys remain in server memory for the process lifetime and are not returned or audit-logged; environment-configured values remain in the operator-controlled local <code>.env</code> file.

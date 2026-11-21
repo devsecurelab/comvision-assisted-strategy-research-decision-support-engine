@@ -232,6 +232,14 @@ app.get(['/api/engine/dashboard-state', '/api/engine/status'], requireApprovedUs
   const entryWindowExpired = typeof validUntil === 'string' && Number.isFinite(Date.parse(validUntil)) && Date.parse(validUntil) <= Date.parse(serverNowUtc);
   const providerStatus = feedManager.getStatus();
   const validSetups = experimentTracker.getCandidates('PASS');
+  const ledgerSignals = signalLedger.signals();
+  const activeSignal = activeAlert ? ledgerSignals.find((signal) => signal.signal_id === activeAlert.metadata.setup_id) ?? null : null;
+  const activeAlertForUi = activeAlert && activeSignal
+    ? { ...activeAlert, metadata: { ...activeAlert.metadata, ...activeSignal } }
+    : activeAlert;
+  const uiSignalTimestamp = activeAlertForUi?.metadata.signal_timestamp_utc || activeAlertForUi?.metadata.timestamp_utc;
+  const uiValidUntil = (activeAlertForUi?.metadata as Record<string, unknown> | undefined)?.valid_until;
+  const uiEntryWindowExpired = typeof uiValidUntil === 'string' && Number.isFinite(Date.parse(uiValidUntil)) && Date.parse(uiValidUntil) <= Date.parse(serverNowUtc);
 
   res.json({
     // Runtime outcome statistics come only from the append-only SignalLedger.
@@ -240,10 +248,12 @@ app.get(['/api/engine/dashboard-state', '/api/engine/status'], requireApprovedUs
     stats: ledgerStats,
     ledgerStats,
     experimentStats,
-    activeAlert,
+    activeAlert: activeAlertForUi,
+    activeSignal,
+    ledgerSignals,
     serverNowUtc,
-    signal_age_seconds: signalAgeSeconds,
-    entry_window_expired: entryWindowExpired,
+    signal_age_seconds: uiSignalTimestamp ? Math.max(0, Math.floor((Date.parse(serverNowUtc) - Date.parse(uiSignalTimestamp)) / 1000)) : signalAgeSeconds,
+    entry_window_expired: uiEntryWindowExpired || entryWindowExpired,
     validSetups,
     settings: { ...currentSettings, scannerActive: scanLoop.state().enabled },
     providerStatus,

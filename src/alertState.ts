@@ -82,7 +82,9 @@ export function alertReducer(state: AlertState, action: AlertAction): AlertState
     case 'SCANNER_COMMAND_PENDING':
       return { ...state, pendingCommand: action.command, controlsDisabled: true };
     case 'SCANNER_COMMAND_FAILURE': {
-      const message = action.command === 'stop' ? 'Failed to stop scanner' : 'Failed to start scanner';
+      const message = action.message && (action.message.startsWith('STOP FAILED') || action.message.includes('(HTTP '))
+        ? action.message
+        : (action.command === 'stop' ? 'Failed to stop scanner' : 'Failed to start scanner');
       const next = { ...state, pendingCommand: null, controlsDisabled: false, banner: { message, severity: action.command === 'stop' ? 'critical' as const : 'warning' as const } };
       return { ...next, actionCardVisible: false };
     }

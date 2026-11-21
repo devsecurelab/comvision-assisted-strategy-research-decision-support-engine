@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { X, Activity } from 'lucide-react';
 import { Candle, MasterTelemetry } from '../engine/types';
 import { readLegacyOptional } from '../engine/legacyTelemetry';
@@ -11,9 +11,14 @@ const padding = 24;
 
 function candlesFor(telemetry: MasterTelemetry): Candle[] {
   const snapshot = telemetry.candle_snapshot?.candles;
-  return Array.isArray(snapshot)
-    ? snapshot.filter((c) => Number.isFinite(c.open) && Number.isFinite(c.high) && Number.isFinite(c.low) && Number.isFinite(c.close)).slice(-40)
-    : [];
+  if (!Array.isArray(snapshot)) return [];
+  const valid = snapshot.filter((c) => Number.isFinite(c.open) && Number.isFinite(c.high) && Number.isFinite(c.low) && Number.isFinite(c.close));
+  if (valid.length <= 40) return valid;
+  const signalTs = telemetry.metadata.signal_candle_open_ts || telemetry.candle_snapshot?.signal_candle_open_ts || telemetry.decision_engine_v3?.signalCandleOpenTs;
+  const signalIndex = signalTs ? valid.findIndex((candle) => candle.timestamp === signalTs) : -1;
+  if (signalIndex < 0 || signalIndex >= valid.length - 40) return valid.slice(-40);
+  const start = Math.max(0, Math.min(signalIndex - 20, valid.length - 40));
+  return valid.slice(start, start + 40);
 }
 
 /** Gate 4 is the FVG validation range. Normalize it so low/high are always drawable. */
@@ -34,6 +39,11 @@ export function getSignalCandleIndex(telemetry: MasterTelemetry, candles: Candle
 }
 
 export const ChartModal: React.FC<ChartModalProps> = ({ telemetry, onClose }) => {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
   if (!telemetry) return null;
   const candles = candlesFor(telemetry);
   const pair = telemetry.metadata.pair || telemetry.metadata.asset || 'UNAVAILABLE';
