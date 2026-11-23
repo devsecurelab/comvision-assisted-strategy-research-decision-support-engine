@@ -47,7 +47,7 @@ export const DecisionAlertCard: React.FC<DecisionAlertCardProps> = ({
   if (!alert) {
     return (
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center text-slate-400 space-y-3">
-        <Clock className="w-8 h-8 mx-auto text-slate-500 animate-spin" />
+        <Clock className="w-8 h-8 mx-auto text-slate-500" />
         <h3 className="text-sm font-semibold text-slate-300">V3 telemetry UNAVAILABLE</h3>
         <p className="text-xs text-slate-500 max-w-md mx-auto">
           No current V3 telemetry record is available. The interface will not infer a signal, price, or market state.
@@ -66,6 +66,9 @@ export const DecisionAlertCard: React.FC<DecisionAlertCardProps> = ({
   const hasCandleSnapshot = Boolean(alert.candle_snapshot?.candles?.length);
   const legacyPressure = readLegacyOptional<MasterTelemetry['pressure_observation']>(alert, 'pressure_observation');
   const pressureClassification = legacyPressure?.classification ?? 'UNAVAILABLE';
+  const ledger = alert.metadata as MasterTelemetry['metadata'] & Record<string, unknown>;
+  const numeric = (key: string) => typeof ledger[key] === 'number' ? String(ledger[key]) : 'UNAVAILABLE';
+  const text = (key: string) => typeof ledger[key] === 'string' ? String(ledger[key]) : 'UNAVAILABLE';
 
   // Authoritative Signal Timestamp formatting (Canonical UTC -> Asia/Dhaka)
   const timeInfo = formatSignalTime(
@@ -100,7 +103,7 @@ export const DecisionAlertCard: React.FC<DecisionAlertCardProps> = ({
         {totalValid > 1 ? (
           <div className="flex items-center gap-2">
             <span className="text-xs font-mono text-slate-400">
-              Valid Setup <strong className="text-white">{currentIndex >= 0 ? currentIndex + 1 : 1}</strong> of{' '}
+              Recent signal <strong className="text-white">{currentIndex >= 0 ? currentIndex + 1 : 1}</strong> of{' '}
               <strong className="text-white">{totalValid}</strong>
             </span>
 
@@ -139,8 +142,8 @@ export const DecisionAlertCard: React.FC<DecisionAlertCardProps> = ({
         )}
 
         <div className="px-3 py-1 bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 text-[11px] font-mono font-bold rounded-lg flex items-center gap-1.5 ml-auto">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          {isPassed ? 'VALID SETUP DETECTED' : 'SETUP FILTERED / REJECTED'}
+          <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+          {isPassed ? 'SIGNAL QUALIFIED' : 'SIGNAL FILTERED / REJECTED'}
         </div>
       </div>
 
@@ -229,6 +232,17 @@ export const DecisionAlertCard: React.FC<DecisionAlertCardProps> = ({
         </div>
       </div>
 
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-5 text-[11px] font-mono">
+        <TelemetryField label="signal_price" value={numeric('signal_price')} />
+        <TelemetryField label="quote_price" value={numeric('quote_price')} />
+        <TelemetryField label="tolerance" value={numeric('price_tolerance')} />
+        <TelemetryField label="entry-by" value={text('valid_until')} />
+        <TelemetryField label="payout" value={typeof ledger.payout_pct === 'number' ? `${ledger.payout_pct}%` : 'UNAVAILABLE'} />
+        <TelemetryField label="breakeven" value={numeric('breakeven')} />
+        <TelemetryField label="provider" value={text('provider')} />
+        <TelemetryField label="NEWS" value={alert.guardrails?.news_guard?.news_source ?? 'NOT CHECKED (manual)'} />
+      </div>
+
       {/* Authoritative V3 decision gates; stage-level details remain in telemetry inspection. */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 mb-5">
         {(alert.decision_engine_v3?.gates ?? []).map((gate: any) => (
@@ -248,10 +262,11 @@ export const DecisionAlertCard: React.FC<DecisionAlertCardProps> = ({
       <div className="p-3 bg-slate-950/80 border border-slate-800 rounded-lg mb-5 text-xs text-slate-400 space-y-1.5">
         <div className="flex items-center gap-1 text-[11px] text-slate-500">
           <ShieldCheck className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-          <span>
-            Notice: This is a decision-support alert. Order execution is strictly
-            manual by operator.
-          </span>
+              <span>
+                Notice: This is a decision-support alert. Order execution is strictly
+                manual by operator.
+              </span>
+              <span className="block mt-1">Claim hash: {text('sha256_hash')} • scope: candidate telemetry hash-chain, not broker execution proof.</span>
         </div>
       </div>
 
@@ -353,4 +368,8 @@ function ValidationBadge({
       </span>
     </div>
   );
+}
+
+function TelemetryField({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-2"><span className="block text-slate-500">{label}</span><strong className="block text-slate-200 break-all">{value}</strong></div>;
 }

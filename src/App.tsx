@@ -40,6 +40,26 @@ import { ProviderStatus } from './engine/dataProviders';
 import { apiFetch } from './config/api';
 import { alertReducer, initialAlertState } from './alertState';
 
+function readStoredUser(): Omit<UserAccount, 'passwordHash'> | null {
+  try {
+    const raw = localStorage.getItem('comvision_user');
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed as Omit<UserAccount, 'passwordHash'> : null;
+  } catch {
+    return null;
+  }
+}
+
+interface LedgerStats {
+  signals: number;
+  resolved: number;
+  wins: number;
+  losses: number;
+  ties: number;
+  winRatePercentage: number | null;
+}
+
 export default function App() {
   // Auth state
   const [authToken, setAuthToken] = useState<string | null>(() =>
@@ -49,8 +69,7 @@ export default function App() {
     UserAccount,
     'passwordHash'
   > | null>(() => {
-    const saved = localStorage.getItem('comvision_user');
-    return saved ? JSON.parse(saved) : null;
+    return readStoredUser();
   });
 
   // UI view state
@@ -59,6 +78,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<string>('overview');
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
   const [toast, setToast] = useState<{ severity: 'warning' | 'error'; message: string } | null>(null);
+  const [isManualScanPending, setIsManualScanPending] = useState(false);
 
   useEffect(() => {
     const onToast = (event: Event) => {
@@ -120,6 +140,7 @@ export default function App() {
   const currentAlert = (alertState.selectedSetup ?? alertState.serverActiveAlert) as MasterTelemetry | null;
   const actionAlert = alertState.actionCardVisible ? currentAlert : null;
   const [candidateHistory, setCandidateHistory] = useState<MasterTelemetry[]>([]);
+  const [ledgerStats, setLedgerStats] = useState<LedgerStats | null>(null);
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | undefined>();
   const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('5m');
   const [selectedProvider, setSelectedProvider] = useState<'TWELVE_DATA'>('TWELVE_DATA');
@@ -190,6 +211,7 @@ export default function App() {
           if (data.providerStatus.provider === 'TWELVE_DATA') setSelectedProvider('TWELVE_DATA');
         }
         setScannerActive(data.settings?.scannerActive ?? false);
+        if (data.ledgerStats) setLedgerStats(data.ledgerStats as LedgerStats);
       } else {
         dispatchAlert({ type: 'API_FAILURE', message: 'Scanner state unknown' });
       }
@@ -212,6 +234,15 @@ export default function App() {
           }
           setCandidateHistory(uniqueList);
         }
+      }
+
+      const statsRes = await apiFetch('/api/ledger/stats', {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (statsRes.ok && statsRes.headers.get('content-type')?.includes('application/json')) {
+        setLedgerStats(await statsRes.json() as LedgerStats);
+      } else {
+        setLedgerStats(null);
       }
 
     } catch (err) {
@@ -239,7 +270,7 @@ export default function App() {
 
   // Actions
   const handleToggleScanner = async () => {
-    if (!authToken) return;
+    if (!authToken || alertState.controlsDisabled) return;
     const command = scannerActive ? 'stop' : 'start';
     dispatchAlert({ type: 'SCANNER_COMMAND_PENDING', command });
     try {
@@ -256,16 +287,16 @@ export default function App() {
         setScannerActive(data.scannerActive);
         dispatchAlert({ type: 'SCANNER_COMMAND_SUCCESS', command });
       } else {
-        dispatchAlert({ type: 'SCANNER_COMMAND_FAILURE', command });
+        dispatchAlert({ type: 'SCANNER_COMMAND_FAILURE', command, message: `Failed to ${command} scanner (HTTP ${res.status}).` });
       }
     } catch (err) {
-      dispatchAlert({ type: 'SCANNER_COMMAND_FAILURE', command });
+      dispatchAlert({ type: 'SCANNER_COMMAND_FAILURE', command, message: `Failed to ${command} scanner: network request failed.` });
       console.error('Failed to toggle scanner:', err);
     }
   };
 
   const handleStopScanning = async () => {
-    if (!authToken) return;
+    if (!authToken || alertState.controlsDisabled) return;
     dispatchAlert({ type: 'SCANNER_COMMAND_PENDING', command: 'stop' });
     try {
       const res = await apiFetch('/api/engine/toggle-scanner', {
@@ -280,16 +311,17 @@ export default function App() {
         setScannerActive(false);
         dispatchAlert({ type: 'SCANNER_COMMAND_SUCCESS', command: 'stop' });
       } else {
-        dispatchAlert({ type: 'SCANNER_COMMAND_FAILURE', command: 'stop' });
+        dispatchAlert({ type: 'SCANNER_COMMAND_FAILURE', command: 'stop', message: `STOP FAILED (HTTP ${res.status}). Scanner state is unknown; do not assume alerts are stopped.` });
       }
     } catch (err) {
-      dispatchAlert({ type: 'SCANNER_COMMAND_FAILURE', command: 'stop' });
+      dispatchAlert({ type: 'SCANNER_COMMAND_FAILURE', command: 'stop', message: 'STOP FAILED: network request failed. Scanner state is unknown; do not assume alerts are stopped.' });
       console.error('Failed to stop scanner:', err);
     }
   };
 
   const handleManualScan = async () => {
-    if (!authToken) return;
+    if (!authToken || isManualScanPending) return;
+    setIsManualScanPending(true);
     try {
       const res = await apiFetch('/api/engine/scan-candidate', {
         method: 'POST',
@@ -304,9 +336,12 @@ export default function App() {
         dispatchAlert({ type: 'SELECT_SETUP', setup: data.telemetry });
         if (data.providerStatus) setProviderStatus(data.providerStatus);
         fetchEngineData();
-      }
+      } else dispatchAlert({ type: 'API_FAILURE', message: `Manual scan failed (HTTP ${res.status}).` });
     } catch (err) {
+      dispatchAlert({ type: 'API_FAILURE', message: 'Manual scan failed: network request failed.' });
       console.error('Failed manual scan:', err);
+    } finally {
+      setIsManualScanPending(false);
     }
   };
 
@@ -342,7 +377,10 @@ export default function App() {
             notes: `Operator empirical recording: Observation ${observation}, Action ${action}`,
           }),
         });
-        if (!outcomeRes.ok) return false;
+        if (!outcomeRes.ok) {
+          dispatchAlert({ type: 'API_FAILURE', message: `Outcome recording failed (HTTP ${outcomeRes.status}).` });
+          return false;
+        }
       }
 
       if (resAction.ok) {
@@ -359,8 +397,10 @@ export default function App() {
         }
         return true;
       }
+      dispatchAlert({ type: 'API_FAILURE', message: `Action recording failed (HTTP ${resAction.status}).` });
       return false;
     } catch (err) {
+      dispatchAlert({ type: 'API_FAILURE', message: 'Action recording failed: network request failed.' });
       console.error('Failed to record action and observation:', err);
       return false;
     }
@@ -475,11 +515,14 @@ export default function App() {
   }
 
   // Calculate Overview Stats Cards
-  const totalEvaluated = candidateHistory.length;
   const validSetups = candidateHistory.filter(
     (c) => c.system_execution.system_decision === 'PASS'
   );
-  const validSetupsCount = validSetups.length;
+  const recentCutoff = Date.now() - 24 * 60 * 60 * 1000;
+  const recentSignals = validSetups.filter((candidate) => {
+    const timestamp = Date.parse(candidate.metadata.signal_timestamp_utc || candidate.metadata.timestamp_utc);
+    return Number.isFinite(timestamp) && timestamp >= recentCutoff;
+  });
   const rejectedCount = candidateHistory.filter(
     (c) => c.system_execution.system_decision === 'REJECT'
   ).length;
@@ -513,6 +556,7 @@ export default function App() {
           onStopScanning={handleStopScanning}
           onManualScan={handleManualScan}
           providerStatus={providerStatus}
+          controlsDisabled={alertState.controlsDisabled || isManualScanPending}
           />
 
         {/* Dynamic View Body */}
@@ -535,13 +579,13 @@ export default function App() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
                 <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl shadow-sm">
                   <span className="text-[11px] font-mono text-slate-400 block">
-                    CANDIDATES SCANNED
+                    SIGNALS RECORDED
                   </span>
                   <span className="text-2xl font-bold font-mono text-white mt-1 block">
-                    {totalEvaluated}
+                    {ledgerStats?.signals ?? 'UNAVAILABLE'}
                   </span>
                   <span className="text-[10px] text-slate-500 mt-0.5 block">
-                    V3 telemetry records
+                    authoritative ledger count
                   </span>
                 </div>
 
@@ -560,48 +604,48 @@ export default function App() {
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-mono text-slate-400 block">
-                      VALID SETUPS (PASS)
+                      Recent signals (24h)
                     </span>
                     <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 group-hover:bg-emerald-500/20 transition flex items-center gap-0.5">
                       View All <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
                     </span>
                   </div>
                   <span className="text-2xl font-bold font-mono text-emerald-400 mt-1 block">
-                    {validSetupsCount}
+                    {recentSignals.length}
                   </span>
                   <span className="text-[10px] text-emerald-500/80 mt-0.5 block font-mono">
-                    Click to view all {validSetupsCount} active setups →
+                    Click to view all {recentSignals.length} recent signals →
                   </span>
                 </div>
 
                 <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl shadow-sm">
                   <span className="text-[11px] font-mono text-slate-400 block">
-                    FILTERED / REJECTED
+                    RESOLVED RESULTS
                   </span>
                   <span className="text-2xl font-bold font-mono text-rose-400 mt-1 block">
-                    {rejectedCount}
+                    {ledgerStats?.resolved ?? 'UNAVAILABLE'}
                   </span>
                   <span className="text-[10px] text-slate-500 mt-0.5 block">
-                    Outcome claim unavailable
+                    authoritative ledger count
                   </span>
                 </div>
 
                 <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl shadow-sm">
                   <span className="text-[11px] font-mono text-slate-400 block">
-                    RESEARCH OBSERVATION RATE
+                    WIN RATE
                   </span>
                   <span className="text-2xl font-bold font-mono text-indigo-300 mt-1 block">
-                    <SampleRate favorable={favorableCount} unfavorable={unfavorableCount} />
+                    {ledgerStats?.winRatePercentage === null || !ledgerStats ? 'UNAVAILABLE' : `${ledgerStats.winRatePercentage.toFixed(1)}%`}
                   </span>
                   <span className="text-[10px] text-slate-500 mt-0.5 block">
-                    {researchSampleSize} recorded observations
+                    {ledgerStats ? `${ledgerStats.wins} wins / ${ledgerStats.losses} losses` : 'authoritative ledger unavailable'}
                   </span>
                 </div>
               </div>
 
               {/* Active Valid Setups Horizontal Right-to-Left Feed */}
               <ValidSetupsFeed
-                validSetups={validSetups}
+                validSetups={recentSignals}
                 selectedSetupId={currentAlert?.metadata.setup_id}
                 onSelectSetup={(setup) => dispatchAlert({ type: 'SELECT_SETUP', setup })}
                 onOpenAllList={() => setIsValidSetupsModalOpen(true)}
@@ -616,7 +660,7 @@ export default function App() {
                 <div className="lg:col-span-2">
                   <DecisionAlertCard
                     alert={actionAlert}
-                    validSetupsList={validSetups}
+                    validSetupsList={recentSignals}
                     onSelectSetup={(setup) => dispatchAlert({ type: 'SELECT_SETUP', setup })}
                     onOpenAllList={() => setIsValidSetupsModalOpen(true)}
                     onMarkTaken={handleMarkTaken}
@@ -738,7 +782,7 @@ export default function App() {
       <ValidSetupsModal
         isOpen={isValidSetupsModalOpen}
         onClose={() => setIsValidSetupsModalOpen(false)}
-        validSetups={validSetups}
+        validSetups={recentSignals}
         selectedSetupId={currentAlert?.metadata.setup_id}
         onSelectSetup={(setup) => {
           dispatchAlert({ type: 'SELECT_SETUP', setup });
