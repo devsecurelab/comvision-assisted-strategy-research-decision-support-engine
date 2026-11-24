@@ -7,7 +7,7 @@ export default defineConfig(() => {
   return {
     plugins: [
       react(),
-      tailwindcss(),
+      // tailwindcss(),
     ],
     resolve: {
       alias: {
@@ -20,7 +20,8 @@ export default defineConfig(() => {
     },
     build: {
       // Vite 8's default lightningcss minifier has no Android ARM binary.
-      cssMinify: 'esbuild' as const,
+      cssMinify: 'esbuild',
+      minify: 'esbuild' as const,
     },
   };
 });

@@ -25,7 +25,9 @@ for (const [key, relativeDefault] of [['SESSION_CONFIG_PATH', 'config/sessions.j
   const configured = String(process.env[key] || relativeDefault).trim();
   process.env[key] = path.isAbsolute(configured) ? configured : path.resolve(appRoot, configured);
 }
-const ledgerPath = String(process.env.SIGNAL_LEDGER_PATH || 'signal-ledger.jsonl').trim();
+const dateStr = new Date().toISOString().split('T')[0];
+const defaultLedger = process.env.DATA_DIR ? require('path').join(process.env.DATA_DIR, 'ledger', `${dateStr}.jsonl`) : `ledger/${dateStr}.jsonl`;
+const ledgerPath = String(process.env.SIGNAL_LEDGER_PATH || defaultLedger).trim();
 process.env.SIGNAL_LEDGER_PATH = path.isAbsolute(ledgerPath) ? ledgerPath : path.resolve(process.env.DATA_DIR || appRoot, ledgerPath);
 
 const runtime = validateRuntimeConfig(process.env);

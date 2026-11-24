@@ -371,6 +371,12 @@ export class ScanService {
 }
 
 /** Restart-safe candle-close loop. State persists through deps.saveState; a restart never re-runs a completed candle. */
+
+function timeframeToMs(timeframe: ScanTimeframe): number {
+  const map: Record<string, number> = { '1m': 60_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000, '1h': 3_600_000, '4h': 14_400_000, '1d': 86_400_000 };
+  return map[timeframe] ?? 300_000;
+}
+
 export class ScanLoop {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private running = false;
@@ -419,6 +425,19 @@ export class ScanLoop {
     this.running = true;
     let results: ScanResult[] = [];
     try {
+      // SCAN_GAP detection: if lastRunAt is too old, record a gap event
+      if (state.lastRunAt) {
+        const gapMs = this.deps.now() - Date.parse(state.lastRunAt);
+        const thresholdMs = timeframeToMs(state.timeframe) * 2;
+        if (gapMs > thresholdMs) {
+          this.service.ledger.append('SCAN_GAP', {
+            missed_since: state.lastRunAt,
+            detected_at: new Date(this.deps.now()).toISOString(),
+            timeframe: state.timeframe,
+            gap_ms: gapMs,
+          });
+        }
+      }
       this.save({ lastCycleCandleOpen: candleOpen });
       results = await this.service.runAutoCycle(state.timeframe, undefined, () => expectedGeneration === this.generation && this.state().enabled);
       if (expectedGeneration !== this.generation || !this.state().enabled) return results;

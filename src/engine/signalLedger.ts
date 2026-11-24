@@ -9,7 +9,7 @@ import { CONFIG_HASH, CONFIG_HASH_EPOCH, ENGINE_FINGERPRINT, PREVIOUS_V3_CONFIG_
  * Every line commits to the previous line's hash, so editing, deleting or
  * reordering any historical record is detected by verify().
  */
-export type LedgerEventType = 'SIGNAL' | 'SCAN' | 'RESULT' | 'TRADE_TAKEN' | 'CANDLE_REVISION' | 'SIGNAL_SENT' | 'EDGE_LOST' | 'EDGE_RESUMED' | 'SCAN_GAP';
+export type LedgerEventType = 'SIGNAL' | 'SCAN' | 'RESULT' | 'TRADE_TAKEN' | 'CANDLE_REVISION' | 'SIGNAL_SENT' | 'EDGE_LOST' | 'EDGE_RESUMED' | 'SCAN_GAP' | 'OPERATOR_ACTION';
 export type SignalOutcome = 'WIN' | 'LOSS' | 'TIE' | 'SKIPPED' | 'UNRESOLVED';
 
 export interface LedgerEntry<T = Record<string, unknown>> { seq: number; type: LedgerEventType; ts: string; payload: T; prevHash: string; hash: string }
@@ -131,8 +131,14 @@ function defaultLedgerPath(): string {
   const explicit = String(process.env.SIGNAL_LEDGER_PATH || '').trim();
   if (explicit) return explicit;
   const dataDir = String(process.env.DATA_DIR || '').trim();
-  if (dataDir) return path.join(dataDir, 'signal-ledger.jsonl');
-  if (process.env.NODE_ENV === 'test') return path.join(process.cwd(), 'data', 'signal-ledger.jsonl');
+  if (dataDir) {
+    const dateStr = new Date().toISOString().split('T')[0];
+    return path.join(dataDir, 'ledger', `${dateStr}.jsonl`);
+  }
+  if (process.env.NODE_ENV === 'test') {
+    const dateStr = new Date().toISOString().split('T')[0];
+    return path.join(process.cwd(), 'data', 'ledger', `${dateStr}.jsonl`);
+  }
   throw new Error('SIGNAL_LEDGER_PATH_REQUIRED: configure DATA_DIR or SIGNAL_LEDGER_PATH before creating the signal ledger.');
 }
 

@@ -1128,3 +1128,17 @@ Raw command outputs for lint, build, and offline R8 are recorded in the G1–G6 
 - **H3:** the current main base already tracks `scripts/termux_step0_probe.py` and the file is Twelve Data-only. Updated its stale quota comment and clarified in README that six probes can consume provider credits. No Alpha Vantage/Finnhub references remain in the helper.
 - Validation: `npm run lint` PASS; `npm run build` PASS; targeted tests in both clock modes PASS; Python AST parse and `git diff --check` PASS. Aggregate `npm test` / `npm run test:legacy` were not run; Owner will run them.
 - Detailed results: `docs/evidence/h1-h3-fixes-2026-10.md`.
+
+---
+## PR-7 Operational Evidence & Policy Notes
+
+This section addresses specific operational and repository-level clarifications for PR-7:
+
+1. **ASIA Session Type Compatibility**:  
+   The `ASIA` session type remains in the TypeScript definitions *strictly* for backward compatibility when reading legacy ledger records. It is **not a functional gap**, as Asia sessions never passed Stage 16 in the current V3 engine, and the classification logic now correctly returns `OFF_PEAK` for 00:00–06:00 UTC.
+
+2. **GitHub Security & Secret Scanning**:  
+   Security scanning, secret scanning, and code scanning are **repository-level configurations**, not code-level gaps. The repository owner must manually enable these features via the GitHub UI:  
+   `Settings` > `Security` > `Secret scanning` (and optionally enable `Push protection`).  
+   *No code changes are required to satisfy this requirement.*
+---
