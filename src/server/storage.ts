@@ -118,15 +118,15 @@ export class DurableStorage {
   private dataDir!: string;
   private usersFile!: string;
   private sessionsFile!: string;
-  private candidatesFile!: string;
   private signalsFile!: string;
-  private scanSummariesFile!: string;
   private outcomesFile!: string;
   private auditFile!: string;
   private notificationsFile!: string;
   private chatFile!: string;
   private experimentFile!: string;
   private settingsFile!: string;
+  private inMemoryCandidates: MasterTelemetry[] = [];
+  private inMemoryScanSummaries: CompactScanSummary[] = [];
   private readonly jsonCache = new Map<string, { signature: string; value: unknown }>();
 
   constructor(customDir?: string) {
@@ -147,9 +147,7 @@ export class DurableStorage {
 
     this.usersFile = path.join(this.dataDir, 'users.json');
     this.sessionsFile = path.join(this.dataDir, 'sessions.json');
-    this.candidatesFile = path.join(this.dataDir, 'candidates.json');
     this.signalsFile = path.join(this.dataDir, 'signals.json');
-    this.scanSummariesFile = path.join(this.dataDir, 'scan_summaries.json');
     this.outcomesFile = path.join(this.dataDir, 'outcomes.json');
     this.auditFile = path.join(this.dataDir, 'audit_log.json');
     this.notificationsFile = path.join(this.dataDir, 'notifications.json');
@@ -164,9 +162,7 @@ export class DurableStorage {
     const files = [
       this.usersFile,
       this.sessionsFile,
-      this.candidatesFile,
       this.signalsFile,
-      this.scanSummariesFile,
       this.outcomesFile,
       this.auditFile,
       this.notificationsFile,
@@ -234,7 +230,7 @@ export class DurableStorage {
     try {
       tempPath = `${filePath}.tmp.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}`;
       fd = fs.openSync(tempPath, 'wx', 0o600);
-      fs.writeFileSync(fd, JSON.stringify(data, null, 2), 'utf-8');
+      fs.writeFileSync(fd, JSON.stringify(data), 'utf-8');
       if (critical) fs.fsyncSync(fd);
       fs.closeSync(fd);
       fd = undefined;
@@ -285,18 +281,18 @@ export class DurableStorage {
   public loadCandidates(): MasterTelemetry[] {
     const signals = this.readJson<MasterTelemetry[]>(this.signalsFile, [], (value): value is MasterTelemetry[] => Array.isArray(value));
     if (signals.length > 0) return signals;
-    return this.readJson<MasterTelemetry[]>(this.candidatesFile, [], (value): value is MasterTelemetry[] => Array.isArray(value));
+    return this.inMemoryCandidates;
   }
 
   public loadCandidateHistory(): MasterTelemetry[] {
-    const candidates = this.readJson<MasterTelemetry[]>(this.candidatesFile, [], (value): value is MasterTelemetry[] => Array.isArray(value));
-    return candidates.length > 0 ? candidates : this.loadCandidates();
+    return this.inMemoryCandidates.length > 0 ? this.inMemoryCandidates : this.loadCandidates();
   }
 
   public saveCandidates(candidates: MasterTelemetry[]) {
     // Keep a bounded, complete candidate window for contiguous hash-chain verification.
     // The separate signals file remains a PASS-only view for compatibility.
-    this.writeJson(this.candidatesFile, candidates.slice(0, MAX_PERSISTED_CANDIDATES));
+    // Memory-only bounded candidate window
+    this.inMemoryCandidates = candidates.slice(0, MAX_PERSISTED_CANDIDATES);
     const priorSignals = this.readJson<MasterTelemetry[]>(this.signalsFile, [], (value): value is MasterTelemetry[] => Array.isArray(value));
     const signalMap = new Map<string, MasterTelemetry>(priorSignals.map((candidate) => [candidate.metadata?.setup_id, candidate]));
     for (const candidate of candidates.filter((item) => item.system_execution?.system_decision === 'PASS')) signalMap.set(candidate.metadata?.setup_id, candidate);
@@ -308,10 +304,11 @@ export class DurableStorage {
     for (const candidate of candidates) {
       ring.push(compactScanSummary({ pair: candidate.metadata?.pair || candidate.metadata?.asset || 'UNKNOWN', timeframe: candidate.market_context?.selected_timeframe || 'UNKNOWN', status: candidate.system_execution?.system_decision || 'UNKNOWN', reason: candidate.metadata?.status_reason || candidate.system_execution?.rejection_reason || '', signal_id: candidate.metadata?.setup_id, delivered_at: candidate.metadata?.timestamp_utc || new Date().toISOString() }));
     }
-    if (shouldWriteSummary(this.dataDirSize(), Number(process.env.SUMMARY_STORAGE_CAP_MB || 50) * 1024 * 1024)) this.writeJson(this.scanSummariesFile, ring.values(), false);
+    // Memory-only scan summaries (max 200)
+    this.inMemoryScanSummaries = ring.values();
   }
 
-  public loadScanSummaries(): CompactScanSummary[] { return this.readJson<CompactScanSummary[]>(this.scanSummariesFile, [], (value): value is CompactScanSummary[] => Array.isArray(value)); }
+  public loadScanSummaries(): CompactScanSummary[] { return this.inMemoryScanSummaries; }
   private dataDirSize(): number { return fs.readdirSync(this.dataDir).reduce((sum, name) => { try { return sum + fs.statSync(path.join(this.dataDir, name)).size; } catch { return sum; } }, 0); }
 
   // --- SIGNAL OUTCOMES ---
