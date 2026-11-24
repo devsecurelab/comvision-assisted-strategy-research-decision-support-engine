@@ -9,7 +9,7 @@ import { CONFIG_HASH, CONFIG_HASH_EPOCH, ENGINE_FINGERPRINT, PREVIOUS_V3_CONFIG_
  * Every line commits to the previous line's hash, so editing, deleting or
  * reordering any historical record is detected by verify().
  */
-export type LedgerEventType = 'SIGNAL' | 'SCAN' | 'RESULT' | 'TRADE_TAKEN' | 'CANDLE_REVISION' | 'SIGNAL_SENT' | 'EDGE_LOST' | 'EDGE_RESUMED' | 'SCAN_GAP';
+export type LedgerEventType = 'SIGNAL' | 'SCAN' | 'RESULT' | 'TRADE_TAKEN' | 'CANDLE_REVISION' | 'SIGNAL_SENT' | 'EDGE_LOST' | 'EDGE_RESUMED' | 'SCAN_GAP' | 'OPERATOR_ACTION';
 export type SignalOutcome = 'WIN' | 'LOSS' | 'TIE' | 'SKIPPED' | 'UNRESOLVED';
 
 export interface LedgerEntry<T = Record<string, unknown>> { seq: number; type: LedgerEventType; ts: string; payload: T; prevHash: string; hash: string }

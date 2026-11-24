@@ -618,10 +618,15 @@ export class NotificationService {
     if (command === '/health') return this.buildHealthText();
     if (command === '/mute') {
       const value = (tokens[1] || '').toLowerCase();
-      if (value === 'off') { experimentTracker.setAlertsMuteForMinutes(null); return 'Alerts enabled. Signals continue to be recorded in the ledger.'; }
+      if (value === 'off') {
+        experimentTracker.setAlertsMuteForMinutes(null);
+        if (this.scanService?.ledger) this.scanService.ledger.append('OPERATOR_ACTION', { action: 'RESUMED_OPERATOR' });
+        return 'Alerts enabled. Signals continue to be recorded in the ledger.';
+      }
       const minutes = Number(value);
       if (!Number.isInteger(minutes) || minutes <= 0 || minutes > 7 * 24 * 60) return 'ERROR INVALID_MUTE: use /mute <minutes> or /mute off.';
       experimentTracker.setAlertsMuteForMinutes(minutes);
+      if (this.scanService?.ledger) this.scanService.ledger.append('OPERATOR_ACTION', { action: 'SUPPRESSED_OPERATOR', duration_minutes: minutes });
       return `Alerts muted for ${minutes} minute(s). Signals continue to be recorded in the ledger.`;
     }
     if (command === '/resume') {
@@ -1062,6 +1067,19 @@ export class NotificationService {
       timestampUtc: timeData.utcTime,
       timestampBdt: timeData.bdtTime,
     };
+  }
+
+  public async notifyStorageLimitWarning(currentBytes: number, limitBytes: number): Promise<boolean> {
+    const currentMB = Math.round(currentBytes / (1024 * 1024));
+    const limitMB = Math.round(limitBytes / (1024 * 1024));
+    const text = `⚠️ STORAGE LIMIT WARNING\n\nData directory has exceeded ${limitMB}MB (current: ${currentMB}MB).\n\n• Scan summary writes are paused to prevent disk overflow.\n• Signal recording continues normally.\n• Please review and clean up old data or expand storage.\n\nTimestamp: ${new Date().toISOString()}`;
+    try {
+      await this.requestTelegram('sendMessage', { chat_id: this.config.telegramChatId, text });
+      return true;
+    } catch (error) {
+      console.error('[NotificationService] Failed to send storage limit warning:', error);
+      return false;
+    }
   }
 }
 

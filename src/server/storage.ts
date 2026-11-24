@@ -128,6 +128,8 @@ export class DurableStorage {
   private inMemoryCandidates: MasterTelemetry[] = [];
   private inMemoryScanSummaries: CompactScanSummary[] = [];
   private readonly jsonCache = new Map<string, { signature: string; value: unknown }>();
+  private lastStorageWarningAt: number = 0;
+  private notificationService: any = null;
 
   constructor(customDir?: string) {
     const configuredDir = customDir || process.env.DATA_DIR?.trim();
@@ -157,6 +159,24 @@ export class DurableStorage {
   }
 
   public getDataDir(): string { return this.dataDir; }
+
+  public setNotificationService(service: any): void {
+    this.notificationService = service;
+  }
+
+  public async checkStorageLimitAndWarn(): Promise<void> {
+    const capBytes = Number(process.env.SUMMARY_STORAGE_CAP_MB || 50) * 1024 * 1024;
+    const currentSize = this.dataDirSize();
+    if (currentSize >= capBytes && this.notificationService) {
+      const now = Date.now();
+      const cooldownMs = 60 * 60 * 1000; // 1 hour cooldown
+      if (now - this.lastStorageWarningAt > cooldownMs) {
+        await this.notificationService.notifyStorageLimitWarning(currentSize, capBytes);
+        this.lastStorageWarningAt = now;
+      }
+    }
+  }
+
 
   public clearAll() {
     const files = [
@@ -292,6 +312,7 @@ export class DurableStorage {
     // Keep a bounded, complete candidate window for contiguous hash-chain verification.
     // The separate signals file remains a PASS-only view for compatibility.
     // Memory-only bounded candidate window
+    this.checkStorageLimitAndWarn().catch(() => {});
     this.inMemoryCandidates = candidates.slice(0, MAX_PERSISTED_CANDIDATES);
     const priorSignals = this.readJson<MasterTelemetry[]>(this.signalsFile, [], (value): value is MasterTelemetry[] => Array.isArray(value));
     const signalMap = new Map<string, MasterTelemetry>(priorSignals.map((candidate) => [candidate.metadata?.setup_id, candidate]));
