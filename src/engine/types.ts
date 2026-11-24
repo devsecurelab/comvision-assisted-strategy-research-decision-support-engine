@@ -306,6 +306,7 @@ export interface MasterTelemetry {
     sha256_hash?: string;
     prev_hash?: string;
     engine_mode?: 'FULL' | 'PRICE_ONLY';
+    rule_variant?: 'A' | 'B'; // A = current frozen, B = shadow/relaxed
     excluded_stages?: Array<{ stage: number; name: string; reason: string }>;
     decision_engine?: 'decision_engine_v3';
     provider?: 'TWELVE_DATA' | 'UNAVAILABLE';
