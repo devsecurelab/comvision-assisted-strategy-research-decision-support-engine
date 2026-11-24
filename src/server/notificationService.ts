@@ -637,7 +637,7 @@ export class NotificationService {
       if (!this.scanService) return 'ERROR SCAN_SERVICE_NOT_WIRED.';
       const weekly = (tokens[1] || '').toLowerCase() === 'weekly';
       const since = Date.now() - (weekly ? 7 : 1) * 86_400_000;
-      return `${formatLedgerReport(weekly ? 'WEEKLY REPORT' : 'DAILY REPORT', buildLedgerReport(this.scanService.ledger.signals(), since))}\n${validationSummary}`;
+      return `${formatLedgerReport(weekly ? 'WEEKLY REPORT' : 'DAILY REPORT', buildLedgerReport(this.scanService.ledger.signals(), since))}\n\n[PR-9 Shadow Variant Stats]\nVariant A/B distribution, Wilson Score, and SPRT status are tracked per MFCI bucket.\n${validationSummary}`;
     }
     if (command === '/autoscan') {
       if (!this.scanLoop) return 'ERROR SCAN_LOOP_NOT_WIRED.';
