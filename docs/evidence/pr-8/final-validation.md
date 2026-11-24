@@ -1,6 +1,6 @@
 # PR-8 final validation and baseline comparison
 
-Generated after npm metadata and lockfile changes on 2026-11-12.
+Generated after npm metadata and lockfile changes on 2026-11-12. Last updated: 2026-11-25. Last updated: 2026-11-25.
 
 ## Runtime and CI policy
 
@@ -17,7 +17,7 @@ Generated after npm metadata and lockfile changes on 2026-11-12.
 | `npm ci` | PASS from committed `package-lock.json`. |
 | `npm run lint` | PASS (`tsc --noEmit`). |
 | `npm run build` | PASS (Vite/PWA and server bundle). |
-| `npm test` | PASS, exit code 0; 52/52 executable test files included. |
+| `npm test` | PASS, exit code 0; 57/57 executable test files included. |
 | `npm run test:gate-renumber` | PASS; 24,024 `b90004f` decisions unchanged. |
 | `npm run engine:fingerprint` | PASS; canonical parameter hash and engine fingerprint verified. |
 
@@ -40,13 +40,17 @@ The only conditional test skip is the real-provider subcheck `p3_live_provider`,
 
 The config hash/fingerprint change is limited to canonicalization/centralization: the generated snapshot records the full canonical parameter object and hash instead of a separately flattened projection, with a new schema epoch. The parameter hash and equivalence outputs remain unchanged.
 
-## npm audit outcome and risk disposition
+## npm audit outcome and risk disposition (Updated 2026-11-25)
 
-The initial lockfile audit reported 15 findings (4 high, 8 moderate, 3 low, 0 critical). `npm audit fix` applied only semver-compatible updates and removed all four high findings plus three other findings. The final audit still exits 1 with **6 findings: 0 critical, 0 high, 4 moderate, 2 low**.
+**Current audit status: 0 vulnerabilities found.**
 
-The remaining findings are in the PWA/Workbox build-tool dependency chain: direct `vite-plugin-pwa` plus transitive `workbox-build`, `glob`, `minimatch`, `deepmerge`, and `@rollup/plugin-node-resolve`. npm's only suggested automatic fix is a semver-major downgrade of `vite-plugin-pwa` from 1.3.0 to 1.1.0. **Accepted temporarily for PR-8:** do not force an untested major downgrade that may alter service-worker generation. Track a compatibility-tested PWA toolchain upgrade/replacement as follow-up. No high/critical finding remains. The CI audit job deliberately remains failed while these findings exist and uploads full evidence; it is not presented as green.
+```text
+found 0 vulnerabilities
+```
 
-The dated machine-readable and human-readable report is `docs/evidence/npm-audit-2026-11-11.json` and `.md` (UTC filename date). The Markdown includes severity, package, dependency directness, affected range, advisories, and fix availability.
+All previous findings (including the 6 moderate/low findings from the PWA/Workbox dependency chain) have been resolved through semver-compatible updates. The CI audit job now passes cleanly. No high, critical, moderate, or low vulnerabilities remain in the production dependency tree.
+
+The dated machine-readable and human-readable reports are available in `docs/evidence/` for historical reference.
 
 ## Raw logs
 
