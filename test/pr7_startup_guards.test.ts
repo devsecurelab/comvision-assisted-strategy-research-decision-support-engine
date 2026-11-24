@@ -41,4 +41,41 @@ const unknownRepository = await evaluateSelfChecks(createOperationalBootChecks(O
 assert.equal(unknownRepository.ok, true, 'missing repository identity degrades but a verified public repository blocks when identity exists');
 assert.equal(unknownRepository.checks.repository_visibility.status, 'DEGRADED');
 
+
+// --- Concrete Failure Path Tests (Runner-Level) ---
+
+// 1. Concrete missing DATA_DIR in production
+assert.throws(
+  () => validateRuntimeConfig({ NODE_ENV: 'production', SESSION_SECRET: 'x'.repeat(40) }),
+  /DATA_DIR is required/
+);
+
+// 2. Concrete invalid HOST without ALLOW_LAN
+assert.throws(
+  () => validateRuntimeConfig({ NODE_ENV: 'production', SESSION_SECRET: 'x'.repeat(40), DATA_DIR: os.tmpdir(), HOST: '0.0.0.0' }),
+  /HOST.*ALLOW_LAN.*true/i
+);
+
+// 3. Concrete session config validation failure simulation
+const sessionRunnerFail = async () => ({ ok: false, code: 'SESSION_CONFIG_INVALID' });
+const checksSession = createOperationalBootChecks(
+  { ...Object.fromEntries(names.map(n => [n, async () => ({ ok: true })])), session_config: sessionRunnerFail } as OperationalBootCheckRunners, 
+  true
+);
+const resultSession = await evaluateSelfChecks(checksSession);
+assert.equal(resultSession.checks.session_config.status, 'FAILED');
+assert.equal(resultSession.ok, false, 'Invalid session config must block startup');
+
+// 4. Concrete signal ledger tampered simulation
+const ledgerRunnerFail = async () => ({ ok: false, code: 'LEDGER_TAMPERED' });
+const checksLedger = createOperationalBootChecks(
+  { ...Object.fromEntries(names.map(n => [n, async () => ({ ok: true })])), signal_ledger: ledgerRunnerFail } as OperationalBootCheckRunners, 
+  true
+);
+const resultLedger = await evaluateSelfChecks(checksLedger);
+assert.equal(resultLedger.checks.signal_ledger.status, 'FAILED');
+assert.equal(resultLedger.ok, false, 'Tampered ledger must block startup');
+
+console.log('[pr7_startup_guards_concrete] PASS — concrete failure paths for runtime, session, and ledger verified');
+
 console.log('[pr7_startup_guards] PASS — fail-closed host/bootstrap/data/ledger/repository/config checks and degradable provider/Telegram/clock checks');
