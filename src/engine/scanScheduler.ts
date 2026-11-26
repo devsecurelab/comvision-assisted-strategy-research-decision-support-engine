@@ -16,7 +16,7 @@ export type ScanTimeframe = '5m' | '15m' | '30m';
 export type ScanTrigger = 'MANUAL' | 'AUTO';
 export const SCAN_TIMEFRAMES: ScanTimeframe[] = ['5m', '15m', '30m'];
 /** Auto-scan pair caps per timeframe so 2 credits/pair stays inside 70% of an 800/day, 8/min budget. */
-export const MAX_AUTO_PAIRS: Record<ScanTimeframe, number> = { '5m': 1, '15m': 4, '30m': 7 };
+export const MAX_AUTO_PAIRS: Record<ScanTimeframe, number> = { '5m': 8, '15m': 4, '30m': 7 };
 export const SCAN_DELAY_AFTER_CLOSE_MS = 1_000;
 export const GENERATION_DEADLINE_MS = Number(process.env.GENERATION_DEADLINE_MS || 15_000);
 export const ENTRY_WINDOW_SECONDS: Record<ScanTimeframe, number> = { '5m': Number(process.env.ENTRY_WINDOW_5M_SECONDS || 45), '15m': Number(process.env.ENTRY_WINDOW_15M_SECONDS || 60), '30m': Number(process.env.ENTRY_WINDOW_30M_SECONDS || 90) };
@@ -96,6 +96,15 @@ export class ScanService {
   constructor(private readonly deps: ScanDeps) { this.edge = new EdgeMonitor(deps.ledger); }
 
   public get ledger(): SignalLedger { return this.deps.ledger; }
+
+
+  /** Calculate required credits for a scan based on HTF cache status */
+  private requiredCreditsForScan(pair: string, timeframe: ScanTimeframe): number {
+        const hourOpen = latestClosedCandleOpenMs(this.deps.now(), '1h');
+    const cached = this.htfCache.get(pair);
+    const htfCached = cached && cached.hourOpen === hourOpen;
+    return htfCached ? 1 : 2; // 1 for LTF, +1 if HTF cache miss
+  }
 
   private noTrade(pair: string, timeframe: ScanTimeframe, trigger: ScanTrigger, reason: string, extra: Partial<ScanResult> = {}): ScanResult {
     return { pair: displayScanPair(pair), timeframe, trigger, status: 'NO_TRADE', reason, signal_candle_open_ts: null, cached: false, ...extra };
@@ -279,7 +288,7 @@ export class ScanService {
         if (index !== all.indexOf(pair) || scanned >= MAX_AUTO_PAIRS[timeframe]) return false;
         const payout = this.deps.getPayout(normalizeScanPair(pair));
         if (!payout || payout.pct < MIN_PAYOUT_PCT || this.deps.getPayoutStatus?.(pair, nowMs) === 'PAYOUT_STALE') return false;
-        if (this.deps.autoBudgetRemaining() < 2) return false;
+        if (this.deps.autoBudgetRemaining() < this.requiredCreditsForScan(pair, timeframe)) return false;
         scanned++;
         return true;
       })
@@ -302,7 +311,7 @@ export class ScanService {
       if (this.deps.getPayoutStatus?.(pair, nowMs) === 'PAYOUT_STALE') { results.push(this.recordUnfetchedScan(this.noTrade(pair, timeframe, 'AUTO', 'PAYOUT_STALE'))); continue; }
       if (!payout || payout.pct < MIN_PAYOUT_PCT) { results.push(this.recordUnfetchedScan(this.noTrade(pair, timeframe, 'AUTO', payout ? `PAYOUT_BELOW_MIN (${payout.pct}%)` : 'PAYOUT_UNSET'))); continue; }
       if (scanned >= MAX_AUTO_PAIRS[timeframe]) { results.push(this.recordUnfetchedScan(this.noTrade(pair, timeframe, 'AUTO', `BUDGET_LIMIT: ${timeframe} auto-scan cap is ${MAX_AUTO_PAIRS[timeframe]} pair(s) per candle.`))); continue; }
-      if (this.deps.autoBudgetRemaining() < 2) { results.push(this.recordUnfetchedScan(this.noTrade(pair, timeframe, 'AUTO', 'BUDGET_LIMIT: daily auto-scan budget (70%) exhausted.'))); continue; }
+      if (this.deps.autoBudgetRemaining() < this.requiredCreditsForScan(pair, timeframe)) { results.push(this.recordUnfetchedScan(this.noTrade(pair, timeframe, 'AUTO', 'BUDGET_LIMIT: daily auto-scan budget (70%) exhausted.'))); continue; }
       scanned++;
       let result = await this.scanPair(pair, timeframe, 'AUTO', shouldContinue);
       for (let attempt = 0; attempt < RETRY_BACKOFF_MS.length && RETRYABLE_SCAN_FAILURE.test(result.reason) && this.deps.autoBudgetRemaining() >= 1; attempt++) {
